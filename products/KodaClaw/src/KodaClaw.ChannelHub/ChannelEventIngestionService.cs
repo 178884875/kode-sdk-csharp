@@ -268,8 +268,8 @@ public sealed class ChannelEventIngestionService
     {
         var mode = threadType switch
         {
-            ChannelThreadType.DirectMessage => DeliveryMode.DraftApproval,
-            ChannelThreadType.Group => DeliveryMode.RequireApproval,
+            ChannelThreadType.DirectMessage => DeliveryMode.AutoSend,
+            ChannelThreadType.Group => DeliveryMode.DraftApproval,
             _ => throw new ArgumentOutOfRangeException(nameof(threadType), threadType, null),
         };
 

@@ -272,6 +272,8 @@ test("KC-0407 plugin desk: list/detail/lifecycle/log workflow", async ({ page })
   await expect(page.getByTestId("desk-tab-plugins")).toBeVisible();
   await page.getByTestId("desk-tab-plugins").click();
 
+  // KC-1503: V2 shell data-kc-view="plugins" is stable after navigation
+  await expect(page.locator('[data-kc-view="plugins"]')).toBeVisible();
   await expect(page.getByTestId("plugins-desk")).toBeVisible();
   await expect(page.getByTestId("plugins-list")).toContainText("Alpha Toolchain");
   await expect(page.getByTestId("plugins-list")).toContainText("Beta Bridge");

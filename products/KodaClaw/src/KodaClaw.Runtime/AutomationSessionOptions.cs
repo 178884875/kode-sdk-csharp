@@ -1,5 +1,4 @@
 using Kode.Agent.Sdk.Core.Types;
-using Kode.Agent.Sdk.Infrastructure.Sandbox;
 
 namespace KodaClaw.Runtime;
 
@@ -15,9 +14,10 @@ public sealed class AutomationSessionOptions
 
     public IReadOnlyList<string> Tools { get; init; } = MainSessionOptions.DefaultTools;
 
+    // Automation sessions run headless; no mid-turn tool approval gates.
     public PermissionConfig Permissions { get; init; } = new()
     {
         Mode = "auto",
-        RequireApprovalTools = MainSessionOptions.DefaultRequireApprovalTools,
+        RequireApprovalTools = [],
     };
 }

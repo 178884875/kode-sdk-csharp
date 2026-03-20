@@ -15,6 +15,8 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly ChannelDeliveryGovernanceService _deliveryGovernanceService;
     private readonly ChannelDeliveryDispatchService _deliveryDispatchService;
+    private readonly IApprovalRepository? _approvalRepository;
+    private readonly ChannelDeliveryApprovalService? _deliveryApprovalService;
     private readonly IChannelAuditRepository? _channelAuditRepository;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
@@ -27,6 +29,8 @@ public sealed class ChannelTurnOrchestrator
         IChannelAccountRepository channelAccountRepository,
         ChannelDeliveryGovernanceService deliveryGovernanceService,
         ChannelDeliveryDispatchService deliveryDispatchService,
+        IApprovalRepository? approvalRepository = null,
+        ChannelDeliveryApprovalService? deliveryApprovalService = null,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null,
@@ -38,6 +42,8 @@ public sealed class ChannelTurnOrchestrator
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _deliveryGovernanceService = deliveryGovernanceService ?? throw new ArgumentNullException(nameof(deliveryGovernanceService));
         _deliveryDispatchService = deliveryDispatchService ?? throw new ArgumentNullException(nameof(deliveryDispatchService));
+        _approvalRepository = approvalRepository;
+        _deliveryApprovalService = deliveryApprovalService;
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
         _correlationContextAccessor = correlationContextAccessor;
@@ -52,6 +58,45 @@ public sealed class ChannelTurnOrchestrator
         var account = await _channelAccountRepository.GetByIdAsync(processing.Binding.AccountId, cancellationToken)
             ?? throw new InvalidOperationException(
                 $"Channel account '{processing.Binding.AccountId}' was not found.");
+
+        // Pre-check: if the message looks like an approval response and there are pending
+        // channel delivery approvals for this thread, handle the decision without running
+        // an agent turn.
+        if (_approvalRepository is not null && _deliveryApprovalService is not null)
+        {
+            var responseIntent = ChannelApprovalResponseParser.TryParse(envelope.Text);
+            if (responseIntent is not null)
+            {
+                var (match, hasMultiplePending) = await TryFindPendingApprovalAsync(
+                    processing.Binding.Id, responseIntent.Token, cancellationToken);
+
+                if (match is not null)
+                {
+                    return await HandleChannelApprovalResponseAsync(
+                        processing, account, match, responseIntent, envelope, cancellationToken);
+                }
+
+                if (hasMultiplePending)
+                {
+                    var hint = "多个草稿待审批，请带编号（如 ok A3F9C1）。";
+                    try
+                    {
+                        await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, hint, cancellationToken);
+                    }
+                    catch { }
+
+                    var hintOutcome = CreateOutcome(
+                        ChannelTurnOutcomeKind.NoAction,
+                        hint,
+                        processing,
+                        envelope,
+                        reasonCode: "approval_response_ambiguous");
+                    return new ChannelTurnOrchestrationResult(processing, hintOutcome, ExecutedTurn: false);
+                }
+
+                // No pending approvals for this binding; fall through to normal agent turn.
+            }
+        }
 
         if (!ShouldExecuteTurn(envelope))
         {
@@ -157,6 +202,17 @@ public sealed class ChannelTurnOrchestrator
 
                 await TryWriteThreadSummaryAsync(processing.Binding, dispatch.Outcome, cancellationToken);
                 return new ChannelTurnOrchestrationResult(processing, dispatch.Outcome, ExecutedTurn: true, execution);
+            }
+
+            // Send approval notification back to the channel thread (best-effort).
+            if (evaluation.ApprovalToken is not null)
+            {
+                try
+                {
+                    var notificationText = BuildApprovalNotificationText(draft, evaluation.ApprovalToken);
+                    await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, notificationText, cancellationToken);
+                }
+                catch { }
             }
 
             var outcomeKind = processing.DeliveryRule.Mode == DeliveryMode.DraftApproval
@@ -390,5 +446,137 @@ public sealed class ChannelTurnOrchestrator
         }
 
         return $"{normalized[..maxLength]}...";
+    }
+
+    // ── Channel text approval helpers ────────────────────────────────────────
+
+    private async Task<(Approval? Match, bool HasMultiplePending)> TryFindPendingApprovalAsync(
+        string bindingId,
+        string? token,
+        CancellationToken cancellationToken)
+    {
+        var pending = await _approvalRepository!.ListAsync(
+            new ApprovalQuery(Status: ApprovalStatus.Pending, Kind: ApprovalKind.ChannelDelivery, Limit: 20),
+            cancellationToken);
+
+        var forBinding = pending
+            .Where(a => ApprovalMatchesBinding(a, bindingId))
+            .ToList();
+
+        if (forBinding.Count == 0)
+        {
+            return (null, false);
+        }
+
+        if (token is not null)
+        {
+            var tokenMatch = forBinding.FirstOrDefault(
+                a => string.Equals(ExtractTokenFromPayload(a), token, StringComparison.OrdinalIgnoreCase));
+            return (tokenMatch, forBinding.Count > 1);
+        }
+
+        // No token: only auto-match when exactly one is pending.
+        return forBinding.Count == 1
+            ? (forBinding[0], false)
+            : (null, true);
+    }
+
+    private async Task<ChannelTurnOrchestrationResult> HandleChannelApprovalResponseAsync(
+        ChannelInboundProcessingResult processing,
+        ChannelAccount account,
+        Approval approval,
+        ApprovalResponseIntent intent,
+        ChannelEventEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        var result = intent.Action == ApprovalAction.Approve
+            ? await _deliveryApprovalService!.ApproveAsync(approval, note: null, cancellationToken)
+            : await _deliveryApprovalService!.RejectAsync(approval, note: null, cancellationToken);
+
+        var confirmationText = result.Status switch
+        {
+            ChannelDeliveryApprovalDispatchStatus.Completed =>
+                intent.Action == ApprovalAction.Approve ? "✓ 草稿已发送。" : "✗ 草稿已取消。",
+            ChannelDeliveryApprovalDispatchStatus.NotPending =>
+                "该草稿已处理，无需操作。",
+            ChannelDeliveryApprovalDispatchStatus.DeliveryFailed =>
+                "草稿批准成功，但发送失败，请稍后通过 Web 界面重试。",
+            _ => "操作失败，请通过 Web 界面处理。",
+        };
+
+        try
+        {
+            await _deliveryDispatchService.SendNotificationAsync(
+                account, processing.Binding, confirmationText, cancellationToken);
+        }
+        catch { }
+
+        var outcomeKind = intent.Action == ApprovalAction.Approve
+            ? ChannelTurnOutcomeKind.Delivered
+            : ChannelTurnOutcomeKind.NoAction;
+
+        var outcome = CreateOutcome(
+            outcomeKind,
+            confirmationText,
+            processing,
+            envelope,
+            approvalId: approval.Id,
+            reasonCode: intent.Action == ApprovalAction.Approve
+                ? "channel_approval_approved"
+                : "channel_approval_rejected");
+
+        RecordDiagnosticEvent(
+            intent.Action == ApprovalAction.Approve
+                ? "channel.turn.approval_response_approved"
+                : "channel.turn.approval_response_rejected",
+            "info",
+            confirmationText,
+            processing.Binding,
+            outcome);
+
+        return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: false);
+    }
+
+    private static string BuildApprovalNotificationText(ChannelOutboundDraft draft, string token)
+    {
+        var preview = BuildPreview(draft.MessageText);
+        return $"[草稿 #{token}]\n{preview}\n回复 ok {token} 发送 · no {token} 取消";
+    }
+
+    private static bool ApprovalMatchesBinding(Approval approval, string bindingId)
+    {
+        if (string.IsNullOrWhiteSpace(approval.PayloadJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(approval.PayloadJson);
+            return doc.RootElement.TryGetProperty("bindingId", out var prop)
+                && string.Equals(prop.GetString(), bindingId, StringComparison.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static string? ExtractTokenFromPayload(Approval approval)
+    {
+        if (string.IsNullOrWhiteSpace(approval.PayloadJson))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(approval.PayloadJson);
+            return doc.RootElement.TryGetProperty("token", out var prop) ? prop.GetString() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

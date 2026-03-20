@@ -78,6 +78,7 @@ const defaultSettings: KodaClawSettings = {
   quietHoursStartLocalTime: null,
   quietHoursEndLocalTime: null,
   updatedAt: "2026-03-18T10:00:00Z",
+  automationsEnabled: false,
 };
 
 const defaultRiskOverview: SandboxRiskOverviewResponse = {
@@ -334,6 +335,24 @@ describe("ModelsSettingsDesk", () => {
 
     expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
+  });
+
+  it("renders automationsEnabled toggle and includes it in save payload", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<ModelsSettingsDesk />);
+
+    await screen.findByTestId("settings-form");
+    const toggle = screen.getByTestId("settings-automations-enabled-toggle");
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(saveSettingsApi).toHaveBeenCalledTimes(1);
+    });
+    expect(saveSettingsApi.mock.calls[0][0]).toMatchObject({ automationsEnabled: true });
   });
 
   it("renders load error state", async () => {

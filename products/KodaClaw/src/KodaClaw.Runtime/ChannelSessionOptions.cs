@@ -1,5 +1,4 @@
 using Kode.Agent.Sdk.Core.Types;
-using Kode.Agent.Sdk.Infrastructure.Sandbox;
 
 namespace KodaClaw.Runtime;
 
@@ -15,9 +14,11 @@ public sealed class ChannelSessionOptions
 
     public IReadOnlyList<string> Tools { get; init; } = MainSessionOptions.DefaultTools;
 
+    // Channel sessions never pause for mid-turn tool approval.
+    // The only approval gate is the post-turn Channel Delivery Approval.
     public PermissionConfig Permissions { get; init; } = new()
     {
         Mode = "auto",
-        RequireApprovalTools = MainSessionOptions.DefaultRequireApprovalTools,
+        RequireApprovalTools = [],
     };
 }

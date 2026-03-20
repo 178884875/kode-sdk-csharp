@@ -6,13 +6,16 @@ internal sealed class ChannelConnectorHostedService : IHostedService
 {
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly ChannelInboundGatewayService _channelInboundGatewayService;
+    private readonly ILogger<ChannelConnectorHostedService> _logger;
 
     public ChannelConnectorHostedService(
         IChannelAccountRepository channelAccountRepository,
-        ChannelInboundGatewayService channelInboundGatewayService)
+        ChannelInboundGatewayService channelInboundGatewayService,
+        ILogger<ChannelConnectorHostedService> logger)
     {
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _channelInboundGatewayService = channelInboundGatewayService ?? throw new ArgumentNullException(nameof(channelInboundGatewayService));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -26,21 +29,58 @@ internal sealed class ChannelConnectorHostedService : IHostedService
 
         foreach (var account in telegramAccounts.Where(static item => item.InboundEnabled))
         {
-            await _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+            try
+            {
+                await _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Channel account '{AccountId}' failed to start; skipping.",
+                    account.Id);
+            }
         }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        var telegramAccounts = await _channelAccountRepository.ListAsync(
-            new ChannelAccountQuery(
-                ConnectorKind: ChannelConnectorKind.Telegram,
-                Limit: 200),
-            cancellationToken);
+        IReadOnlyList<ChannelAccount> telegramAccounts;
+        try
+        {
+            telegramAccounts = await _channelAccountRepository.ListAsync(
+                new ChannelAccountQuery(
+                    ConnectorKind: ChannelConnectorKind.Telegram,
+                    Limit: 200),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // Repository may be unavailable during shutdown (e.g. after a backup import
+            // replaced the database file). Best-effort: log and return.
+            _logger.LogWarning(ex, "Failed to list channel accounts during shutdown; skipping connector stop.");
+            return;
+        }
 
         foreach (var account in telegramAccounts)
         {
-            await _channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+            try
+            {
+                await _channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Channel account '{AccountId}' failed to stop cleanly.",
+                    account.Id);
+            }
         }
     }
 }

@@ -127,6 +127,40 @@ public sealed class ChannelDeliveryDispatchService
         }
     }
 
+    /// <summary>
+    /// Sends a system notification message to the channel thread without tracking it as
+    /// an outbound draft. Does not update ThreadBinding timestamps or append audit entries.
+    /// Best-effort: callers should catch and swallow exceptions.
+    /// </summary>
+    public async Task SendNotificationAsync(
+        ChannelAccount account,
+        ThreadBinding binding,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ChannelHubValidation.ValidateBinding(binding);
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            throw new ArgumentException("Notification text is required.", nameof(text));
+        }
+
+        var notificationDraft = new ChannelOutboundDraft(
+            DraftId: $"notif-{Guid.NewGuid():N}",
+            BindingId: binding.Id,
+            ConnectorKind: binding.ConnectorKind,
+            AccountId: binding.AccountId,
+            ExternalThreadId: binding.ExternalThreadId,
+            MessageText: text,
+            DeliveryMode: DeliveryMode.AutoSend,
+            CreatedAt: DateTimeOffset.UtcNow,
+            SessionId: binding.SessionId,
+            CorrelationId: _correlationContextAccessor?.CorrelationId);
+
+        await SendAsync(account, notificationDraft, cancellationToken);
+    }
+
     private async Task SendAsync(
         ChannelAccount account,
         ChannelOutboundDraft draft,

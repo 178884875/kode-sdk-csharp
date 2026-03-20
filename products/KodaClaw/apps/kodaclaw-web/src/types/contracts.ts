@@ -903,6 +903,7 @@ export interface KodaClawSettings {
   quietHoursStartLocalTime?: string | null;
   quietHoursEndLocalTime?: string | null;
   updatedAt: string;
+  automationsEnabled: boolean;
 }
 
 export interface SandboxExecutionProfile {

@@ -2,13 +2,14 @@ import "@testing-library/jest-dom";
 import React from "react";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AutomationsDesk } from "../components/AutomationsDesk";
 import { renderWithI18n } from "./test-utils";
 import {
   fetchAutomationRuns,
   fetchAutomations,
   fetchSessionDetail,
+  fetchSettings,
   updateAutomationDefinition,
 } from "../lib/api";
 import type {
@@ -22,12 +23,14 @@ vi.mock("../lib/api", () => ({
   fetchAutomations: vi.fn(),
   fetchAutomationRuns: vi.fn(),
   fetchSessionDetail: vi.fn(),
+  fetchSettings: vi.fn(),
   updateAutomationDefinition: vi.fn(),
 }));
 
 const automationsApi = vi.mocked(fetchAutomations);
 const runsApi = vi.mocked(fetchAutomationRuns);
 const sessionDetailApi = vi.mocked(fetchSessionDetail);
+const settingsApi = vi.mocked(fetchSettings);
 const updateApi = vi.mocked(updateAutomationDefinition);
 
 function buildAutomation(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -122,7 +125,23 @@ function filterAutomations(
     .filter((item) => (source ? item.source === source : true));
 }
 
+const defaultSettings = {
+  defaultLandingRoute: "/chat",
+  theme: "System" as const,
+  requireApprovalForExternalActions: true,
+  notificationsEnabled: true,
+  quietHoursEnabled: false,
+  quietHoursStartLocalTime: null,
+  quietHoursEndLocalTime: null,
+  updatedAt: "2026-03-18T10:00:00Z",
+  automationsEnabled: true,
+};
+
 describe("AutomationsDesk", () => {
+  beforeEach(() => {
+    settingsApi.mockResolvedValue(defaultSettings);
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -308,5 +327,31 @@ describe("AutomationsDesk", () => {
     await waitFor(() => {
       expect(screen.getByTestId("automations-error")).toHaveTextContent("automations unavailable");
     });
+  });
+
+  it("shows engine-disabled banner when automationsEnabled is false", async () => {
+    settingsApi.mockResolvedValue({ ...defaultSettings, automationsEnabled: false });
+    automationsApi.mockResolvedValue({ items: [] });
+    runsApi.mockResolvedValue({ items: [] });
+
+    renderWithI18n(<AutomationsDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("automations-engine-banner")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("automations-engine-banner")).toHaveTextContent("自动化引擎当前已关闭");
+  });
+
+  it("does not show engine-disabled banner when automationsEnabled is true", async () => {
+    settingsApi.mockResolvedValue({ ...defaultSettings, automationsEnabled: true });
+    automationsApi.mockResolvedValue({ items: [] });
+    runsApi.mockResolvedValue({ items: [] });
+
+    renderWithI18n(<AutomationsDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("automations-desk")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("automations-engine-banner")).not.toBeInTheDocument();
   });
 });

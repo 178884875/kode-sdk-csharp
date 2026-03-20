@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using KodaClaw.Contracts;
 
@@ -57,6 +59,7 @@ public sealed class ChannelDeliveryGovernanceService
 
         var approvalId = BuildApprovalId(draft.DraftId);
         var inboxItemId = BuildInboxItemId(draft.DraftId);
+        var approvalToken = BuildApprovalToken(draft.DraftId);
         var now = DateTimeOffset.UtcNow;
         var correlationId = draft.CorrelationId ?? _correlationContextAccessor?.CorrelationId;
         var payloadJson = JsonSerializer.Serialize(new
@@ -68,6 +71,7 @@ public sealed class ChannelDeliveryGovernanceService
             externalThreadId = draft.ExternalThreadId,
             deliveryMode = deliveryRule.Mode,
             messageText = draft.MessageText,
+            token = approvalToken,
         }, JsonOptions);
 
         var approvalTitle = deliveryRule.Mode == DeliveryMode.DraftApproval
@@ -119,7 +123,8 @@ public sealed class ChannelDeliveryGovernanceService
             Disposition: ChannelDeliveryDisposition.ApprovalRequired,
             DeliveryMode: deliveryRule.Mode,
             ApprovalId: approvalId,
-            InboxItemId: inboxItemId);
+            InboxItemId: inboxItemId,
+            ApprovalToken: approvalToken);
     }
 
     private void RecordDiagnosticEvent(
@@ -201,6 +206,12 @@ public sealed class ChannelDeliveryGovernanceService
         {
             throw new ArgumentException("Draft external thread id must match the target thread binding.", nameof(draft));
         }
+    }
+
+    public static string BuildApprovalToken(string draftId)
+    {
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(draftId));
+        return Convert.ToHexString(bytes[..3]).ToUpperInvariant();
     }
 
     private static string BuildApprovalId(string draftId)

@@ -224,6 +224,8 @@ test("KC-0508 channels desk: connectors/accounts/threads/detail workflow", async
   await expect(page.getByTestId("desk-tab-channels")).toBeVisible();
   await page.getByTestId("desk-tab-channels").click();
 
+  // KC-1503: V2 shell data-kc-view="channels" is stable after navigation
+  await expect(page.locator('[data-kc-view="channels"]')).toBeVisible();
   await expect(page.getByTestId("channels-desk")).toBeVisible();
   await expect(page.getByTestId("channels-summary")).toContainText("1 个账号 · 1 条线程");
   await expect(page.getByTestId("channels-threads")).toContainText("Alice");

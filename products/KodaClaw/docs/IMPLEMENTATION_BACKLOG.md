@@ -354,3 +354,36 @@
   - Scope：新增 `IChannelThreadSummaryWriter` + `ChannelThreadSummaryWriter`，`ChannelTurnOrchestrator` 注入（可选）并在 `ExecutedTurn=true` 且非 Failed 时调用写回。
   - Modules：`KodaClaw.ChannelHub`。
   - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelThread`，`dotnet test tests/KodaClaw.IntegrationTests --filter ChannelThread`。
+
+## 迭代 15：AutomationsEnabled UI + V2 Chat Stage 收口
+
+- 范围冻结：补齐自动化引擎的用户可见开关（Settings toggle + AutomationsDesk Banner）；收口 V2 Chat 主舞台的 page-like 痕迹；ChannelsDesk / PluginsDesk V2 接入验收。纯前端，无后端变更。详见 `docs/ITERATION_15_FREEZE.md`。
+- `KC-1501`：`Completed`。
+  - User Outcome：用户在 Settings 页可直接开/关自动化引擎全局开关（`automationsEnabled`），无需 API 调用；AutomationsDesk 在引擎关闭时显示警告 Banner，提示用户前往 Settings 启用，避免用户以为自动化已运行实则全局禁用。
+  - Scope：`ModelsSettingsDesk` Settings 区新增 toggle（`data-testid="settings-automations-enabled-toggle"`）；`AutomationsDesk` 顶部新增引擎状态 Banner（`data-testid="automations-engine-banner"`）；复用已有 `fetchSettings` / `updateSettings`；更新 L1 单元测试。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck` ✅，`npm test -- src/__tests__/automations-desk.spec.tsx src/__tests__/models-settings-desk.spec.tsx` ✅。
+- `KC-1502`：`Completed`。
+  - User Outcome：V2 Shell Chat 模式下主舞台全高铺满，Composer 固定底部，Timeline 占满中部，移除旧 page-like header metrics 冗余，真正实现 conversation-first canvas 感。
+  - Scope：`V2Shell.tsx` / `MainStage.tsx` / CSS 调整；不改任何 data-testid；确认 `npm run test:e2e -- tests/kc0112-bootstrap-chat-resume.spec.ts` 稳定通过。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck` ✅，`npm run build` ✅，`npm run test:e2e` ✅。
+- `KC-1503`：`Completed`。
+  - User Outcome：ChannelsDesk / PluginsDesk 在 V2 GlobalRail 导航后视觉与 test-id 稳定，Playwright E2E 补全 desk 导航用例，不出现 data-kc-view 缺失导致的 flaky test。
+  - Scope：`kc0508-channels.spec.ts` / `kc0407-plugins.spec.ts` 补导航入口测试用例（只验证 desk 可见，不重构 desk 内部）；确认 `data-kc-view="channels"` / `data-kc-view="plugins"` 存在。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run test:e2e -- tests/kc0508-channels.spec.ts tests/kc0407-plugins.spec.ts` ✅。
+
+## 迭代 16：Channel Session 权限策略 + 渠道侧文字审批
+
+- 范围冻结：固化 Channel/Automation session 的工具调用权限边界（永远 PermissionMode.Auto，不产生 mid-turn approval），并实现通过渠道文字回复完成草稿审批的基础链路。详见 `docs/ITERATION_16_FREEZE.md`。
+- `KC-1601`：`Completed 2026-03-20`。
+  - User Outcome：Channel session 中工具调用永远不会中断 Agent turn，不产生 mid-turn Approval 记录，用户无需在 Web UI 处理工具级审批，turn 执行流畅不挂起。
+  - Scope：`ChannelSessionOptions` 和 `AutomationSessionOptions` 的 `Permissions` 硬编码 `Mode="auto", RequireApprovalTools=[]`，忽略外部配置；4 条单元测试断言该约束。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：Unit 191/191 ✓，Integration 206/206 ✓，Contract 84/84 ✓。
+- `KC-1602`：`Completed 2026-03-20`。
+  - User Outcome：Agent 生成草稿后，用户在 Telegram（或任意渠道）直接回复 `ok [TOKEN]` / `no [TOKEN]` 即可批准或拒绝草稿，无需打开 Web UI；批准后消息立刻发出，拒绝后留下审计记录。
+  - Scope：（1）`ChannelDeliveryGovernanceService` payloadJson 加 token（SHA256 前 3 字节，6位大写 hex），`BuildApprovalToken` public static；（2）`ChannelDeliveryEvaluationResult` 加 `ApprovalToken` 字段；（3）`ChannelDeliveryDispatchService` 新增 `SendNotificationAsync()`（best-effort，无审计）；（4）新增纯静态 `ChannelApprovalResponseParser`（识别 ok/yes/approve/send / no/cancel/reject + 可选 6位 hex token）；（5）`ChannelTurnOrchestrator` 前置审批响应检测：单 pending 自动匹配、多 pending + 无 token 返回 hint、有 token 精确匹配；通过 `SendNotificationAsync` 发回审批通知。
+  - Modules：`src/KodaClaw.ChannelHub`。
+  - Verification：Unit 191/191 ✓（含 40 条 KC-1601/1602 专项）；Integration 206/206 ✓；Contract 84/84 ✓。`make test-solution` 全绿。

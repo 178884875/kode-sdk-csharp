@@ -227,6 +227,7 @@ export function ModelsSettingsDesk() {
         quietHoursEnabled: "启用静默时段",
         quietStart: "静默开始（HH:mm）",
         quietEnd: "静默结束（HH:mm）",
+        automationsEnabled: "启用自动化引擎",
         save: "保存设置",
         lastPersisted: "最近持久化",
       },
@@ -415,6 +416,7 @@ export function ModelsSettingsDesk() {
         quietHoursEnabled: "Quiet hours enabled",
         quietStart: "Quiet start (HH:mm)",
         quietEnd: "Quiet end (HH:mm)",
+        automationsEnabled: "Automations engine enabled",
         save: "Save settings",
         lastPersisted: "Last persisted",
       },
@@ -1300,6 +1302,25 @@ export function ModelsSettingsDesk() {
                 />
               </label>
             </div>
+
+            <label className="bootstrap-form__toggle">
+              <input
+                data-testid="settings-automations-enabled-toggle"
+                type="checkbox"
+                checked={settingsDraft.automationsEnabled}
+                onChange={(event) =>
+                  setSettingsDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          automationsEnabled: event.target.checked,
+                        }
+                      : current,
+                  )
+                }
+              />
+              <span>{text.settings.automationsEnabled}</span>
+            </label>
 
             <div className="control-plane-inline-actions">
               <button className="bootstrap-form__submit" data-testid="settings-save" type="submit" disabled={isMutating}>

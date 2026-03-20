@@ -197,6 +197,11 @@ internal sealed class WorkspaceBackupService
             var skippedPaths = new List<string>();
             await RestoreWorkspaceFilesAsync(extractedRoot, snapshot.RootPath, restoredPaths, skippedPaths, cancellationToken);
 
+            // After replacing control-plane.db on disk, evict all pooled SQLite connections so
+            // subsequent opens get a fresh handle to the new file rather than a stale pooled
+            // connection whose internal page cache still points at the old database image.
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
             var importedAppConfigPath = Path.Combine(extractedRoot, KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.AppConfigFile);
             if (File.Exists(importedAppConfigPath))
             {

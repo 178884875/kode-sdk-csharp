@@ -3,6 +3,7 @@ import {
   fetchAutomationRuns,
   fetchAutomations,
   fetchSessionDetail,
+  fetchSettings,
   updateAutomationDefinition,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
@@ -202,6 +203,7 @@ export function AutomationsDesk() {
       loadRunsError: "加载自动化运行记录失败。",
       loadAutomationsError: "加载自动化列表失败。",
       updateAutomationError: "更新自动化状态失败。",
+      engineDisabledBanner: "自动化引擎当前已关闭。前往设置页启用「启用自动化引擎」后，所有已开启的自动化才会按计划执行。",
     },
     en: {
       eyebrow: "Control Plane",
@@ -311,6 +313,7 @@ export function AutomationsDesk() {
       loadRunsError: "Failed to load automation runs.",
       loadAutomationsError: "Failed to load automations.",
       updateAutomationError: "Failed to update automation state.",
+      engineDisabledBanner: "The automations engine is currently disabled. Go to Settings and enable \"Automations engine enabled\" so scheduled automations can run.",
     },
   });
 
@@ -327,6 +330,7 @@ export function AutomationsDesk() {
   const [pendingToggleIds, setPendingToggleIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
+  const [automationsEngineEnabled, setAutomationsEngineEnabled] = useState<boolean | null>(null);
 
   const listRequestIdRef = useRef(0);
   const runsRequestIdRef = useRef(0);
@@ -539,6 +543,12 @@ export function AutomationsDesk() {
   }
 
   useEffect(() => {
+    fetchSettings()
+      .then((s) => setAutomationsEngineEnabled(s.automationsEnabled))
+      .catch(() => setAutomationsEngineEnabled(null));
+  }, []);
+
+  useEffect(() => {
     void loadAutomations("initial");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledFilter, sourceFilter]);
@@ -581,6 +591,16 @@ export function AutomationsDesk() {
       <div className="section-eyebrow">{text.eyebrow}</div>
       <h2 className="section-title">{text.title}</h2>
       <p className="section-copy">{text.copy}</p>
+
+      {automationsEngineEnabled === false && (
+        <div
+          className="automations-engine-banner automations-engine-banner--warning"
+          data-testid="automations-engine-banner"
+          role="alert"
+        >
+          {text.engineDisabledBanner}
+        </div>
+      )}
 
       <div className="automations-desk__toolbar" style={toolbarStyle}>
         <button

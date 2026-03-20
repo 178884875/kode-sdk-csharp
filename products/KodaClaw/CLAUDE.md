@@ -147,7 +147,7 @@ config/
   gateway.json   # Gateway 认证 token
 ```
 
-注意：Workspace 文件**仅在 session 启动时读入 system prompt，Agent 目前无法在对话中写回这些文件**（Memory 写回能力尚未实现）。详细协议见 `docs/WORKSPACE_SPEC.md`。
+注意：Workspace 文件在 session 启动时读入 system prompt。Agent 可通过 `workspace_protocol_update`（target: identity/soul/user/memory/agents/heartbeat）和 `workspace_memory_append` 在对话中写回文件，写入后在下一个 session 启动时生效（heartbeat 除外，热更立即生效）。详细协议见 `docs/WORKSPACE_SPEC.md`。
 
 ## 迭代流程
 
@@ -237,9 +237,8 @@ ACCEPTANCE_PACK 验收矩阵
 | 工作 | 文件 | 状态 |
 |------|------|------|
 | Web V2 conversation-first 重构 | `shell-v2/`, `App.tsx` | KC-W2-004/005/006 In Progress |
-| Bootstrap 对话式引导草稿 | `BootstrapDraftService.cs` | 实现中，待补 KC 条目 |
-| Channel Turn 执行管道 | `ChannelTurnOrchestrator.cs`, `ChannelDeliveryDispatchService.cs` | 实现中，待补 KC 条目 |
 
 **已知产品缺口**（实现存在但功能不完整）：
-- Workspace 记忆写回：Agent 无法在对话中更新 `MEMORY.md`，需要 workspace 写工具 + Gateway endpoint
-- Plugins / Channels / Automations / Canvas 的首次上手 UX：入口存在但缺少 onboarding 引导
+- Canvas Desk UI：`canvas_upsert` 工具已通（Iter 12），但 Web 前端尚无 Canvas artifact 渲染面板，用户无法直接查看 Agent 发布的内容
+- Automations Desk：`automationsEnabled` 开关（Iter 14）可通过 API 设置，但前端无可见的启用/禁用 toggle 及运行历史面板
+- Plugins / Channels 的 onboarding UX：入口存在但缺少首次上手引导
