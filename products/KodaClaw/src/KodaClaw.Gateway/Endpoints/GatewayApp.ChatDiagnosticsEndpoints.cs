@@ -1,0 +1,263 @@
+using System.Text.Json;
+using KodaClaw.Contracts;
+using KodaClaw.Gateway;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+
+public static partial class GatewayApp
+{
+    private static void MapChatAndDiagnosticsEndpoints(WebApplication app)
+    {
+        var chat = app.MapGroup("/api/chat");
+        var diagnostics = app.MapGroup("/api/diagnostics");
+        chat.MapPost("/stream", async (
+            HttpContext context,
+            ChatStreamRequest request,
+            [FromServices] IChatSessionService chatSessionService,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to chat stream endpoint.");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Message))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.chat",
+                    eventType: "gateway.chat.invalid_request",
+                    level: "warning",
+                    message: "Chat stream request is missing a message.");
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(
+                    new ErrorResponse(
+                        Code: "validation.message_required",
+                        Message: "Message is required."),
+                    cancellationToken);
+                return;
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.chat",
+                eventType: "gateway.chat.requested",
+                level: "info",
+                message: "Accepted chat stream request.",
+                sessionId: request.SessionId,
+                attributes: new Dictionary<string, string?>
+                {
+                    ["requestedSessionId"] = request.SessionId,
+                });
+
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers["Cache-Control"] = "no-cache";
+            context.Response.Headers["X-Accel-Buffering"] = "no";
+            context.Response.Headers["Connection"] = "keep-alive";
+
+            string? terminalSessionId = request.SessionId;
+            string terminalEventType = "gateway.chat.completed";
+            string terminalLevel = "info";
+            string terminalMessage = "Chat stream completed.";
+            string terminalStreamEventType = "done";
+
+            try
+            {
+                await foreach (var chatEvent in chatSessionService.StreamMainSessionAsync(request, cancellationToken))
+                {
+                    terminalSessionId = chatEvent.SessionId ?? terminalSessionId;
+                    switch (chatEvent.Type)
+                    {
+                        case "done":
+                            terminalMessage = string.IsNullOrWhiteSpace(chatEvent.Reason)
+                                ? "Chat stream completed."
+                                : chatEvent.Reason!;
+                            terminalStreamEventType = "done";
+                            break;
+
+                        case "error":
+                            terminalEventType = "gateway.chat.failed";
+                            terminalLevel = "error";
+                            terminalMessage = chatEvent.Error?.Message
+                                ?? chatEvent.Reason
+                                ?? "Chat stream failed.";
+                            terminalStreamEventType = "error";
+                            break;
+                    }
+
+                    var eventName = chatEvent.Type switch
+                    {
+                        "text_chunk" or "done" or "error" => chatEvent.Type,
+                        _ => "text_chunk"
+                    };
+
+                    var serialized = JsonSerializer.Serialize(chatEvent, GatewayJson.Options);
+                    var payload = $"event: {eventName}\ndata: {serialized}\n\n";
+
+                    await context.Response.WriteAsync(payload, cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                terminalEventType = "gateway.chat.failed";
+                terminalLevel = "error";
+                terminalMessage = ex.GetBaseException().Message;
+                terminalStreamEventType = "exception";
+                throw;
+            }
+            finally
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.chat",
+                    eventType: terminalEventType,
+                    level: terminalLevel,
+                    message: terminalMessage,
+                    sessionId: terminalSessionId,
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["terminalStreamEventType"] = terminalStreamEventType,
+                    });
+            }
+        });
+
+        diagnostics.MapGet("/recent", (
+            HttpContext context,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] int? limit,
+            [FromQuery] string? correlationId,
+            [FromQuery] string? sessionId,
+            [FromQuery] string? source,
+            [FromQuery] string? eventType,
+            [FromQuery] string? level) =>
+        {
+            return QueryDiagnosticsEndpoint(
+                context,
+                configuration,
+                diagnosticsService,
+                endpointName: "diagnostics.recent",
+                limit,
+                correlationId,
+                sessionId,
+                source,
+                eventType,
+                level);
+        });
+
+        diagnostics.MapGet("/timeline", (
+            HttpContext context,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] int? limit,
+            [FromQuery] string? correlationId,
+            [FromQuery] string? sessionId,
+            [FromQuery] string? source,
+            [FromQuery] string? eventType,
+            [FromQuery] string? level) =>
+        {
+            return QueryDiagnosticsEndpoint(
+                context,
+                configuration,
+                diagnosticsService,
+                endpointName: "diagnostics.timeline",
+                limit,
+                correlationId,
+                sessionId,
+                source,
+                eventType,
+                level);
+        });
+
+        diagnostics.MapPost("/bundle-export", async (
+            HttpContext context,
+            DiagnosticBundleExportRequest? request,
+            IConfiguration configuration,
+            DiagnosticBundleService diagnosticBundleService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to diagnostics bundle export endpoint.");
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var response = await diagnosticBundleService.ExportAsync(request, cancellationToken);
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.diagnostics",
+                    eventType: "gateway.diagnostics.bundle_exported",
+                    level: "info",
+                    message: "Exported redacted diagnostic bundle.",
+                    sessionId: request?.SessionId,
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["bundlePath"] = response.BundlePath,
+                        ["requestedSessionId"] = request?.SessionId,
+                        ["entryCount"] = response.Manifest.Entries.Count.ToString(),
+                    });
+                return Results.Ok(response);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (ArgumentException ex)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.diagnostics",
+                    eventType: "gateway.diagnostics.invalid_request",
+                    level: "warning",
+                    message: ex.Message,
+                    sessionId: request?.SessionId);
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.archive_path_invalid",
+                    Message: ex.Message));
+            }
+            catch (Exception ex)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.diagnostics",
+                    eventType: "gateway.diagnostics.bundle_export_failed",
+                    level: "error",
+                    message: ex.GetBaseException().Message,
+                    sessionId: request?.SessionId);
+                throw;
+            }
+        });
+    }
+}

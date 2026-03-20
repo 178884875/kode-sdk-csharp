@@ -1,0 +1,136 @@
+using System.Collections.Concurrent;
+using KodaClaw.Contracts;
+
+namespace KodaClaw.Workspace;
+
+public sealed class PlatformSecretStore : ISecretStore
+{
+    private readonly ConcurrentDictionary<string, MemorySecretEntry> _memorySecrets = new(StringComparer.Ordinal);
+    private readonly IMacOsKeychainCommandRunner _keychainCommandRunner;
+    private readonly TimeProvider _timeProvider;
+
+    public PlatformSecretStore()
+        : this(new MacOsKeychainCommandRunner(), TimeProvider.System)
+    {
+    }
+
+    public PlatformSecretStore(
+        IMacOsKeychainCommandRunner keychainCommandRunner,
+        TimeProvider? timeProvider = null)
+    {
+        _keychainCommandRunner = keychainCommandRunner ?? throw new ArgumentNullException(nameof(keychainCommandRunner));
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    public async Task<string?> GetAsync(SecretRef secretRef, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(secretRef);
+
+        return NormalizeProvider(secretRef.Provider) switch
+        {
+            "env" => Normalize(Environment.GetEnvironmentVariable(secretRef.Key)),
+            "memory" => _memorySecrets.TryGetValue(secretRef.ToReferenceString(), out var entry)
+                ? entry.SecretValue
+                : null,
+            "keychain" => await _keychainCommandRunner.ReadAsync(secretRef, cancellationToken).ConfigureAwait(false),
+            _ => throw CreateProviderNotSupportedException(secretRef),
+        };
+    }
+
+    public async Task UpsertAsync(SecretRef secretRef, string secretValue, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(secretRef);
+        ArgumentException.ThrowIfNullOrWhiteSpace(secretValue);
+
+        switch (NormalizeProvider(secretRef.Provider))
+        {
+            case "memory":
+                _memorySecrets[secretRef.ToReferenceString()] = new MemorySecretEntry(
+                    secretValue.Trim(),
+                    _timeProvider.GetUtcNow());
+                return;
+            case "keychain":
+                await _keychainCommandRunner.WriteAsync(secretRef, secretValue.Trim(), cancellationToken).ConfigureAwait(false);
+                return;
+            case "env":
+                throw new InvalidOperationException("Environment-backed secrets are read-only and cannot be upserted by KodaClaw.");
+            default:
+                throw CreateProviderNotSupportedException(secretRef);
+        }
+    }
+
+    public async Task DeleteAsync(SecretRef secretRef, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(secretRef);
+
+        switch (NormalizeProvider(secretRef.Provider))
+        {
+            case "memory":
+                _memorySecrets.TryRemove(secretRef.ToReferenceString(), out _);
+                return;
+            case "keychain":
+                await _keychainCommandRunner.DeleteAsync(secretRef, cancellationToken).ConfigureAwait(false);
+                return;
+            case "env":
+                throw new InvalidOperationException("Environment-backed secrets are read-only and cannot be deleted by KodaClaw.");
+            default:
+                throw CreateProviderNotSupportedException(secretRef);
+        }
+    }
+
+    public async Task<SecretDescriptor> DescribeAsync(SecretRef secretRef, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(secretRef);
+
+        return NormalizeProvider(secretRef.Provider) switch
+        {
+            "env" => new SecretDescriptor(
+                secretRef,
+                Exists: !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(secretRef.Key)),
+                IsReadOnly: true,
+                StorageDisplayName: "Environment Variable"),
+            "memory" => _memorySecrets.TryGetValue(secretRef.ToReferenceString(), out var entry)
+                ? new SecretDescriptor(
+                    secretRef,
+                    Exists: true,
+                    IsReadOnly: false,
+                    UpdatedAtUtc: entry.UpdatedAtUtc,
+                    StorageDisplayName: "In-Memory Secret Store")
+                : new SecretDescriptor(
+                    secretRef,
+                    Exists: false,
+                    IsReadOnly: false,
+                    StorageDisplayName: "In-Memory Secret Store"),
+            "keychain" => new SecretDescriptor(
+                secretRef,
+                Exists: await _keychainCommandRunner.ExistsAsync(secretRef, cancellationToken).ConfigureAwait(false),
+                IsReadOnly: false,
+                StorageDisplayName: "macOS Keychain"),
+            _ => throw CreateProviderNotSupportedException(secretRef),
+        };
+    }
+
+    private static string NormalizeProvider(string provider)
+    {
+        return provider.Trim().ToLowerInvariant();
+    }
+
+    private static string? Normalize(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var normalized = value.Trim();
+        return normalized.Length == 0 ? null : normalized;
+    }
+
+    private static InvalidOperationException CreateProviderNotSupportedException(SecretRef secretRef)
+    {
+        return new InvalidOperationException(
+            $"Secret provider '{secretRef.Provider}' is not supported by the current KodaClaw secret store.");
+    }
+
+    private sealed record MemorySecretEntry(string SecretValue, DateTimeOffset UpdatedAtUtc);
+}

@@ -1,0 +1,401 @@
+using KodaClaw.Contracts;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+
+public static partial class GatewayApp
+{
+    private static void MapModelEndpoints(WebApplication app)
+    {
+        var models = app.MapGroup("/api/models");
+
+        models.MapGet(string.Empty, async (
+            HttpContext context,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to models list endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var endpoints = await modelRegistryRepository.ListAsync(cancellationToken);
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.listed",
+                level: "info",
+                message: $"Models query returned {endpoints.Count} items.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["count"] = endpoints.Count.ToString(),
+                });
+
+            return Results.Ok(new ModelsQueryResponse(endpoints));
+        });
+
+        models.MapGet("/{id}", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model detail endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var endpoint = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
+            if (endpoint is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.not_found",
+                    level: "warning",
+                    message: "Requested model endpoint was not found.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.fetched",
+                level: "info",
+                message: "Fetched model endpoint detail.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["modelEndpointId"] = endpoint.Id,
+                    ["provider"] = endpoint.Provider.ToString(),
+                    ["isDefault"] = endpoint.IsDefault.ToString(),
+                });
+
+            return Results.Ok(endpoint);
+        });
+
+        models.MapPost(string.Empty, async (
+            HttpContext context,
+            CreateModelEndpointRequest request,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model create endpoint.");
+                return Results.Unauthorized();
+            }
+
+            if (!TryValidateModelEndpointRequest(request, out var validatedRequest, out var error))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.invalid_request",
+                    level: "warning",
+                    message: error!.Message);
+                return Results.BadRequest(error);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var endpoint = new ModelEndpoint(
+                Id: $"model-{Guid.NewGuid():N}",
+                DisplayName: validatedRequest.DisplayName,
+                Provider: validatedRequest.Provider,
+                ModelId: validatedRequest.ModelId,
+                BaseUrl: validatedRequest.BaseUrl,
+                ApiKeyEnvironmentVariable: validatedRequest.ApiKeyEnvironmentVariable,
+                ApiKeySecretRef: validatedRequest.ApiKeySecretRef,
+                Enabled: validatedRequest.Enabled,
+                SupportsToolCalling: validatedRequest.SupportsToolCalling,
+                IsDefault: false,
+                CreatedAt: now,
+                UpdatedAt: now);
+
+            await modelRegistryRepository.AddAsync(endpoint, cancellationToken);
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.created",
+                level: "info",
+                message: "Created model endpoint.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["modelEndpointId"] = endpoint.Id,
+                    ["provider"] = endpoint.Provider.ToString(),
+                });
+
+            return Results.Created($"/api/models/{endpoint.Id}", endpoint);
+        });
+
+        models.MapPut("/{id}", async (
+            HttpContext context,
+            string id,
+            UpdateModelEndpointRequest request,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model update endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var existing = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
+            if (existing is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.not_found",
+                    level: "warning",
+                    message: "Model update targeted a missing endpoint.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            if (!TryValidateModelEndpointRequest(request, out var validatedRequest, out var error))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.invalid_request",
+                    level: "warning",
+                    message: error!.Message,
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.BadRequest(error);
+            }
+
+            if (existing.IsDefault && !validatedRequest.Enabled)
+            {
+                return Results.Conflict(new ErrorResponse(
+                    Code: "model_endpoint.default_must_be_enabled",
+                    Message: "The default model endpoint must remain enabled."));
+            }
+
+            var updated = existing with
+            {
+                DisplayName = validatedRequest.DisplayName,
+                Provider = validatedRequest.Provider,
+                ModelId = validatedRequest.ModelId,
+                BaseUrl = validatedRequest.BaseUrl,
+                ApiKeyEnvironmentVariable = validatedRequest.ApiKeyEnvironmentVariable,
+                ApiKeySecretRef = validatedRequest.ApiKeySecretRef,
+                Enabled = validatedRequest.Enabled,
+                SupportsToolCalling = validatedRequest.SupportsToolCalling,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+
+            var persisted = await modelRegistryRepository.UpdateAsync(updated, cancellationToken);
+            if (!persisted)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            var reloaded = await modelRegistryRepository.GetByIdAsync(id, cancellationToken) ?? updated;
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.updated",
+                level: "info",
+                message: "Updated model endpoint.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["modelEndpointId"] = reloaded.Id,
+                    ["provider"] = reloaded.Provider.ToString(),
+                    ["isDefault"] = reloaded.IsDefault.ToString(),
+                });
+
+            return Results.Ok(reloaded);
+        });
+
+        models.MapDelete("/{id}", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model delete endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var deleted = await modelRegistryRepository.DeleteAsync(id, cancellationToken);
+            if (!deleted)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.not_found",
+                    level: "warning",
+                    message: "Model delete targeted a missing endpoint.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.deleted",
+                level: "info",
+                message: "Deleted model endpoint.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["modelEndpointId"] = id,
+                });
+
+            return Results.NoContent();
+        });
+
+        models.MapPost("/{id}/default", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IModelRegistryRepository modelRegistryRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model default endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var endpoint = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
+            if (endpoint is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.not_found",
+                    level: "warning",
+                    message: "Model default update targeted a missing endpoint.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            if (!endpoint.Enabled)
+            {
+                return Results.Conflict(new ErrorResponse(
+                    Code: "model_endpoint.default_must_be_enabled",
+                    Message: "Only enabled model endpoints can become default."));
+            }
+
+            var updated = await modelRegistryRepository.SetDefaultAsync(id, DateTimeOffset.UtcNow, cancellationToken);
+            if (!updated)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            var reloaded = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
+            if (reloaded is null)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.default_set",
+                level: "info",
+                message: "Updated default model endpoint.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["modelEndpointId"] = reloaded.Id,
+                    ["provider"] = reloaded.Provider.ToString(),
+                });
+
+            return Results.Ok(reloaded);
+        });
+    }
+}

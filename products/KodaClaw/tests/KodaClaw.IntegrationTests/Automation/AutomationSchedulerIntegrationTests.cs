@@ -1,0 +1,361 @@
+using System.Text.Json;
+using FluentAssertions;
+using KodaClaw.Automation;
+using KodaClaw.Contracts;
+using KodaClaw.ControlPlane;
+using KodaClaw.Runtime;
+using KodaClaw.Workspace;
+using Kode.Agent.Sdk.Core.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using Moq;
+using Xunit;
+
+namespace KodaClaw.IntegrationTests.Automation;
+
+public sealed class AutomationSchedulerIntegrationTests
+{
+    [Fact]
+    public async Task Due_automation_should_be_scheduled_and_persist_run_history()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-due-success",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Daily digest generated.",
+                StopReason = StopReason.EndTurn,
+            });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-due-success",
+            schedule: new AutomationSchedule(
+                Kind: AutomationScheduleKind.Hourly,
+                Interval: 2,
+                LocalTime: null,
+                DaysOfWeek: null),
+            nextRunAt: now.AddMinutes(-1));
+        await fixture.Definitions.UpsertAsync(definition);
+
+        var executed = await fixture.Scheduler.TickAsync();
+        var runs = await fixture.Runs.ListAsync(new AutomationRunQuery(
+            AutomationId: definition.Id,
+            Status: null,
+            Limit: 10));
+        var reloadedDefinition = await fixture.Definitions.GetByIdAsync(definition.Id);
+
+        executed.Should().Be(1);
+        runs.Should().ContainSingle();
+        runs[0].Status.Should().Be(AutomationRunStatus.Succeeded);
+        runs[0].Trigger.Should().Be("automation.scheduler");
+        runs[0].Summary.Should().Be("Daily digest generated.");
+        reloadedDefinition.Should().NotBeNull();
+        reloadedDefinition!.LastRunStatus.Should().Be(AutomationRunStatus.Succeeded);
+        reloadedDefinition.LastRunAt.Should().Be(now);
+        reloadedDefinition.NextRunAt.Should().Be(now.AddHours(2));
+    }
+
+    [Fact]
+    public async Task Scheduler_should_upsert_inbox_item_for_success_and_failure_runs()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-success",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Success summary.",
+                StopReason = StopReason.EndTurn,
+            });
+        fixture.SessionService.SetResult(
+            "auto-failure",
+            new AgentRunResult
+            {
+                Success = false,
+                Response = "Failure summary.",
+                StopReason = StopReason.Error,
+            });
+
+        await fixture.Definitions.UpsertAsync(fixture.BuildDefinition("auto-success", nextRunAt: null));
+        await fixture.Definitions.UpsertAsync(fixture.BuildDefinition("auto-failure", nextRunAt: null));
+
+        var executed = await fixture.Scheduler.TickAsync();
+        var successRun = (await fixture.Runs.ListAsync(new AutomationRunQuery("auto-success", null, 10))).Single();
+        var failureRun = (await fixture.Runs.ListAsync(new AutomationRunQuery("auto-failure", null, 10))).Single();
+
+        var successInbox = await fixture.Inbox.GetByIdAsync($"automation-result-{successRun.RunId}");
+        var failureInbox = await fixture.Inbox.GetByIdAsync($"automation-result-{failureRun.RunId}");
+        var failureDefinition = await fixture.Definitions.GetByIdAsync("auto-failure");
+
+        executed.Should().Be(2);
+
+        successRun.Status.Should().Be(AutomationRunStatus.Succeeded);
+        successInbox.Should().NotBeNull();
+        successInbox!.Kind.Should().Be(InboxItemKind.AutomationResult);
+        successInbox.Source.Should().Be("automation.scheduler");
+        successInbox.Route.Should().Be("/automations/auto-success");
+        successInbox.RequiresAction.Should().BeFalse();
+        JsonDocument.Parse(successInbox.PayloadJson!).RootElement.GetProperty("status").GetString().Should().Be("Succeeded");
+
+        failureRun.Status.Should().Be(AutomationRunStatus.Failed);
+        failureInbox.Should().NotBeNull();
+        failureInbox!.Kind.Should().Be(InboxItemKind.AutomationResult);
+        failureInbox.Source.Should().Be("automation.scheduler");
+        failureInbox.Route.Should().Be("/automations/auto-failure");
+        failureInbox.RequiresAction.Should().BeTrue();
+        JsonDocument.Parse(failureInbox.PayloadJson!).RootElement.GetProperty("status").GetString().Should().Be("Failed");
+
+        failureDefinition.Should().NotBeNull();
+        failureDefinition!.LastRunStatus.Should().Be(AutomationRunStatus.Failed);
+        failureDefinition.LastError.Should().NotBeNullOrWhiteSpace();
+        failureDefinition.NextRunAt.Should().Be(now.AddMinutes(15));
+    }
+
+    [Fact]
+    public async Task Recovery_should_fail_stale_runs_and_allow_follow_up_reschedule()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 10, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-recovery",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Recovered and reran.",
+                StopReason = StopReason.EndTurn,
+            });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-recovery",
+            nextRunAt: now.AddDays(1));
+        await fixture.Definitions.UpsertAsync(definition);
+        await fixture.Runs.AddAsync(new AutomationRunRecord(
+            RunId: "run-stale-001",
+            AutomationId: definition.Id,
+            Status: AutomationRunStatus.Running,
+            Trigger: "automation.scheduler",
+            Attempt: 1,
+            SessionId: "session-stale-001",
+            StartedAt: now.AddHours(-3),
+            CompletedAt: null,
+            Summary: null,
+            ErrorMessage: null));
+
+        var firstTickExecuted = await fixture.Scheduler.TickAsync();
+        var runsAfterRecovery = await fixture.Runs.ListAsync(new AutomationRunQuery(
+            AutomationId: definition.Id,
+            Status: null,
+            Limit: 10));
+        var staleRun = runsAfterRecovery.Single(run => run.RunId == "run-stale-001");
+        var staleInbox = await fixture.Inbox.GetByIdAsync("automation-result-run-stale-001");
+        var definitionAfterRecovery = await fixture.Definitions.GetByIdAsync(definition.Id);
+
+        firstTickExecuted.Should().Be(0);
+        staleRun.Status.Should().Be(AutomationRunStatus.Failed);
+        staleRun.CompletedAt.Should().Be(now);
+        staleInbox.Should().NotBeNull();
+        staleInbox!.RequiresAction.Should().BeTrue();
+        fixture.SessionService.GetStartCount(definition.Id).Should().Be(0);
+
+        definitionAfterRecovery.Should().NotBeNull();
+        definitionAfterRecovery!.LastRunStatus.Should().Be(AutomationRunStatus.Failed);
+        definitionAfterRecovery.LastError.Should().NotBeNullOrWhiteSpace();
+        definitionAfterRecovery.NextRunAt.Should().Be(now.AddMinutes(15));
+
+        fixture.Clock.SetUtcNow(now.AddMinutes(15));
+        var secondTickExecuted = await fixture.Scheduler.TickAsync();
+        var runsAfterRetry = await fixture.Runs.ListAsync(new AutomationRunQuery(
+            AutomationId: definition.Id,
+            Status: null,
+            Limit: 10));
+        var rerun = runsAfterRetry.Single(run => run.RunId != "run-stale-001");
+        var rerunInbox = await fixture.Inbox.GetByIdAsync($"automation-result-{rerun.RunId}");
+        var definitionAfterRetry = await fixture.Definitions.GetByIdAsync(definition.Id);
+
+        secondTickExecuted.Should().Be(1);
+        rerun.Status.Should().Be(AutomationRunStatus.Succeeded);
+        rerun.CompletedAt.Should().Be(now.AddMinutes(15));
+        rerunInbox.Should().NotBeNull();
+        rerunInbox!.RequiresAction.Should().BeFalse();
+        fixture.SessionService.GetStartCount(definition.Id).Should().Be(1);
+
+        definitionAfterRetry.Should().NotBeNull();
+        definitionAfterRetry!.LastRunStatus.Should().Be(AutomationRunStatus.Succeeded);
+        definitionAfterRetry.LastRunAt.Should().Be(now.AddMinutes(15));
+    }
+
+    [Fact]
+    public async Task Fake_clock_with_manual_tick_should_drive_next_run_changes()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(
+            now,
+            configureScheduler: options => options.Enabled = false);
+        fixture.SessionService.SetResult(
+            "auto-daily",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Daily run completed.",
+                StopReason = StopReason.EndTurn,
+            });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-daily",
+            schedule: new AutomationSchedule(
+                Kind: AutomationScheduleKind.Daily,
+                Interval: null,
+                LocalTime: "09:00",
+                DaysOfWeek: null),
+            nextRunAt: null);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        var disabledTick = await fixture.Scheduler.TickAsync();
+        var firstManualRun = await fixture.Scheduler.RunOnceAsync();
+        var afterFirstRun = await fixture.Definitions.GetByIdAsync(definition.Id);
+
+        fixture.Clock.SetUtcNow(new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero));
+        var secondManualRun = await fixture.Scheduler.RunOnceAsync();
+        var afterSecondRun = await fixture.Definitions.GetByIdAsync(definition.Id);
+
+        disabledTick.Should().Be(0);
+        firstManualRun.Should().Be(1);
+        afterFirstRun!.NextRunAt.Should().Be(new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero));
+
+        secondManualRun.Should().Be(1);
+        afterSecondRun!.NextRunAt.Should().Be(new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero));
+    }
+
+    private sealed class SchedulerFixture : IDisposable
+    {
+        private readonly ServiceProvider _provider;
+
+        public SchedulerFixture(
+            DateTimeOffset initialUtcNow,
+            Action<AutomationSchedulerOptions>? configureScheduler = null)
+        {
+            RootPath = Path.Combine(
+                Path.GetTempPath(),
+                "kodaclaw-automation-scheduler-integration",
+                Guid.NewGuid().ToString("N"));
+            Clock = new FakeAutomationClock(initialUtcNow);
+            SessionService = new StubAutomationSessionService();
+
+            var services = new ServiceCollection();
+            services.AddKodaClawWorkspace(options => options.RootPath = RootPath);
+            services.AddKodaClawControlPlane();
+            services.AddSingleton<IAutomationClock>(Clock);
+            services.AddSingleton<IAutomationSessionService>(SessionService);
+            services.AddKodaClawAutomation(options =>
+            {
+                options.Enabled = true;
+                options.PollInterval = TimeSpan.FromMinutes(1);
+                options.FailureRetryDelay = TimeSpan.FromMinutes(15);
+                configureScheduler?.Invoke(options);
+            });
+
+            _provider = services.BuildServiceProvider();
+            Definitions = _provider.GetRequiredService<IAutomationDefinitionRepository>();
+            Runs = _provider.GetRequiredService<IAutomationRunRepository>();
+            Inbox = _provider.GetRequiredService<IInboxRepository>();
+            Scheduler = _provider.GetRequiredService<IAutomationScheduler>();
+        }
+
+        public string RootPath { get; }
+
+        public FakeAutomationClock Clock { get; }
+
+        public StubAutomationSessionService SessionService { get; }
+
+        public IAutomationDefinitionRepository Definitions { get; }
+
+        public IAutomationRunRepository Runs { get; }
+
+        public IInboxRepository Inbox { get; }
+
+        public IAutomationScheduler Scheduler { get; }
+
+        public AutomationDefinition BuildDefinition(
+            string id,
+            AutomationSchedule? schedule = null,
+            DateTimeOffset? nextRunAt = null)
+        {
+            return new AutomationDefinition(
+                Id: id,
+                Title: $"Automation {id}",
+                Prompt: $"Run automation {id}.",
+                Source: AutomationDefinitionSource.Manual,
+                SourcePath: null,
+                Schedule: schedule ?? new AutomationSchedule(
+                    Kind: AutomationScheduleKind.Hourly,
+                    Interval: 1,
+                    LocalTime: null,
+                    DaysOfWeek: null),
+                Enabled: true,
+                InputPaths: null,
+                CreatedAt: Clock.UtcNow,
+                UpdatedAt: Clock.UtcNow,
+                LastRunAt: null,
+                NextRunAt: nextRunAt,
+                LastRunStatus: null,
+                LastError: null);
+        }
+
+        public void Dispose()
+        {
+            _provider.Dispose();
+            if (Directory.Exists(RootPath))
+            {
+                Directory.Delete(RootPath, recursive: true);
+            }
+        }
+    }
+
+    private sealed class StubAutomationSessionService : IAutomationSessionService
+    {
+        private readonly Dictionary<string, AgentRunResult> _resultsByAutomationId = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _startCounts = new(StringComparer.Ordinal);
+
+        public void SetResult(string automationId, AgentRunResult result)
+        {
+            _resultsByAutomationId[automationId] = result;
+        }
+
+        public int GetStartCount(string automationId)
+        {
+            return _startCounts.TryGetValue(automationId, out var count) ? count : 0;
+        }
+
+        public Task<AutomationSessionHandle> StartAutomationSessionAsync(
+            AutomationDefinition definition,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            _startCounts[definition.Id] = GetStartCount(definition.Id) + 1;
+            var runResult = _resultsByAutomationId.TryGetValue(definition.Id, out var configured)
+                ? configured
+                : new AgentRunResult
+                {
+                    Success = true,
+                    Response = "Default success.",
+                    StopReason = StopReason.EndTurn,
+                };
+
+            var agent = new Mock<IAgent>();
+            agent.SetupGet(value => value.AgentId).Returns($"agent-{definition.Id}");
+            agent.Setup(value => value.RunAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(runResult);
+
+            var handle = new AutomationSessionHandle(
+                SessionId: $"session-{definition.Id}-{_startCounts[definition.Id]}",
+                AutomationId: definition.Id,
+                SessionKind: SessionKind.Automation,
+                SessionDirectory: "/tmp",
+                Agent: agent.Object);
+            return Task.FromResult(handle);
+        }
+    }
+}

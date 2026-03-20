@@ -1,0 +1,297 @@
+using System.Text;
+using KodaClaw.Contracts;
+using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
+using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
+
+namespace KodaClaw.Runtime;
+
+public sealed class AutomationSessionService : IAutomationSessionService, IAsyncDisposable
+{
+    private static readonly IReadOnlyList<string> BaselineContextFiles =
+    [
+        KodaClawWorkspaceLayout.AgentsFile,
+        KodaClawWorkspaceLayout.IdentityFile,
+        KodaClawWorkspaceLayout.SoulFile,
+        KodaClawWorkspaceLayout.UserFile,
+        KodaClawWorkspaceLayout.HeartbeatFile,
+    ];
+
+    private readonly IWorkspaceService _workspaceService;
+    private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
+    private readonly AutomationSessionOptions _options;
+    private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
+    private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
+
+    public AutomationSessionService(
+        IWorkspaceService workspaceService,
+        IMainSessionAgentDependenciesFactory dependenciesFactory,
+        AutomationSessionOptions? options = null,
+        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null)
+    {
+        _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+        _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
+        _options = options ?? new AutomationSessionOptions();
+        _runtimeConfigurationResolver = runtimeConfigurationResolver;
+    }
+
+    public async Task<AutomationSessionHandle> StartAutomationSessionAsync(
+        AutomationDefinition definition,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        EnsureDefinitionIsValid(definition);
+
+        var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
+        var contextDocuments = await LoadContextDocumentsAsync(snapshot.RootPath, definition, cancellationToken);
+        var systemPrompt = BuildSystemPrompt(definition, contextDocuments);
+
+        var sessionId = GenerateSessionId(definition.Id);
+        var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
+        Directory.CreateDirectory(sessionDirectory);
+
+        var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
+        var configuredModel = ResolveConfiguredModel();
+        var agent = await AgentRuntime.CreateAsync(
+            sessionId,
+            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel),
+            dependencies,
+            cancellationToken);
+        _agents[sessionId] = agent;
+
+        return new AutomationSessionHandle(
+            SessionId: sessionId,
+            AutomationId: definition.Id,
+            SessionKind: SessionKind.Automation,
+            SessionDirectory: sessionDirectory,
+            Agent: agent);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var agent in _agents.Values)
+        {
+            try
+            {
+                await agent.DisposeAsync();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Automation runs may already dispose the borrowed agent after completion.
+            }
+        }
+
+        _agents.Clear();
+    }
+
+    private static void EnsureDefinitionIsValid(AutomationDefinition definition)
+    {
+        if (string.IsNullOrWhiteSpace(definition.Id))
+        {
+            throw new ArgumentException("Automation definition id is required.", nameof(definition));
+        }
+
+        if (string.IsNullOrWhiteSpace(definition.Prompt))
+        {
+            throw new ArgumentException("Automation definition prompt is required.", nameof(definition));
+        }
+    }
+
+    private async Task<IReadOnlyList<ContextDocument>> LoadContextDocumentsAsync(
+        string workspaceRoot,
+        AutomationDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        var documents = new List<ContextDocument>();
+        var seenPaths = new HashSet<string>(GetPathComparer());
+        var workspaceDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.WorkspaceDirectory);
+
+        foreach (var baselineFile in BaselineContextFiles)
+        {
+            var absolutePath = Path.Combine(workspaceDirectory, baselineFile);
+            await TryAddContextDocumentAsync(absolutePath, workspaceRoot, seenPaths, documents, cancellationToken);
+        }
+
+        if (definition.InputPaths is { Count: > 0 })
+        {
+            foreach (var inputPath in definition.InputPaths)
+            {
+                var absolutePath = ResolveInputPath(workspaceRoot, inputPath);
+                await TryAddContextDocumentAsync(absolutePath, workspaceRoot, seenPaths, documents, cancellationToken);
+            }
+        }
+
+        return documents;
+    }
+
+    private static async Task TryAddContextDocumentAsync(
+        string absolutePath,
+        string workspaceRoot,
+        HashSet<string> seenPaths,
+        ICollection<ContextDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        if (!seenPaths.Add(absolutePath))
+        {
+            return;
+        }
+
+        if (!File.Exists(absolutePath))
+        {
+            return;
+        }
+
+        var content = await File.ReadAllTextAsync(absolutePath, cancellationToken);
+        var displayPath = ToDisplayPath(workspaceRoot, absolutePath);
+        documents.Add(new ContextDocument(displayPath, content));
+    }
+
+    private static string ResolveInputPath(string workspaceRoot, string inputPath)
+    {
+        if (string.IsNullOrWhiteSpace(inputPath))
+        {
+            throw new InvalidOperationException("Automation input path cannot be empty.");
+        }
+
+        var normalizedInputPath = inputPath.Replace('\\', '/').Trim();
+        var candidate = Path.IsPathRooted(normalizedInputPath)
+            ? Path.GetFullPath(normalizedInputPath)
+            : ResolveWorkspaceRelativePath(workspaceRoot, normalizedInputPath);
+        if (!IsPathInsideRoot(workspaceRoot, candidate))
+        {
+            throw new InvalidOperationException($"Automation input path '{inputPath}' escapes workspace root.");
+        }
+
+        return candidate;
+    }
+
+    private static string ResolveWorkspaceRelativePath(string workspaceRoot, string inputPath)
+    {
+        if (inputPath.StartsWith($"{KodaClawWorkspaceLayout.WorkspaceDirectory}/", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFullPath(Path.Combine(workspaceRoot, inputPath));
+        }
+
+        return Path.GetFullPath(Path.Combine(
+            workspaceRoot,
+            KodaClawWorkspaceLayout.WorkspaceDirectory,
+            inputPath));
+    }
+
+    private static bool IsPathInsideRoot(string rootPath, string candidatePath)
+    {
+        var fullRoot = Path.GetFullPath(rootPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var fullCandidate = Path.GetFullPath(candidatePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        if (string.Equals(fullRoot, fullCandidate, comparison))
+        {
+            return true;
+        }
+
+        var rootPrefix = fullRoot + Path.DirectorySeparatorChar;
+        return fullCandidate.StartsWith(rootPrefix, comparison);
+    }
+
+    private static string ToDisplayPath(string workspaceRoot, string absolutePath)
+    {
+        var relativePath = Path.GetRelativePath(workspaceRoot, absolutePath);
+        return relativePath.Replace(Path.DirectorySeparatorChar, '/');
+    }
+
+    private AgentConfig CreateAgentConfig(
+        string sessionDirectory,
+        string systemPrompt,
+        string model)
+    {
+        return new AgentConfig
+        {
+            Model = model,
+            SystemPrompt = systemPrompt,
+            MaxIterations = _options.MaxIterations,
+            Tools = _options.Tools,
+            Permissions = _options.Permissions,
+            SandboxOptions = new SandboxOptions
+            {
+                WorkingDirectory = sessionDirectory,
+                EnforceBoundary = true,
+            },
+        };
+    }
+
+    private string ResolveConfiguredModel()
+    {
+        return RuntimeProviderSelector.ResolveModelOrThrow(
+            _runtimeConfigurationResolver,
+            _options.Model);
+    }
+
+    private string BuildSystemPrompt(
+        AutomationDefinition definition,
+        IReadOnlyList<ContextDocument> contextDocuments)
+    {
+        var builder = new StringBuilder();
+
+        if (!string.IsNullOrWhiteSpace(_options.SystemPrompt))
+        {
+            builder.AppendLine(_options.SystemPrompt);
+            builder.AppendLine();
+        }
+
+        builder.AppendLine("Automation Definition");
+        builder.AppendLine($"Id: {definition.Id}");
+        if (!string.IsNullOrWhiteSpace(definition.Title))
+        {
+            builder.AppendLine($"Title: {definition.Title}");
+        }
+
+        builder.AppendLine("Prompt:");
+        builder.AppendLine(definition.Prompt.Trim());
+        builder.AppendLine();
+        builder.AppendLine("Loaded Context Files:");
+
+        foreach (var document in contextDocuments)
+        {
+            builder.AppendLine($"### File: {document.Path}");
+            builder.AppendLine(document.Content);
+            builder.AppendLine();
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    private static string GenerateSessionId(string automationId)
+    {
+        var builder = new StringBuilder(capacity: 20);
+        foreach (var value in automationId)
+        {
+            if (char.IsLetterOrDigit(value) || value is '-' or '_')
+            {
+                builder.Append(char.ToLowerInvariant(value));
+                if (builder.Length >= 20)
+                {
+                    break;
+                }
+            }
+        }
+
+        var safeAutomationId = builder.Length > 0
+            ? builder.ToString()
+            : "automation";
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+
+        return $"auto-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}-{safeAutomationId}-{suffix}";
+    }
+
+    private static IEqualityComparer<string> GetPathComparer()
+    {
+        return OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+    }
+
+    private sealed record ContextDocument(string Path, string Content);
+}

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>KodaClaw.Gateway</AssemblyName>
+    <RootNamespace>KodaClaw.Gateway</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KodaClaw.Automation\KodaClaw.Automation.csproj" />
+    <ProjectReference Include="..\KodaClaw.ChannelHub\KodaClaw.ChannelHub.csproj" />
+    <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.ControlPlane\KodaClaw.ControlPlane.csproj" />
+    <ProjectReference Include="..\KodaClaw.ModelHub\KodaClaw.ModelHub.csproj" />
+    <ProjectReference Include="..\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
+    <ProjectReference Include="..\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />
+    <ProjectReference Include="..\KodaClaw.Storage\KodaClaw.Storage.csproj" />
+    <ProjectReference Include="..\KodaClaw.Workspace\KodaClaw.Workspace.csproj" />
+  </ItemGroup>
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
+  </PropertyGroup>
+</Project>

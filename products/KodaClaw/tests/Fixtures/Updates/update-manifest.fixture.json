@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-03-19T10:00:00Z",
+  "source": "tests/Fixtures/Updates/update-manifest.fixture.json",
+  "channels": [
+    {
+      "channel": "Stable",
+      "latestVersion": "0.1.2",
+      "gatewayVersion": "0.1.2",
+      "desktopVersion": "0.1.3",
+      "downloadUrl": "https://example.com/download",
+      "releaseNotesUrl": "https://example.com/release-notes",
+      "releaseNotes": [
+        "Adds the manual-first update desk.",
+        "Improves operator release visibility."
+      ],
+      "guidance": "Review the release notes, then complete the guided handoff manually."
+    },
+    {
+      "channel": "Preview",
+      "latestVersion": "0.2.0-preview.2",
+      "gatewayVersion": "0.2.0-preview.2",
+      "desktopVersion": "0.2.0-preview.2",
+      "downloadUrl": "https://example.com/preview-download",
+      "releaseNotesUrl": "https://example.com/preview-release-notes",
+      "releaseNotes": [
+        "Preview builds add release-channel awareness for Gateway and Desktop Shell."
+      ],
+      "guidance": "Preview builds remain operator-managed; validate backups before upgrading."
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+using KodaClaw.Contracts;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+
+public static partial class GatewayApp
+{
+    private static void MapSessionEndpoints(WebApplication app)
+    {
+        var sessions = app.MapGroup("/api/sessions");
+        sessions.MapGet(string.Empty, async (
+            HttpContext context,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] int? limit,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to sessions list endpoint.");
+                return Results.Unauthorized();
+            }
+
+            await workspaceService.EnsureInitializedAsync(cancellationToken);
+            var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+            var sessions = await LoadSessionsAsync(
+                workspaceService.RootPath,
+                appConfig.ActiveMainSessionId,
+                NormalizeSessionsLimit(limit),
+                cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.sessions",
+                eventType: "gateway.sessions.listed",
+                level: "info",
+                message: $"Sessions query returned {sessions.Count} items.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["count"] = sessions.Count.ToString(),
+                    ["activeMainSessionId"] = appConfig.ActiveMainSessionId,
+                });
+
+            return Results.Ok(new SessionsQueryResponse(
+                sessions
+                    .Select(static session => new SessionSummary(
+                        SessionId: session.SessionId,
+                        SessionKind: session.SessionKind,
+                        Status: session.Status,
+                        CreatedAt: session.CreatedAt,
+                        LastEventAt: session.LastEventAt))
+                    .ToArray()));
+        });
+
+        sessions.MapGet("/{id}", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to sessions detail endpoint.");
+                return Results.Unauthorized();
+            }
+
+            await workspaceService.EnsureInitializedAsync(cancellationToken);
+            var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+
+            var session = await LoadSessionDetailAsync(
+                workspaceService.RootPath,
+                id,
+                appConfig.ActiveMainSessionId,
+                cancellationToken);
+
+            if (session is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.sessions",
+                    eventType: "gateway.sessions.not_found",
+                    level: "warning",
+                    message: "Requested session was not found.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["sessionId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "session.not_found",
+                    Message: "Session was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.sessions",
+                eventType: "gateway.sessions.fetched",
+                level: "info",
+                message: "Fetched session detail.",
+                sessionId: session.SessionId,
+                attributes: new Dictionary<string, string?>
+                {
+                    ["pendingApprovalCount"] = session.Status.PendingApprovalCount.ToString(),
+                    ["breakpointState"] = session.Status.BreakpointState,
+                });
+
+            return Results.Ok(session);
+        });
+
+    }
+}

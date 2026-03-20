@@ -1,0 +1,17 @@
+{
+  "appId": "ai.kodaclaw.desktop",
+  "productName": "KodaClaw",
+  "directories": {
+    "output": "dist-smoke"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json",
+    "placeholder.html"
+  ],
+  "mac": {
+    "target": [
+      "dir"
+    ]
+  }
+}

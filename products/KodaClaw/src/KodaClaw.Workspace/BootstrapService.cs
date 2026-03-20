@@ -1,0 +1,97 @@
+using System;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using KodaClaw.Contracts;
+
+namespace KodaClaw.Workspace;
+
+public sealed class BootstrapService : IBootstrapService
+{
+    private const string BootstrapArchiveSuffix = ".archived";
+    private readonly IWorkspaceService workspaceService;
+
+    public BootstrapService(IWorkspaceService workspaceService)
+    {
+        this.workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+    }
+
+    public async Task<BootstrapCompletionResult> CompleteAsync(
+        BootstrapCompletionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(request.IdentityMarkdown);
+        ArgumentNullException.ThrowIfNull(request.UserMarkdown);
+
+        await workspaceService.EnsureInitializedAsync(cancellationToken);
+
+        var identityPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.IdentityFile);
+        var userPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.UserFile);
+
+        await WriteTextAsync(identityPath, request.IdentityMarkdown, cancellationToken);
+        await WriteTextAsync(userPath, request.UserMarkdown, cancellationToken);
+
+        var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+        var updatedConfig = appConfig with { BootstrapCompleted = true };
+        await workspaceService.SaveAppConfigAsync(updatedConfig, cancellationToken);
+
+        var bootstrapFileArchived = ArchiveOrDeleteBootstrapFile(request.ArchiveBootstrapFile);
+
+        return new BootstrapCompletionResult(
+            workspaceService.RootPath,
+            updatedConfig.BootstrapCompleted,
+            identityPath,
+            userPath,
+            bootstrapFileArchived);
+    }
+
+    private bool ArchiveOrDeleteBootstrapFile(bool archive)
+    {
+        var bootstrapPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.BootstrapFile);
+        if (!File.Exists(bootstrapPath))
+        {
+            return false;
+        }
+
+        if (!archive)
+        {
+            File.Delete(bootstrapPath);
+            return false;
+        }
+
+        var archivePath = bootstrapPath + BootstrapArchiveSuffix;
+        var directory = Path.GetDirectoryName(archivePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        if (File.Exists(archivePath))
+        {
+            File.Delete(archivePath);
+        }
+
+        File.Move(bootstrapPath, archivePath);
+        return true;
+    }
+
+    private static async Task WriteTextAsync(string path, string content, CancellationToken cancellationToken)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        await File.WriteAllTextAsync(path, content, cancellationToken);
+    }
+
+    private string GetWorkspaceFilePath(string fileName)
+    {
+        return Path.Combine(
+            workspaceService.RootPath,
+            KodaClawWorkspaceLayout.WorkspaceDirectory,
+            fileName);
+    }
+}

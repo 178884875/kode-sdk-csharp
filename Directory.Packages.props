@@ -6,6 +6,7 @@
     <!-- Microsoft Extensions -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.1" />
@@ -26,6 +27,7 @@
     <PackageVersion Include="Anthropic" Version="12.1.0" />
     <PackageVersion Include="OpenAI" Version="2.8.0" />
     <!-- Storage -->
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.22" />
     <!-- Email -->
     <PackageVersion Include="MailKit" Version="4.9.0" />

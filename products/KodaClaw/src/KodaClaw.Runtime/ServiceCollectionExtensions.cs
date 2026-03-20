@@ -1,0 +1,88 @@
+using System.Net.Http;
+using KodaClaw.Contracts;
+using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Extensions;
+using Kode.Agent.Sdk.Infrastructure.Providers;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Kode.Agent.Tools.Builtin;
+
+namespace KodaClaw.Runtime;
+
+public sealed class KodaClawRuntimeOptions
+{
+    public string? DefaultModel { get; set; }
+
+    public string? OpenAIApiKey { get; set; }
+
+    public string? OpenAIBaseUrl { get; set; }
+
+    public string? AnthropicApiKey { get; set; }
+
+    public string? AnthropicBaseUrl { get; set; }
+
+    public string? SystemPrompt { get; set; }
+
+    public int MaxIterations { get; set; } = 8;
+}
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddKodaClawRuntime(
+        this IServiceCollection services,
+        Action<KodaClawRuntimeOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        var options = new KodaClawRuntimeOptions();
+        configure?.Invoke(options);
+        var snapshot = RuntimeConfigurationSnapshot.FromOptions(options);
+
+        services.TryAddSingleton<IRuntimeConfigurationResolver>(
+            new StaticRuntimeConfigurationResolver(snapshot));
+        services.AddHttpClient(nameof(OpenAIProvider));
+        services.AddHttpClient(nameof(AnthropicProvider))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler());
+        services.TryAddSingleton<IRuntimeModelProviderFactory, DefaultRuntimeModelProviderFactory>();
+        services.TryAddSingleton<IModelProvider, DynamicModelProvider>();
+
+        services.AddAgentSdk();
+
+        services.TryAddSingleton(new MainSessionOptions
+        {
+            Model = options.DefaultModel ?? string.Empty,
+            SystemPrompt = options.SystemPrompt ?? "You are KodaClaw main assistant.",
+            MaxIterations = options.MaxIterations,
+        });
+        services.TryAddSingleton(new AutomationSessionOptions
+        {
+            Model = options.DefaultModel ?? string.Empty,
+            SystemPrompt = options.SystemPrompt ?? "You are KodaClaw automation assistant.",
+            MaxIterations = options.MaxIterations,
+        });
+        services.TryAddSingleton(new ChannelSessionOptions
+        {
+            Model = options.DefaultModel ?? string.Empty,
+            SystemPrompt = options.SystemPrompt ?? "You are KodaClaw channel assistant.",
+            MaxIterations = options.MaxIterations,
+        });
+        services.TryAddSingleton<IMainSessionAgentDependenciesFactory>(sp =>
+        {
+            var toolRegistry = sp.GetRequiredService<IToolRegistry>();
+            toolRegistry.RegisterBuiltinTools();
+
+            return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
+            {
+                ModelProvider = sp.GetRequiredService<IModelProvider>(),
+                ToolRegistry = toolRegistry,
+                SandboxFactory = sp.GetService<ISandboxFactory>(),
+                LoggerFactory = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>(),
+            });
+        });
+        services.TryAddSingleton<IMainSessionService, MainSessionService>();
+        services.TryAddSingleton<IAutomationSessionService, AutomationSessionService>();
+        services.TryAddSingleton<IChannelSessionService, ChannelSessionService>();
+        services.TryAddSingleton<IChatSessionService, ChatSessionService>();
+        return services;
+    }
+}

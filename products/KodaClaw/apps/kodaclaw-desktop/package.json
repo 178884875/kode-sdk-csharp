@@ -1,0 +1,24 @@
+{
+  "name": "kodaclaw-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "KodaClaw desktop shell (Electron + TypeScript).",
+  "author": "KodaClaw",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run typecheck && tsc -p tsconfig.json",
+    "test": "npm run build && node dist/run-tests.js",
+    "start": "electron .",
+    "smoke:managed-gateway": "npm run build && KODACLAW_DESKTOP_SMOKE_MODE=true KODACLAW_DESKTOP_GATEWAY_LIFECYCLE_MODE=ManagedChild electron .",
+    "smoke:wave3": "npm run build && node dist/run-wave3-smoke.js",
+    "package:smoke": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir --config electron-builder.json --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "20.12.12",
+    "electron": "31.1.0",
+    "electron-builder": "24.13.3",
+    "typescript": "5.4.5"
+  }
+}

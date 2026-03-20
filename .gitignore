@@ -73,6 +73,7 @@ appsettings.Development.json
 appsettings.Local.json
 appsettings.*.json
 !appsettings.json
+!products/KodaClaw/appsettings.Development.json
 secrets.json
 
 ## OS Files

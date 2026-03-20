@@ -1,0 +1,138 @@
+using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Infrastructure.Providers;
+using Microsoft.Extensions.Logging;
+
+namespace KodaClaw.Runtime;
+
+public interface IRuntimeModelProviderFactory
+{
+    IModelProvider Create(RuntimeProviderKind kind, RuntimeConfigurationSnapshot snapshot);
+}
+
+internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProviderFactory
+{
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILoggerFactory? _loggerFactory;
+
+    public DefaultRuntimeModelProviderFactory(
+        IHttpClientFactory httpClientFactory,
+        ILoggerFactory? loggerFactory = null)
+    {
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        _loggerFactory = loggerFactory;
+    }
+
+    public IModelProvider Create(RuntimeProviderKind kind, RuntimeConfigurationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        return kind switch
+        {
+            RuntimeProviderKind.OpenAI => new OpenAIProvider(
+                _httpClientFactory.CreateClient(nameof(OpenAIProvider)),
+                new OpenAIOptions
+                {
+                    ApiKey = snapshot.OpenAIApiKey!,
+                    BaseUrl = snapshot.OpenAIBaseUrl,
+                },
+                _loggerFactory?.CreateLogger<OpenAIProvider>()),
+            RuntimeProviderKind.Anthropic => new AnthropicProvider(
+                _httpClientFactory.CreateClient(nameof(AnthropicProvider)),
+                new AnthropicOptions
+                {
+                    ApiKey = snapshot.AnthropicApiKey!,
+                    BaseUrl = snapshot.AnthropicBaseUrl,
+                    ModelId = snapshot.DefaultModel,
+                },
+                _loggerFactory?.CreateLogger<AnthropicProvider>()),
+            _ => throw new InvalidOperationException("KodaClaw chat is not configured. Set KODACLAW_DEFAULT_MODEL and one provider API key."),
+        };
+    }
+}
+
+public sealed class DynamicModelProvider : IModelProvider
+{
+    private readonly IRuntimeConfigurationResolver _resolver;
+    private readonly IRuntimeModelProviderFactory _factory;
+
+    public DynamicModelProvider(
+        IRuntimeConfigurationResolver resolver,
+        IRuntimeModelProviderFactory factory)
+    {
+        _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+    }
+
+    public string ProviderName
+    {
+        get
+        {
+            var selection = RuntimeProviderSelector.Resolve(_resolver.Resolve());
+            return selection.Kind switch
+            {
+                RuntimeProviderKind.OpenAI => "openai",
+                RuntimeProviderKind.Anthropic => "anthropic",
+                _ => "unconfigured",
+            };
+        }
+    }
+
+    public IAsyncEnumerable<StreamChunk> StreamAsync(
+        ModelRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (provider, snapshot) = CreateProvider();
+        return provider.StreamAsync(NormalizeRequest(request, snapshot), cancellationToken);
+    }
+
+    public Task<ModelResponse> CompleteAsync(
+        ModelRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var (provider, snapshot) = CreateProvider();
+        return provider.CompleteAsync(NormalizeRequest(request, snapshot), cancellationToken);
+    }
+
+    public Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var (provider, _) = CreateProvider();
+            return provider.ValidateAsync(cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            return Task.FromResult(false);
+        }
+    }
+
+    private (IModelProvider Provider, RuntimeConfigurationSnapshot Snapshot) CreateProvider()
+    {
+        var snapshot = _resolver.Resolve();
+        var selection = RuntimeProviderSelector.Resolve(snapshot);
+        if (!selection.IsReady)
+        {
+            throw new InvalidOperationException(selection.ErrorMessage);
+        }
+
+        return (_factory.Create(selection.Kind, snapshot), snapshot);
+    }
+
+    private static ModelRequest NormalizeRequest(
+        ModelRequest request,
+        RuntimeConfigurationSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(snapshot.DefaultModel) ||
+            string.Equals(request.Model, snapshot.DefaultModel, StringComparison.Ordinal))
+        {
+            return request;
+        }
+
+        return request with
+        {
+            Model = snapshot.DefaultModel,
+        };
+    }
+}

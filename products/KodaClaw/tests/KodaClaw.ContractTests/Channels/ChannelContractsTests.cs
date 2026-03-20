@@ -1,0 +1,173 @@
+using System.Text.Json;
+using FluentAssertions;
+using KodaClaw.Contracts;
+using Xunit;
+
+namespace KodaClaw.ContractTests.Channels;
+
+public sealed class ChannelContractsTests
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    [Fact]
+    public void Channel_thread_detail_should_json_round_trip()
+    {
+        var payload = new ChannelThreadDetail(
+            Account: new ChannelAccount(
+                Id: "telegram-main",
+                ConnectorKind: ChannelConnectorKind.Telegram,
+                DisplayName: "Telegram Bot",
+                State: ChannelAccountState.Connected,
+                CreatedAt: new DateTimeOffset(2026, 3, 19, 0, 0, 0, TimeSpan.Zero),
+                UpdatedAt: new DateTimeOffset(2026, 3, 19, 0, 5, 0, TimeSpan.Zero),
+                ExternalAccountId: "bot_001",
+                CredentialReference: "env:TELEGRAM_BOT_TOKEN"),
+            Binding: new ThreadBinding(
+                Id: "binding-001",
+                ConnectorKind: ChannelConnectorKind.Telegram,
+                AccountId: "telegram-main",
+                ExternalThreadId: "chat-10001",
+                ThreadType: ChannelThreadType.DirectMessage,
+                SessionId: "session-channel-001",
+                SessionKind: SessionKind.ChannelDirectMessage,
+                ChannelIdentity: new ChannelIdentity(
+                    Id: "user-10001",
+                    Username: "alice",
+                    DisplayName: "Alice"),
+                PolicyId: "policy-dm-default",
+                DeliveryRuleId: "delivery-draft",
+                CreatedAt: new DateTimeOffset(2026, 3, 19, 0, 1, 0, TimeSpan.Zero),
+                UpdatedAt: new DateTimeOffset(2026, 3, 19, 0, 6, 0, TimeSpan.Zero),
+                LastInboundAt: new DateTimeOffset(2026, 3, 19, 0, 7, 0, TimeSpan.Zero),
+                LastMessagePreview: "hello from telegram"),
+            Policy: new ChannelPolicy(
+                Id: "policy-dm-default",
+                ThreadType: ChannelThreadType.DirectMessage,
+                UpdatedAt: new DateTimeOffset(2026, 3, 19, 0, 2, 0, TimeSpan.Zero),
+                LoadUserProfile: true),
+            DeliveryRule: new DeliveryRule(
+                Id: "delivery-draft",
+                Mode: DeliveryMode.DraftApproval,
+                UpdatedAt: new DateTimeOffset(2026, 3, 19, 0, 3, 0, TimeSpan.Zero),
+                AllowProactiveSend: false),
+            RecentAudit:
+            [
+                new ChannelAuditEntry(
+                    Id: "audit-001",
+                    BindingId: "binding-001",
+                    ConnectorKind: ChannelConnectorKind.Telegram,
+                    AccountId: "telegram-main",
+                    ExternalThreadId: "chat-10001",
+                    ThreadType: ChannelThreadType.DirectMessage,
+                    EventType: "message.received",
+                    CreatedAt: new DateTimeOffset(2026, 3, 19, 0, 7, 0, TimeSpan.Zero),
+                    Summary: "Inbound message accepted.")
+            ],
+            Session: new SessionSummary(
+                SessionId: "session-channel-001",
+                SessionKind: SessionKind.ChannelDirectMessage,
+                Status: new SessionStatusSummary(
+                    IsActiveMainSession: false,
+                    BreakpointState: null,
+                    MessageCount: 8,
+                    PendingApprovalCount: 1),
+                CreatedAt: new DateTimeOffset(2026, 3, 19, 0, 1, 0, TimeSpan.Zero),
+                LastEventAt: new DateTimeOffset(2026, 3, 19, 0, 7, 0, TimeSpan.Zero)),
+            PendingApprovalId: "approval-001",
+            HasPendingDraft: true);
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelThreadDetail>(json, JsonOptions);
+
+        json.Should().Contain("\"binding\"");
+        json.Should().Contain("\"deliveryRule\"");
+        json.Should().Contain("\"recentAudit\"");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.Binding.SessionKind.Should().Be(SessionKind.ChannelDirectMessage);
+        roundTrip.DeliveryRule.Mode.Should().Be(DeliveryMode.DraftApproval);
+        roundTrip.RecentAudit.Should().ContainSingle().Which.EventType.Should().Be("message.received");
+        roundTrip.HasPendingDraft.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Channel_event_envelope_should_json_round_trip()
+    {
+        var payload = new ChannelEventEnvelope(
+            EventId: "event-001",
+            EventType: ChannelEventType.MessageReceived,
+            ConnectorKind: ChannelConnectorKind.GenericWebhook,
+            AccountId: "webhook-default",
+            ExternalThreadId: "hook-thread-001",
+            ThreadType: ChannelThreadType.Group,
+            OccurredAt: new DateTimeOffset(2026, 3, 19, 1, 0, 0, TimeSpan.Zero),
+            Sender: new ChannelIdentity(
+                Id: "sender-001",
+                DisplayName: "Webhook Sender"),
+            ExternalMessageId: "message-001",
+            Text: "payload text",
+            CorrelationId: "corr-001",
+            MetadataJson: """{"eventName":"issue.opened"}""");
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelEventEnvelope>(json, JsonOptions);
+
+        json.Should().Contain("\"eventType\":\"MessageReceived\"");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.ConnectorKind.Should().Be(ChannelConnectorKind.GenericWebhook);
+        roundTrip.ThreadType.Should().Be(ChannelThreadType.Group);
+        roundTrip.Sender.Should().NotBeNull();
+        roundTrip.Sender!.DisplayName.Should().Be("Webhook Sender");
+    }
+
+    [Fact]
+    public void Upsert_channel_account_request_should_json_round_trip()
+    {
+        var payload = new UpsertChannelAccountRequest(
+            Id: "webhook-main",
+            ConnectorKind: ChannelConnectorKind.GenericWebhook,
+            DisplayName: "Generic Webhook",
+            CredentialReference: "env:KODACLAW_WEBHOOK_SECRET",
+            Description: "Loopback integration account",
+            ConfigurationJson: """{"defaultThreadType":"Group"}""",
+            InboundEnabled: true);
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<UpsertChannelAccountRequest>(json, JsonOptions);
+
+        json.Should().Contain("\"connectorKind\":\"GenericWebhook\"");
+        roundTrip.Should().Be(payload);
+    }
+
+    [Fact]
+    public void Channels_query_response_should_json_round_trip()
+    {
+        var payload = new ChannelsQueryResponse(
+        [
+            new ChannelThreadSummary(
+                BindingId: "binding-001",
+                ConnectorKind: ChannelConnectorKind.GenericWebhook,
+                AccountId: "webhook-main",
+                ExternalThreadId: "thread-001",
+                ThreadType: ChannelThreadType.Group,
+                SessionId: "channel-group-001",
+                SessionKind: SessionKind.ChannelGroup,
+                DisplayTitle: "Ops Bridge",
+                DeliveryMode: DeliveryMode.RequireApproval,
+                AccountState: ChannelAccountState.Connected,
+                UpdatedAt: new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero),
+                LastInboundAt: new DateTimeOffset(2026, 3, 19, 8, 1, 0, TimeSpan.Zero),
+                LastMessagePreview: "incident opened",
+                PendingApprovalId: "approval-001",
+                HasPendingDraft: true),
+        ]);
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelsQueryResponse>(json, JsonOptions);
+
+        json.Should().Contain("\"items\"");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.Items.Should().ContainSingle();
+        roundTrip.Items[0].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
+        roundTrip.Items[0].PendingApprovalId.Should().Be("approval-001");
+    }
+}

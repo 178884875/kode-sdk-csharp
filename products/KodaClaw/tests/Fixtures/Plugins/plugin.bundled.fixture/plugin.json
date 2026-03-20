@@ -1,0 +1,27 @@
+{
+  "id": "plugin.bundled.fixture",
+  "name": "Bundled Fixture Plugin",
+  "version": "0.1.0",
+  "types": ["Tool"],
+  "runtime": {
+    "transport": "Stdio",
+    "command": "dotnet",
+    "args": [
+      "../../KodaClaw.PluginFixtureServer/bin/Debug/net10.0/KodaClaw.PluginFixtureServer.dll"
+    ]
+  },
+  "permissions": {
+    "background": true
+  },
+  "capabilities": {
+    "tools": ["echo"]
+  },
+  "display": {
+    "description": "Bundled MCP fixture for Iteration 4 acceptance."
+  },
+  "healthcheck": {
+    "toolName": "health_ping",
+    "intervalSeconds": 30,
+    "timeoutSeconds": 5
+  }
+}

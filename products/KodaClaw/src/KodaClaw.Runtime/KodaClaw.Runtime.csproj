@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KodaClaw.Runtime</AssemblyName>
+    <RootNamespace>KodaClaw.Runtime</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Store.Json\Kode.Agent.Store.Json.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Tools.Builtin\Kode.Agent.Tools.Builtin.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,183 @@
+.control-plane-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.control-plane-two-pane,
+.control-plane-split-pane {
+  display: grid;
+  gap: 18px;
+}
+
+.control-plane-two-pane {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+}
+
+.control-plane-split-pane {
+  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.2fr);
+  margin-top: 16px;
+}
+
+.control-plane-stack {
+  display: grid;
+  gap: 18px;
+}
+
+.control-plane-panel {
+  margin-top: 18px;
+}
+
+.control-plane-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.control-plane-inline-actions,
+.control-plane-item-actions,
+.control-plane-detail-actions,
+.control-plane-banner-actions,
+.control-plane-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.control-plane-inline-actions,
+.control-plane-detail-actions,
+.control-plane-banner-actions {
+  gap: 10px;
+}
+
+.control-plane-item-actions,
+.control-plane-chip-row {
+  gap: 8px;
+}
+
+.control-plane-split-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-plane-split-header--wide {
+  gap: 12px;
+}
+
+.control-plane-card-title {
+  font-size: 1.8rem;
+}
+
+.control-plane-filter {
+  min-width: 144px;
+}
+
+.control-plane-filter--wide {
+  min-width: 156px;
+}
+
+.control-plane-select,
+.control-plane-input {
+  width: 100%;
+}
+
+.control-plane-install-form {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.control-plane-install-submit {
+  align-self: stretch;
+}
+
+.control-plane-list-button {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  gap: 8px;
+}
+
+.control-plane-list-button--selected {
+  border-color: rgba(47, 90, 72, 0.36);
+  box-shadow: 0 12px 24px rgba(41, 26, 12, 0.12);
+}
+
+.control-plane-detail-grid,
+.control-plane-summary-grid,
+.control-plane-risk-grid,
+.control-plane-update-metrics,
+.control-plane-quiet-hours-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.control-plane-detail-grid,
+.control-plane-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.control-plane-update-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.control-plane-quiet-hours-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.control-plane-detail-grid {
+  margin-top: 16px;
+}
+
+.control-plane-compact-copy {
+  margin: 4px 0 0;
+}
+
+.control-plane-zero-margin {
+  margin-bottom: 0;
+}
+
+.control-plane-text-danger {
+  color: var(--danger);
+}
+
+.control-plane-path {
+  overflow-wrap: anywhere;
+}
+
+.control-plane-risk-card,
+.control-plane-update-card {
+  display: grid;
+  gap: 14px;
+}
+
+.control-plane-flex-spread {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-plane-flex-spread--wrap {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 980px) {
+  .control-plane-two-pane,
+  .control-plane-split-pane,
+  .control-plane-detail-grid,
+  .control-plane-summary-grid,
+  .control-plane-update-metrics,
+  .control-plane-quiet-hours-grid,
+  .control-plane-install-form {
+    grid-template-columns: 1fr;
+  }
+}
