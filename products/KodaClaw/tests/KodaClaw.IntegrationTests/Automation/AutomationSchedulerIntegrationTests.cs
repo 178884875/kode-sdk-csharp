@@ -187,6 +187,75 @@ public sealed class AutomationSchedulerIntegrationTests
     }
 
     [Fact]
+    public async Task Tick_should_skip_execution_when_AutomationsEnabled_is_false_in_settings()
+    {
+        var now = new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-settings-gate",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Should not run.",
+                StopReason = StopReason.EndTurn,
+            });
+
+        await fixture.Definitions.UpsertAsync(fixture.BuildDefinition("auto-settings-gate", nextRunAt: null));
+
+        // Disable automations via settings
+        await fixture.Settings.SaveAsync(KodaClawSettings.Default with
+        {
+            AutomationsEnabled = false,
+            UpdatedAt = now,
+        });
+
+        var executed = await fixture.Scheduler.TickAsync();
+
+        executed.Should().Be(0);
+        fixture.SessionService.GetStartCount("auto-settings-gate").Should().Be(0);
+        var runs = await fixture.Runs.ListAsync(new AutomationRunQuery(
+            AutomationId: "auto-settings-gate",
+            Status: null,
+            Limit: 10));
+        runs.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Tick_should_execute_when_AutomationsEnabled_is_true_in_settings()
+    {
+        var now = new DateTimeOffset(2026, 3, 20, 10, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-settings-enabled",
+            new AgentRunResult
+            {
+                Success = true,
+                Response = "Ran with gate open.",
+                StopReason = StopReason.EndTurn,
+            });
+
+        await fixture.Definitions.UpsertAsync(fixture.BuildDefinition("auto-settings-enabled", nextRunAt: null));
+
+        // Enable automations via settings
+        var settings = await fixture.Settings.GetAsync();
+        await fixture.Settings.SaveAsync(settings with
+        {
+            AutomationsEnabled = true,
+            UpdatedAt = now,
+        });
+
+        var executed = await fixture.Scheduler.TickAsync();
+        var runs = await fixture.Runs.ListAsync(new AutomationRunQuery(
+            AutomationId: "auto-settings-enabled",
+            Status: null,
+            Limit: 10));
+
+        executed.Should().Be(1);
+        fixture.SessionService.GetStartCount("auto-settings-enabled").Should().Be(1);
+        runs.Should().ContainSingle(r => r.Status == AutomationRunStatus.Succeeded);
+    }
+
+    [Fact]
     public async Task Fake_clock_with_manual_tick_should_drive_next_run_changes()
     {
         var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
@@ -260,7 +329,16 @@ public sealed class AutomationSchedulerIntegrationTests
             Definitions = _provider.GetRequiredService<IAutomationDefinitionRepository>();
             Runs = _provider.GetRequiredService<IAutomationRunRepository>();
             Inbox = _provider.GetRequiredService<IInboxRepository>();
+            Settings = _provider.GetRequiredService<ISettingsRepository>();
             Scheduler = _provider.GetRequiredService<IAutomationScheduler>();
+
+            // Enable automations by default so scheduler integration tests can tick freely.
+            // Individual tests that want to test the disabled state override this after construction.
+            Settings.SaveAsync(KodaClawSettings.Default with
+            {
+                AutomationsEnabled = true,
+                UpdatedAt = initialUtcNow,
+            }).GetAwaiter().GetResult();
         }
 
         public string RootPath { get; }
@@ -274,6 +352,8 @@ public sealed class AutomationSchedulerIntegrationTests
         public IAutomationRunRepository Runs { get; }
 
         public IInboxRepository Inbox { get; }
+
+        public ISettingsRepository Settings { get; }
 
         public IAutomationScheduler Scheduler { get; }
 

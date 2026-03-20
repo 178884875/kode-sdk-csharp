@@ -8,7 +8,8 @@ public sealed record KodaClawSettings(
     bool QuietHoursEnabled,
     string? QuietHoursStartLocalTime,
     string? QuietHoursEndLocalTime,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    bool AutomationsEnabled = false)
 {
     public static KodaClawSettings Default { get; } = new(
         DefaultLandingRoute: "/chat",
@@ -18,5 +19,6 @@ public sealed record KodaClawSettings(
         QuietHoursEnabled: false,
         QuietHoursStartLocalTime: null,
         QuietHoursEndLocalTime: null,
-        UpdatedAt: DateTimeOffset.UnixEpoch);
+        UpdatedAt: DateTimeOffset.UnixEpoch,
+        AutomationsEnabled: false);
 }

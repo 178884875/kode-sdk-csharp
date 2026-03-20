@@ -33,7 +33,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_enabled,
                 quiet_hours_start,
                 quiet_hours_end,
-                updated_at
+                updated_at,
+                automations_enabled
             FROM app_settings
             WHERE id = $id
             LIMIT 1;
@@ -67,7 +68,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_enabled,
                 quiet_hours_start,
                 quiet_hours_end,
-                updated_at
+                updated_at,
+                automations_enabled
             )
             VALUES (
                 $id,
@@ -78,7 +80,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 $quietHoursEnabled,
                 $quietHoursStart,
                 $quietHoursEnd,
-                $updatedAt
+                $updatedAt,
+                $automationsEnabled
             )
             ON CONFLICT(id) DO UPDATE SET
                 default_landing_route = excluded.default_landing_route,
@@ -88,7 +91,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_enabled = excluded.quiet_hours_enabled,
                 quiet_hours_start = excluded.quiet_hours_start,
                 quiet_hours_end = excluded.quiet_hours_end,
-                updated_at = excluded.updated_at;
+                updated_at = excluded.updated_at,
+                automations_enabled = excluded.automations_enabled;
             """;
 
         BindParameters(command, settings);
@@ -155,6 +159,19 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
 
+            // Migration: add automations_enabled column if not present (introduced in KC-1402).
+            await using var migrateCommand = connection.CreateCommand();
+            migrateCommand.CommandText =
+                "ALTER TABLE app_settings ADD COLUMN automations_enabled INTEGER NOT NULL DEFAULT 0;";
+            try
+            {
+                await migrateCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
             _databasePath = databasePath;
             _initialized = true;
             return databasePath;
@@ -176,6 +193,7 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
         command.Parameters.AddWithValue("$quietHoursStart", (object?)NormalizeQuietHours(settings.QuietHoursStartLocalTime) ?? DBNull.Value);
         command.Parameters.AddWithValue("$quietHoursEnd", (object?)NormalizeQuietHours(settings.QuietHoursEndLocalTime) ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(settings.UpdatedAt));
+        command.Parameters.AddWithValue("$automationsEnabled", settings.AutomationsEnabled ? 1 : 0);
     }
 
     private static KodaClawSettings MapSettings(SqliteDataReader reader)
@@ -188,7 +206,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
             QuietHoursEnabled: reader.GetInt64(4) != 0,
             QuietHoursStartLocalTime: reader.IsDBNull(5) ? null : reader.GetString(5),
             QuietHoursEndLocalTime: reader.IsDBNull(6) ? null : reader.GetString(6),
-            UpdatedAt: ParseTimestamp(reader.GetString(7)));
+            UpdatedAt: ParseTimestamp(reader.GetString(7)),
+            AutomationsEnabled: reader.GetInt64(8) != 0);
     }
 
     private static void Validate(KodaClawSettings settings)

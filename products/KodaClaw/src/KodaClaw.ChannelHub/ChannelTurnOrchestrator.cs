@@ -18,6 +18,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelAuditRepository? _channelAuditRepository;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+    private readonly IChannelThreadSummaryWriter? _summaryWriter;
 
     public ChannelTurnOrchestrator(
         ChannelEventIngestionService ingestionService,
@@ -28,7 +29,8 @@ public sealed class ChannelTurnOrchestrator
         ChannelDeliveryDispatchService deliveryDispatchService,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
-        ICorrelationContextAccessor? correlationContextAccessor = null)
+        ICorrelationContextAccessor? correlationContextAccessor = null,
+        IChannelThreadSummaryWriter? summaryWriter = null)
     {
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
         _channelSessionService = channelSessionService ?? throw new ArgumentNullException(nameof(channelSessionService));
@@ -39,6 +41,7 @@ public sealed class ChannelTurnOrchestrator
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
         _correlationContextAccessor = correlationContextAccessor;
+        _summaryWriter = summaryWriter;
     }
 
     public async Task<ChannelTurnOrchestrationResult> ProcessInboundAsync(
@@ -152,6 +155,7 @@ public sealed class ChannelTurnOrchestrator
                     processing.Binding,
                     dispatch.Outcome);
 
+                await TryWriteThreadSummaryAsync(processing.Binding, dispatch.Outcome, cancellationToken);
                 return new ChannelTurnOrchestrationResult(processing, dispatch.Outcome, ExecutedTurn: true, execution);
             }
 
@@ -185,6 +189,7 @@ public sealed class ChannelTurnOrchestrator
                 processing.Binding,
                 outcome);
 
+            await TryWriteThreadSummaryAsync(processing.Binding, outcome, cancellationToken);
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true, execution);
         }
         catch (Exception ex) when (ex is InvalidOperationException or JsonException or ArgumentException)
@@ -343,6 +348,35 @@ public sealed class ChannelTurnOrchestrator
             SourceEventId: envelope.EventId,
             ReasonCode: reasonCode,
             HasExplicitMention: hasExplicitMention);
+    }
+
+    private async Task TryWriteThreadSummaryAsync(
+        ThreadBinding binding,
+        ChannelTurnOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        if (_summaryWriter is null)
+        {
+            return;
+        }
+
+        if (outcome.Kind is ChannelTurnOutcomeKind.Failed or ChannelTurnOutcomeKind.NoAction)
+        {
+            return;
+        }
+
+        try
+        {
+            await _summaryWriter.WriteAsync(binding, outcome, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Summary write is best-effort; never let it fail the turn pipeline.
+        }
     }
 
     private static string BuildPreview(string text)

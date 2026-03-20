@@ -54,7 +54,7 @@ public static partial class GatewayApp
         }
         builder.Services.AddHostedService<ChannelConnectorHostedService>();
 
-        builder.Services.AddKodaClawAutomation();
+        builder.Services.AddKodaClawAutomation(options => options.Enabled = true);
         builder.Services.AddKodaClawChannelHub();
         builder.Services.AddModelRegistry();
         builder.Services.AddKodaClawStorage();

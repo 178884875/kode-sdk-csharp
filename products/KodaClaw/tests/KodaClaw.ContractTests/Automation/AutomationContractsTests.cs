@@ -126,4 +126,47 @@ public sealed class AutomationContractsTests
             .Should()
             .Be(patchRequest);
     }
+
+    [Fact]
+    public void Settings_default_should_have_AutomationsEnabled_false()
+    {
+        KodaClawSettings.Default.AutomationsEnabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Settings_should_serialize_automations_enabled_field()
+    {
+        var settings = KodaClawSettings.Default with
+        {
+            AutomationsEnabled = true,
+            UpdatedAt = new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero),
+        };
+
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+
+        json.Should().Contain("\"automationsEnabled\":true");
+    }
+
+    [Fact]
+    public void Settings_should_deserialize_without_automations_enabled_field()
+    {
+        // JSON without automationsEnabled (e.g. from older persisted settings)
+        var json = """
+            {
+                "defaultLandingRoute": "/chat",
+                "theme": "System",
+                "requireApprovalForExternalActions": true,
+                "notificationsEnabled": true,
+                "quietHoursEnabled": false,
+                "quietHoursStartLocalTime": null,
+                "quietHoursEndLocalTime": null,
+                "updatedAt": "1970-01-01T00:00:00+00:00"
+            }
+            """;
+
+        var settings = JsonSerializer.Deserialize<KodaClawSettings>(json, JsonOptions);
+
+        settings.Should().NotBeNull();
+        settings!.AutomationsEnabled.Should().BeFalse("backward-compatible default when field is absent");
+    }
 }

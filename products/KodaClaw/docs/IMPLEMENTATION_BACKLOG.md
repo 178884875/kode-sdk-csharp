@@ -335,3 +335,22 @@
   - Scope：新增 `useInboxUnreadCount` hook（30s 轮询，`status=Open&limit=50`），GlobalRail Inbox 项渲染徽标；`position: relative` 补到按钮，`.v2-global-rail__badge` 样式新增。无需后端改动（直接用 items.length）。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npm run typecheck` ✅，`npm test` 47/47 ✅。
+
+## 迭代 14：Automation Live + Workspace Context Depth
+
+- 范围冻结：激活自动化调度器、新增 workspace_read 工具、为 channel 会话写回线程摘要。详见 `docs/ITERATION_14_FREEZE.md`。专注后端，无前端变更。
+- `KC-1401`：`Completed`（2026-03-20）。
+  - User Outcome：Agent（主会话 + 自动化 session）可在对话中按需读取任意 workspace 协议文件，解锁 Nightly Memory Consolidation 自动化（动态读取当日 memory 文件）。
+  - Scope：新增 `WorkspaceReadTool.cs`，注册为 `workspace_read`，加入 `DefaultTools` + `ServiceCollectionExtensions`；targets: identity/soul/user/memory/agents/heartbeat/daily_memory。
+  - Modules：`KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter WorkspaceRead`，`dotnet test tests/KodaClaw.IntegrationTests --filter WorkspaceRead`。
+- `KC-1402`：`Completed`（2026-03-20）。
+  - User Outcome：用户在 `PUT /api/settings` 中将 `automationsEnabled` 设为 `true` 后，HEARTBEAT.md 中 `enabled: true` 的 automation 会在下一个调度 tick 自动执行，无需重启 Gateway。
+  - Scope：`KodaClawSettings` 增加 `AutomationsEnabled: bool = false`；Gateway 注册时 `AutomationSchedulerOptions.Enabled = true`；`AutomationScheduler.TickAsync()` 增加动态设置检查；contract test 验证字段存在。
+  - Modules：`KodaClaw.Contracts`，`KodaClaw.Automation`，`KodaClaw.Gateway`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter AutomationScheduler`，`dotnet test tests/KodaClaw.IntegrationTests --filter AutomationScheduler`，`dotnet test tests/KodaClaw.ContractTests --filter Settings`。
+- `KC-1403`：`Completed`（2026-03-20）。
+  - User Outcome：Telegram/Webhook channel turn 完成后，`workspace/channels/<bindingId>/SUMMARY.md` 自动追加本次交互摘要，下次 channel session 启动时上下文更丰富。
+  - Scope：新增 `IChannelThreadSummaryWriter` + `ChannelThreadSummaryWriter`，`ChannelTurnOrchestrator` 注入（可选）并在 `ExecutedTurn=true` 且非 Failed 时调用写回。
+  - Modules：`KodaClaw.ChannelHub`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelThread`，`dotnet test tests/KodaClaw.IntegrationTests --filter ChannelThread`。

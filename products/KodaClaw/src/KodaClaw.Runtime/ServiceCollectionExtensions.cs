@@ -76,21 +76,23 @@ public static class ServiceCollectionExtensions
             var toolRegistry = sp.GetRequiredService<IToolRegistry>();
             toolRegistry.RegisterBuiltinTools();
 
-            var workspaceService = sp.GetRequiredService<KodaClaw.Contracts.IWorkspaceService>();
+            var workspaceService = sp.GetRequiredService<IWorkspaceService>();
             toolRegistry.Register("workspace_memory_append",
                 _ => new WorkspaceMemoryAppendTool(workspaceService));
             toolRegistry.Register("workspace_protocol_update",
                 _ => new WorkspaceProtocolUpdateTool(workspaceService));
 
-            var canvasRepository = sp.GetRequiredService<KodaClaw.Contracts.ICanvasArtifactRepository>();
+            var canvasRepository = sp.GetRequiredService<ICanvasArtifactRepository>();
             toolRegistry.Register("canvas_upsert",
                 _ => new CanvasUpsertTool(workspaceService, canvasRepository));
 
-            var inboxRepository = sp.GetRequiredService<KodaClaw.Contracts.IInboxRepository>();
+            var inboxRepository = sp.GetRequiredService<IInboxRepository>();
             toolRegistry.Register("inbox_create",
                 _ => new InboxCreateTool(inboxRepository));
             toolRegistry.Register("inbox_read",
                 _ => new InboxReadTool(inboxRepository));
+            toolRegistry.Register("workspace_read",
+                _ => new WorkspaceReadTool(workspaceService));
 
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {

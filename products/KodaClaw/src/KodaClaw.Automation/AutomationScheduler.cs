@@ -17,6 +17,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly IInboxRepository _inboxRepository;
     private readonly IAutomationClock _clock;
     private readonly AutomationSchedulerOptions _options;
+    private readonly ISettingsRepository? _settingsRepository;
     private readonly ILogger<AutomationScheduler>? _logger;
 
     public AutomationScheduler(
@@ -26,6 +27,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         IInboxRepository inboxRepository,
         IAutomationClock clock,
         AutomationSchedulerOptions options,
+        ISettingsRepository? settingsRepository = null,
         ILogger<AutomationScheduler>? logger = null)
     {
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
@@ -34,6 +36,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _inboxRepository = inboxRepository ?? throw new ArgumentNullException(nameof(inboxRepository));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        _settingsRepository = settingsRepository;
         _logger = logger;
     }
 
@@ -53,6 +56,25 @@ public sealed class AutomationScheduler : IAutomationScheduler
         if (!ignoreEnabledFlag && !_options.Enabled)
         {
             return 0;
+        }
+
+        // Dynamic settings gate: check AutomationsEnabled from persisted settings.
+        // This allows runtime enable/disable without restarting the Gateway.
+        if (!ignoreEnabledFlag && _settingsRepository is not null)
+        {
+            try
+            {
+                var settings = await _settingsRepository.GetAsync(cancellationToken);
+                if (!settings.AutomationsEnabled)
+                {
+                    return 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to read AutomationsEnabled from settings; skipping tick.");
+                return 0;
+            }
         }
 
         var now = _clock.UtcNow;

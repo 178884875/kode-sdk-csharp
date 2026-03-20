@@ -50,6 +50,7 @@ public static class ServiceCollectionExtensions
                 inboxRepository,
                 provider.GetRequiredService<IAutomationClock>(),
                 provider.GetRequiredService<AutomationSchedulerOptions>(),
+                provider.GetService<ISettingsRepository>(),
                 provider.GetService<ILogger<AutomationScheduler>>());
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
