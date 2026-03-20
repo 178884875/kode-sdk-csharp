@@ -269,3 +269,28 @@
 - 交付冻结：outbound 路由继续复用 `TelegramConnector` / `GenericWebhookConnector`；bootstrap 草稿由 `POST /api/system/bootstrap-draft` 对外暴露，前端可提交对话记录或种子草稿获取生成结果。
 - `KC-0801`：`Completed`。已新增 `src/KodaClaw.Contracts/{BootstrapDraftMessage,BootstrapDraftRequest,BootstrapDraftResult,IBootstrapDraftService}.cs`、`src/KodaClaw.Runtime/{BootstrapDraftOptions,BootstrapDraftService}.cs` 与 Gateway `POST /api/system/bootstrap-draft` 端点；服务通过 `PromptBuilder` 组装对话记录 / 种子草稿并调用 `IModelProvider.CompleteAsync` 生成 `IdentityMarkdown` / `SoulMarkdown` / `UserMarkdown`；已通过 `tests/KodaClaw.IntegrationTests/Gateway/BootstrapDraftApiIntegrationTests.cs`（2/2 PASS）、`tests/KodaClaw.IntegrationTests/Runtime/BootstrapDraftServiceIntegrationTests.cs` 与最新 `dotnet test KodaClaw.sln -m:1` 验证。
 - `KC-0802`：`Completed`。已新增 `src/KodaClaw.ChannelHub/{ChannelTurnOrchestrator,ChannelDeliveryDispatchService,ChannelDeliveryDispatchResult,ChannelTurnOrchestrationResult}.cs` 与 `src/KodaClaw.Contracts/{ChannelTurnOutcome,ChannelTurnOutcomeKind}.cs`、`src/KodaClaw.Runtime/{ChannelReplyProposal,ChannelTurnExecutionResult}.cs`；`ChannelTurnOrchestrator` 已通过 `ChannelInboundGatewayService` 完整接入 channel inbound 处理路径，支持 `NoAction` / `DraftCreated` / `ApprovalRequested` / `Delivered` / `Failed` 五种 outcome；`ChannelDeliveryDispatchService` 按 `ConnectorKind` 路由至 `TelegramConnector` / `GenericWebhookConnector`，并在成功后更新 `ThreadBinding.LastOutboundAt`、写入 audit + diagnostics；已通过 channel integration tests（17/17 PASS）与最新 `dotnet test KodaClaw.sln -m:1` 验证。
+
+## 迭代 9：Workspace Memory Live
+
+- 范围冻结：修复主会话不加载 workspace 文件的结构性缺口，并实现 Agent 在对话中写回记忆的完整闭环。详见 `docs/ITERATION_9_FREEZE.md`。
+- 架构冻结：主会话 `BuildSystemPromptAsync` 改为异步并加载 `AGENTS.md / IDENTITY.md / SOUL.md / USER.md / MEMORY.md / memory/YYYY-MM-DD.md`；新增 `WorkspaceMemoryAppendTool`（宿主进程工具，注入 `IWorkspaceService`，写 `workspace/memory/YYYY-MM-DD.md`）；`DefaultWorkspaceTemplates.Heartbeat()` 补充 `Nightly Memory Consolidation` 定义（`enabled: false`）。
+- 交付冻结：`workspace_memory_append` 工具同时注入主会话和 Automation 会话；夜间整合 automation 通过读 `MEMORY.md` + `memory/YYYY-MM-DD.md` 后调用同一工具完成 `MEMORY.md` 覆写；Option B（会话结束后自动摘要）延迟不在本迭代。
+- `KC-0901`：`Completed`。主会话 Workspace 上下文加载——`MainSessionService.BuildSystemPrompt()` 改为 `BuildSystemPromptAsync()`，加载六类 workspace 文件（AGENTS/IDENTITY/SOUL/USER/MEMORY/daily memory）后注入 `PromptBuilder.AddContextDocuments()`；已通过 `MainSessionWorkspaceContextIntegrationTests`（5/5 PASS）与 `dotnet test KodaClaw.sln -m:1` 验证。
+- `KC-0902`：`Completed`。`workspace_memory_append` 工具——新增 `src/KodaClaw.Runtime/WorkspaceMemoryAppendTool.cs`，注册到 `MainSessionOptions.DefaultTools`（AutomationSessionOptions 复用相同列表）；`ServiceCollectionExtensions.cs` 注入真实工具实例；已通过 `WorkspaceMemoryAppendToolTests`（8/8 PASS）+ `WorkspaceMemoryAppendIntegrationTests`（5/5 PASS）+ `dotnet test KodaClaw.sln -m:1` 验证。
+- `KC-0903`：`Completed`。夜间记忆整合模板——更新 `DefaultWorkspaceTemplates.Heartbeat()` 加入 `Nightly Memory Consolidation` 条目（schedule: daily 23:45, enabled: false）；template 结构已通过全量回归验证。
+
+## 迭代 10：Workspace Protocol Write
+
+- 范围冻结：让 Agent 能在主对话中语义化地 patch workspace 协议文件（IDENTITY/SOUL/USER/MEMORY/AGENTS），用户只说自然语言，Agent 自主决定写哪个文件与章节；同时修正 HEARTBEAT.md 模板中错误引用工具名的问题。详见 `docs/ITERATION_10_FREEZE.md`。
+- 架构冻结：新增 `WorkspaceProtocolUpdateTool`（章节级 patch，非 append）；`target` 枚举限定五个协议文件；`section` 为空时替换 `#` 标题之后全部正文；section 不存在时末尾追加新章节；写入后触发 `workspace_protocol_updated` 诊断事件。
+- 交付冻结：仅注入主会话；不做格式校验；修改在下次会话启动时生效（system prompt 读取时）；HEARTBEAT.md 模板同步修正引用错误。
+- `KC-1001`：`Completed`。`workspace_protocol_update` 工具——新增 `src/KodaClaw.Runtime/WorkspaceProtocolUpdateTool.cs`（`public static ApplySectionPatch`，三种 patch 路径：无 section 替换正文、有 section 定点替换、section 不存在末尾追加）；注册到 `MainSessionOptions.DefaultTools` 与 `ServiceCollectionExtensions.cs`；`DefaultWorkspaceTemplates` 改为 `public`；已通过 `WorkspaceProtocolUpdateToolTests`（12/12 PASS）+ `WorkspaceProtocolUpdateIntegrationTests`（6/6 PASS）+ `dotnet test KodaClaw.sln -m:1` 验证。
+- `KC-1002`：`Completed`。Heartbeat 模板修正——将 `Nightly Memory Consolidation` 中的引导语从 `workspace_memory_append` 改为 `workspace_protocol_update with target=memory`；补充 `WorkspaceTemplateContractTests`（8/8 PASS）验证模板正确引用工具、路径清洁、关键字段存在；已通过 `dotnet test KodaClaw.sln -m:1` 验证。
+
+## 迭代 11：HEARTBEAT.md → SQLite 热更链路
+
+- 范围冻结：打通 `HeartbeatAutomationCompiler` 到 `AutomationScheduler` 之间缺失的同步链路。用户手动编辑或 Agent 写入 `HEARTBEAT.md` 后，变更须自动反映到 SQLite，使 `AutomationScheduler.TickAsync()` 能够正确调度。详见计划文档。
+- 架构冻结：新增 `IHeartbeatSyncService`（编译 + diff + upsert/delete）与 `HeartbeatFileWatcherHostedService`（启动即同步 + 文件变更监听 + 500ms debounce），均放在 `KodaClaw.Workspace` 模块，通过 `AddKodaClawWorkspace()` 注册；`IAutomationDefinitionRepository` 由 Automation 模块注册，DI 延迟解析无顺序冲突。
+- 关键不变量：同步时保留 `LastRunAt / NextRunAt / LastRunStatus / LastError`，避免修改 HEARTBEAT.md 后意外重置调度状态；文件不存在时保守不清除已有定义；编译失败时保留现有定义并返回 `CompilationFailed=true`。
+- `KC-1101`：`Completed`。新增 `src/KodaClaw.Workspace/HeartbeatSyncService.cs`，包含 `IHeartbeatSyncService` 接口与 `HeartbeatSyncResult` record；同步算法：读文件 → `HeartbeatAutomationCompiler.Compile()` → `IAutomationDefinitionRepository.ListAsync(Source=Heartbeat)` → upsert 保留调度状态 → delete 已删除条目；已通过 `HeartbeatSyncServiceTests`（5/5 PASS，L1 单元）+ `HeartbeatSyncIntegrationTests`（3/3 PASS，L2 真实 SQLite）+ `dotnet test KodaClaw.sln -m:1` 验证。
+- `KC-1102`：`Completed`。新增 `src/KodaClaw.Workspace/HeartbeatFileWatcherHostedService.cs`，`BackgroundService` 在启动时立即执行一次 `SyncAsync()`，随后 `FileSystemWatcher` 监听 `workspace/HEARTBEAT.md` 的 `Changed/Created` 事件，通过 `BoundedChannel(1, DropOldest)` + 500ms debounce 防抖后触发下次同步；目录不存在时安全退出；`ServiceCollectionExtensions.cs` 注册两个新服务，`KodaClaw.Workspace.csproj` 添加 `Microsoft.Extensions.Hosting.Abstractions` / `Logging.Abstractions` 包引用；已通过 L0 编译 + 同上测试套件验证。

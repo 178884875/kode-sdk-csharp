@@ -338,7 +338,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
         Directory.CreateDirectory(sessionDirectory);
-        var prompt = BuildSystemPrompt();
+        var prompt = await BuildSystemPromptAsync(cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         if (await dependencies.Store.ExistsAsync(sessionId, cancellationToken))
@@ -389,7 +389,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     {
         var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
         Directory.CreateDirectory(sessionDirectory);
-        var prompt = BuildSystemPrompt();
+        var prompt = await BuildSystemPromptAsync(cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
@@ -557,12 +557,58 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             _options.Model);
     }
 
-    private PromptBuildResult BuildSystemPrompt()
+    private static readonly IReadOnlyList<string> BaselineContextFiles =
+    [
+        KodaClawWorkspaceLayout.AgentsFile,
+        KodaClawWorkspaceLayout.IdentityFile,
+        KodaClawWorkspaceLayout.SoulFile,
+        KodaClawWorkspaceLayout.UserFile,
+        KodaClawWorkspaceLayout.MemoryFile,
+    ];
+
+    private async Task<PromptBuildResult> BuildSystemPromptAsync(CancellationToken cancellationToken)
     {
+        var workspaceRoot = _workspaceService.RootPath;
+        var workspaceDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        var documents = new List<PromptContextDocument>();
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in BaselineContextFiles)
+        {
+            var absolutePath = Path.Combine(workspaceDirectory, file);
+            await TryAddContextDocumentAsync(absolutePath, workspaceRoot, seenPaths, documents, cancellationToken);
+        }
+
+        var dailyMemoryPath = Path.Combine(
+            workspaceDirectory,
+            "memory",
+            $"{DateTimeOffset.Now:yyyy-MM-dd}.md");
+        await TryAddContextDocumentAsync(dailyMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
+
         return new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)
             .AddBody("Keep actions observable, local-first, and approval-aware.")
+            .AddContextDocuments(documents)
             .Build();
+    }
+
+    private static async Task TryAddContextDocumentAsync(
+        string absolutePath,
+        string workspaceRoot,
+        HashSet<string> seenPaths,
+        ICollection<PromptContextDocument> documents,
+        CancellationToken cancellationToken)
+    {
+        if (!seenPaths.Add(absolutePath) || !File.Exists(absolutePath))
+        {
+            return;
+        }
+
+        var content = await File.ReadAllTextAsync(absolutePath, cancellationToken);
+        var displayPath = absolutePath.StartsWith(workspaceRoot, StringComparison.OrdinalIgnoreCase)
+            ? absolutePath[workspaceRoot.Length..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : absolutePath;
+        documents.Add(new PromptContextDocument(displayPath, content));
     }
 
     private void TrackSession(string sessionId, IAgent agent)

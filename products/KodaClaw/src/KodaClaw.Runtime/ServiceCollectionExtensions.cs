@@ -76,6 +76,12 @@ public static class ServiceCollectionExtensions
             var toolRegistry = sp.GetRequiredService<IToolRegistry>();
             toolRegistry.RegisterBuiltinTools();
 
+            var workspaceService = sp.GetRequiredService<KodaClaw.Contracts.IWorkspaceService>();
+            toolRegistry.Register("workspace_memory_append",
+                _ => new WorkspaceMemoryAppendTool(workspaceService));
+            toolRegistry.Register("workspace_protocol_update",
+                _ => new WorkspaceProtocolUpdateTool(workspaceService));
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
                 ModelProvider = sp.GetRequiredService<IModelProvider>(),

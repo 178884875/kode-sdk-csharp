@@ -25,6 +25,8 @@ public sealed class MainSessionOptions
         "skill_list",
         "skill_activate",
         "skill_resource",
+        "workspace_memory_append",
+        "workspace_protocol_update",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =

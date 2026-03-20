@@ -1,6 +1,6 @@
 namespace KodaClaw.Workspace;
 
-internal static class DefaultWorkspaceTemplates
+public static class DefaultWorkspaceTemplates
 {
     public static string Agents() => """
 # KodaClaw Workspace Rules
@@ -8,6 +8,7 @@ internal static class DefaultWorkspaceTemplates
 - Read identity and user files before major responses.
 - Treat outbound actions as approval-first until the product says otherwise.
 - Keep memory updates concise and grounded in explicit user signals.
+- Use workspace_memory_append when the user shares stable facts, preferences, or decisions worth preserving across sessions.
 """;
 
     public static string Identity() => """
@@ -24,6 +25,7 @@ internal static class DefaultWorkspaceTemplates
 - Prefer clarity over flourish.
 - Protect user trust and local data boundaries.
 - Keep actions observable and reversible where possible.
+- Never send messages, write to external services, or execute high-risk actions without explicit user approval.
 """;
 
     public static string User() => """
@@ -56,8 +58,20 @@ internal static class DefaultWorkspaceTemplates
 - prompt: Check workspace memory files for stale facts and suggest cleanup actions before end of day.
 - enabled: false
 - inputs:
-  - memory/facts
-  - memory/conversations
+  - MEMORY.md
+  - memory/
+
+## Nightly Memory Consolidation
+- schedule: daily 23:45
+- prompt: >
+    Review today's memory captures in the daily file and consolidate them into MEMORY.md.
+    Merge new facts with existing ones, remove duplicates, generalize recurring patterns,
+    and discard transient details. Use workspace_protocol_update with target=memory
+    to overwrite MEMORY.md with the updated consolidated content.
+- enabled: false
+- inputs:
+  - MEMORY.md
+  - memory/YYYY-MM-DD.md
 """;
 
     public static string Bootstrap() => """
