@@ -105,7 +105,10 @@ public sealed class GenericWebhookConnector : IChannelConnector
             envelope = GenericWebhookPayloadParser.Parse(
                 account,
                 payloadJson,
-                configuration.DefaultThreadType);
+                configuration.DefaultThreadType) with
+            {
+                DefaultDeliveryMode = configuration.DefaultDeliveryMode,
+            };
         }
         catch (ArgumentException ex)
         {

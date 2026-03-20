@@ -40,7 +40,8 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 updated_at,
                 last_inbound_at,
                 last_outbound_at,
-                last_message_preview
+                last_message_preview,
+                delivery_mode_override
             )
             VALUES (
                 $id,
@@ -57,7 +58,8 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 $updatedAt,
                 $lastInboundAt,
                 $lastOutboundAt,
-                $lastMessagePreview
+                $lastMessagePreview,
+                $deliveryModeOverride
             )
             ON CONFLICT(id) DO UPDATE SET
                 connector_kind = excluded.connector_kind,
@@ -73,11 +75,38 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 updated_at = excluded.updated_at,
                 last_inbound_at = excluded.last_inbound_at,
                 last_outbound_at = excluded.last_outbound_at,
-                last_message_preview = excluded.last_message_preview;
+                last_message_preview = excluded.last_message_preview,
+                delivery_mode_override = excluded.delivery_mode_override;
             """;
 
         BindBinding(command, binding);
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<bool> UpdateDeliveryModeOverrideAsync(
+        string id,
+        DeliveryMode? deliveryModeOverride,
+        CancellationToken cancellationToken = default)
+    {
+        ChannelHubValidation.ValidateId(id, nameof(id));
+
+        await using var connection = await _database.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE thread_bindings
+            SET delivery_mode_override = $deliveryModeOverride,
+                updated_at = $updatedAt
+            WHERE id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$deliveryModeOverride",
+            (object?)deliveryModeOverride?.ToString() ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updatedAt",
+            ChannelHubValidation.FormatTimestamp(DateTimeOffset.UtcNow));
+
+        var rows = await command.ExecuteNonQueryAsync(cancellationToken);
+        return rows > 0;
     }
 
     public async Task<ThreadBinding?> GetByIdAsync(string id, CancellationToken cancellationToken = default)
@@ -103,7 +132,8 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 updated_at,
                 last_inbound_at,
                 last_outbound_at,
-                last_message_preview
+                last_message_preview,
+                delivery_mode_override
             FROM thread_bindings
             WHERE id = $id
             LIMIT 1;
@@ -147,7 +177,8 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 updated_at,
                 last_inbound_at,
                 last_outbound_at,
-                last_message_preview
+                last_message_preview,
+                delivery_mode_override
             FROM thread_bindings
             WHERE connector_kind = $connectorKind
               AND account_id = $accountId
@@ -193,7 +224,8 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
                 updated_at,
                 last_inbound_at,
                 last_outbound_at,
-                last_message_preview
+                last_message_preview,
+                delivery_mode_override
             FROM thread_bindings
             """);
 
@@ -282,6 +314,7 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
         command.Parameters.AddWithValue("$lastInboundAt", (object?)ChannelHubValidation.FormatTimestampOrNull(binding.LastInboundAt) ?? DBNull.Value);
         command.Parameters.AddWithValue("$lastOutboundAt", (object?)ChannelHubValidation.FormatTimestampOrNull(binding.LastOutboundAt) ?? DBNull.Value);
         command.Parameters.AddWithValue("$lastMessagePreview", (object?)ChannelHubValidation.NormalizeNullableText(binding.LastMessagePreview) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$deliveryModeOverride", (object?)binding.DeliveryModeOverride?.ToString() ?? DBNull.Value);
     }
 
     private static ThreadBinding MapBinding(SqliteDataReader reader)
@@ -305,6 +338,7 @@ public sealed class SqliteThreadBindingRepository : IThreadBindingRepository
             UpdatedAt: ChannelHubValidation.ParseTimestamp(reader.GetString(11)),
             LastInboundAt: reader.IsDBNull(12) ? null : ChannelHubValidation.ParseTimestamp(reader.GetString(12)),
             LastOutboundAt: reader.IsDBNull(13) ? null : ChannelHubValidation.ParseTimestamp(reader.GetString(13)),
-            LastMessagePreview: reader.IsDBNull(14) ? null : reader.GetString(14));
+            LastMessagePreview: reader.IsDBNull(14) ? null : reader.GetString(14),
+            DeliveryModeOverride: reader.IsDBNull(15) ? null : ChannelHubValidation.ParseEnum<DeliveryMode>(reader.GetString(15)));
     }
 }

@@ -5,7 +5,8 @@ namespace KodaClaw.ChannelHub.Connectors.Webhook;
 
 internal sealed record GenericWebhookConnectorConfiguration(
     string? SharedSecret,
-    ChannelThreadType DefaultThreadType)
+    ChannelThreadType DefaultThreadType,
+    DeliveryMode? DefaultDeliveryMode = null)
 {
     public static GenericWebhookConnectorConfiguration FromAccount(
         ChannelAccount account,
@@ -16,6 +17,7 @@ internal sealed record GenericWebhookConnectorConfiguration(
         var sharedSecretFromConfig = default(string);
         var credentialReferenceFromConfig = default(string);
         var defaultThreadType = ChannelThreadType.DirectMessage;
+        DeliveryMode? defaultDeliveryMode = null;
 
         if (!string.IsNullOrWhiteSpace(account.ConfigurationJson))
         {
@@ -37,6 +39,13 @@ internal sealed record GenericWebhookConnectorConfiguration(
                     configuredDefaultThreadType,
                     defaultThreadType);
             }
+
+            var configuredDeliveryMode = GetOptionalString(root, "defaultDeliveryMode");
+            if (!string.IsNullOrWhiteSpace(configuredDeliveryMode)
+                && Enum.TryParse<DeliveryMode>(configuredDeliveryMode, ignoreCase: true, out var parsed))
+            {
+                defaultDeliveryMode = parsed;
+            }
         }
 
         var resolvedSecret = (secretResolver ?? new ChannelSecretResolver()).Resolve(
@@ -46,7 +55,8 @@ internal sealed record GenericWebhookConnectorConfiguration(
 
         return new GenericWebhookConnectorConfiguration(
             SharedSecret: resolvedSecret,
-            DefaultThreadType: defaultThreadType);
+            DefaultThreadType: defaultThreadType,
+            DefaultDeliveryMode: defaultDeliveryMode);
     }
 
     private static string? GetOptionalString(JsonElement element, string propertyName)

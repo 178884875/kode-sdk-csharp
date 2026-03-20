@@ -151,7 +151,7 @@ public sealed class TelegramConnector : IChannelConnector
                         ? Math.Max(nextOffset.Value, candidateOffset)
                         : candidateOffset;
 
-                    var envelope = TryMapToEnvelope(startedAccount.Account, update);
+                    var envelope = TryMapToEnvelope(startedAccount.Account, startedAccount.Configuration, update);
                     if (envelope is null)
                     {
                         continue;
@@ -178,7 +178,7 @@ public sealed class TelegramConnector : IChannelConnector
         }
     }
 
-    private ChannelEventEnvelope? TryMapToEnvelope(ChannelAccount account, TelegramUpdate update)
+    private ChannelEventEnvelope? TryMapToEnvelope(ChannelAccount account, TelegramConnectorConfiguration configuration, TelegramUpdate update)
     {
         if (update is null)
         {
@@ -228,7 +228,8 @@ public sealed class TelegramConnector : IChannelConnector
             Sender: MapSender(message.From),
             Recipient: MapRecipient(chat),
             ExternalMessageId: externalMessageId,
-            Text: text);
+            Text: text,
+            DefaultDeliveryMode: configuration.DefaultDeliveryMode);
     }
 
     private static ChannelThreadType ResolveThreadType(string? chatType)

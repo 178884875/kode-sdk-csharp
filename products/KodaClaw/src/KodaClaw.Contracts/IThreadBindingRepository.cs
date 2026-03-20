@@ -17,4 +17,9 @@ public interface IThreadBindingRepository
         CancellationToken cancellationToken = default);
 
     Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
+
+    Task<bool> UpdateDeliveryModeOverrideAsync(
+        string id,
+        DeliveryMode? deliveryModeOverride,
+        CancellationToken cancellationToken = default);
 }

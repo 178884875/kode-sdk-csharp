@@ -455,6 +455,10 @@ export interface UpdateAutomationDefinitionRequest {
   enabled: boolean;
 }
 
+export interface UpdateThreadSettingsRequest {
+  deliveryMode?: DeliveryMode | null;
+}
+
 export interface SessionStatusSummary {
   isActiveMainSession: boolean;
   breakpointState?: string | null;
@@ -541,6 +545,7 @@ export interface CanvasArtifact {
   createdAt: string;
   updatedAt: string;
   metadataJson?: string | null;
+  contentText?: string | null;
 }
 
 export interface CanvasQueryResponse {

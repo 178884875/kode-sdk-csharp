@@ -469,7 +469,22 @@ export function CanvasDesk() {
             </div>
 
             <div className="canvas-desk__preview-surface" style={previewSurfaceStyle}>
-              {previewEntryUrl ? (
+              {selectedArtifact?.contentText != null && selectedArtifact.kind !== "Html" ? (
+                <pre
+                  data-testid="canvas-content-text"
+                  style={{ whiteSpace: "pre-wrap", margin: 0, padding: 16 }}
+                >
+                  {selectedArtifact.contentText}
+                </pre>
+              ) : selectedArtifact?.contentText != null && selectedArtifact.kind === "Html" ? (
+                <iframe
+                  title={text.previewFrameTitle}
+                  data-testid="canvas-entry-frame"
+                  srcDoc={selectedArtifact.contentText}
+                  sandbox="allow-scripts"
+                  style={{ width: "100%", height: 500, border: "none", display: "block" }}
+                />
+              ) : previewEntryUrl ? (
                 <iframe
                   title={text.previewFrameTitle}
                   data-testid="canvas-entry-frame"

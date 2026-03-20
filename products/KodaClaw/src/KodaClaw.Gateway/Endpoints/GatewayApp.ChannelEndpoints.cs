@@ -370,6 +370,55 @@ public static partial class GatewayApp
             return Results.Ok(detail);
         });
 
+        channels.MapPatch("/threads/{bindingId}/settings", async (
+            HttpContext context,
+            string bindingId,
+            UpdateThreadSettingsRequest request,
+            IConfiguration configuration,
+            IThreadBindingRepository threadBindingRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                return Results.Unauthorized();
+            }
+
+            if (request.DeliveryMode is null)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.delivery_mode_required",
+                    Message: "At least one setting field is required."));
+            }
+
+            var found = await threadBindingRepository.UpdateDeliveryModeOverrideAsync(
+                bindingId,
+                request.DeliveryMode,
+                cancellationToken);
+
+            if (!found)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "channel.thread_not_found",
+                    Message: "Channel thread was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.channels",
+                eventType: "gateway.channels.thread_settings_updated",
+                level: "info",
+                message: "Channel thread settings updated.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["bindingId"] = bindingId,
+                    ["deliveryMode"] = request.DeliveryMode?.ToString(),
+                });
+
+            return Results.NoContent();
+        });
+
         channels.MapGet("/threads/{bindingId}/audit", async (
             HttpContext context,
             string bindingId,

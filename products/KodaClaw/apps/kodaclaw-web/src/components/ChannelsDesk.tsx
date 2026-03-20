@@ -5,6 +5,7 @@ import {
   fetchChannelThreadAudit,
   fetchChannelThreadDetail,
   fetchChannelThreads,
+  updateThreadSettings,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import type {
@@ -323,6 +324,7 @@ export function ChannelsDesk() {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [updatingDelivery, setUpdatingDelivery] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const listRequestRef = useRef(0);
@@ -596,6 +598,20 @@ export function ChannelsDesk() {
     await loadDetail(bindingId);
   }
 
+  async function handleDeliveryModeChange(bindingId: string, mode: DeliveryMode) {
+    setUpdatingDelivery(true);
+    setError(null);
+
+    try {
+      await updateThreadSettings(bindingId, { deliveryMode: mode });
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : text.loadDetailError);
+    } finally {
+      setUpdatingDelivery(false);
+    }
+  }
+
   return (
     <section className="bootstrap-panel" data-testid="channels-desk">
       <div className="section-eyebrow">{text.eyebrow}</div>
@@ -754,9 +770,22 @@ export function ChannelsDesk() {
                     {resolveSessionKindLabel(threadDetail.binding.sessionKind)}
                   </span>
                   <span className="metric-label">{text.detail.deliveryMode}</span>
-                  <span className="metric-value">
-                    {resolveDeliveryModeLabel(threadDetail.deliveryRule.mode)}
-                  </span>
+                  <select
+                    className="bootstrap-form__textarea"
+                    data-testid="channel-thread-delivery-mode-select"
+                    value={threadDetail.deliveryRule.mode}
+                    disabled={updatingDelivery}
+                    onChange={(event) => {
+                      void handleDeliveryModeChange(
+                        threadDetail.binding.id,
+                        event.target.value as DeliveryMode,
+                      );
+                    }}
+                  >
+                    <option value="AutoSend">{text.deliveryMode.AutoSend}</option>
+                    <option value="DraftApproval">{text.deliveryMode.DraftApproval}</option>
+                    <option value="RequireApproval">{text.deliveryMode.RequireApproval}</option>
+                  </select>
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">{text.detail.policy}</span>

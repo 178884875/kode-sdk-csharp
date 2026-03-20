@@ -96,7 +96,8 @@ internal sealed class SqliteChannelHubDatabase
                     updated_at TEXT NOT NULL,
                     last_inbound_at TEXT NULL,
                     last_outbound_at TEXT NULL,
-                    last_message_preview TEXT NULL
+                    last_message_preview TEXT NULL,
+                    delivery_mode_override TEXT NULL
                 );
 
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_thread_bindings_connector_account_thread
@@ -112,6 +113,15 @@ internal sealed class SqliteChannelHubDatabase
                     ON thread_bindings(thread_type, updated_at DESC, created_at DESC);
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
+
+            // Incremental migrations for existing databases
+            await using var migrationCommand = connection.CreateCommand();
+            migrationCommand.CommandText =
+                """
+                ALTER TABLE thread_bindings ADD COLUMN delivery_mode_override TEXT NULL;
+                """;
+            try { await migrationCommand.ExecuteNonQueryAsync(cancellationToken); }
+            catch (SqliteException) { /* column already exists */ }
 
             _databasePath = databasePath;
             _initialized = true;

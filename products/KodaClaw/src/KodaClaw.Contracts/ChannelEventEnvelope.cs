@@ -15,4 +15,5 @@ public sealed record ChannelEventEnvelope(
     string? CorrelationId = null,
     string? BindingId = null,
     string? SessionId = null,
-    string? MetadataJson = null);
+    string? MetadataJson = null,
+    DeliveryMode? DefaultDeliveryMode = null);

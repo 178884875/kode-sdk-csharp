@@ -62,7 +62,8 @@ public sealed class ChannelEventIngestionService
         var deliveryRule = CreateDefaultDeliveryRule(
             binding.ThreadType,
             occurredAt,
-            binding.DeliveryRuleId);
+            binding.DeliveryRuleId,
+            binding.DeliveryModeOverride);
 
         ChannelAuditEntry? auditEntry = null;
         if (_channelAuditRepository is not null)
@@ -138,7 +139,8 @@ public sealed class ChannelEventIngestionService
             CreatedAt: occurredAt,
             UpdatedAt: occurredAt,
             LastInboundAt: occurredAt,
-            LastMessagePreview: preview);
+            LastMessagePreview: preview,
+            DeliveryModeOverride: envelope.DefaultDeliveryMode);
     }
 
     private static ChannelIdentity ResolveThreadIdentity(ChannelEventEnvelope envelope)
@@ -264,9 +266,10 @@ public sealed class ChannelEventIngestionService
     private static DeliveryRule CreateDefaultDeliveryRule(
         ChannelThreadType threadType,
         DateTimeOffset updatedAt,
-        string? deliveryRuleId = null)
+        string? deliveryRuleId = null,
+        DeliveryMode? modeOverride = null)
     {
-        var mode = threadType switch
+        var mode = modeOverride ?? threadType switch
         {
             ChannelThreadType.DirectMessage => DeliveryMode.AutoSend,
             ChannelThreadType.Group => DeliveryMode.DraftApproval,

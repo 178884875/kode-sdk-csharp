@@ -51,6 +51,7 @@ import {
   type SessionDetail,
   type SessionsQueryResponse,
   type UpdateAutomationDefinitionRequest,
+  type UpdateThreadSettingsRequest,
   type UpdateCheckRequest,
   type UpdateModelEndpointRequest,
   type UpdateStateResponse,
@@ -474,6 +475,19 @@ export async function fetchChannelThreadAudit(
       signal,
     },
   );
+}
+
+export async function updateThreadSettings(
+  bindingId: string,
+  request: UpdateThreadSettingsRequest,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestVoid(`/api/channels/threads/${bindingId}/settings`, {
+    method: "PATCH",
+    headers: buildHeaders(true),
+    body: JSON.stringify(request),
+    signal,
+  });
 }
 
 export async function fetchApproval(id: string, signal?: AbortSignal): Promise<Approval> {

@@ -387,3 +387,22 @@
   - Scope：（1）`ChannelDeliveryGovernanceService` payloadJson 加 token（SHA256 前 3 字节，6位大写 hex），`BuildApprovalToken` public static；（2）`ChannelDeliveryEvaluationResult` 加 `ApprovalToken` 字段；（3）`ChannelDeliveryDispatchService` 新增 `SendNotificationAsync()`（best-effort，无审计）；（4）新增纯静态 `ChannelApprovalResponseParser`（识别 ok/yes/approve/send / no/cancel/reject + 可选 6位 hex token）；（5）`ChannelTurnOrchestrator` 前置审批响应检测：单 pending 自动匹配、多 pending + 无 token 返回 hint、有 token 精确匹配；通过 `SendNotificationAsync` 发回审批通知。
   - Modules：`src/KodaClaw.ChannelHub`。
   - Verification：Unit 191/191 ✓（含 40 条 KC-1601/1602 专项）；Integration 206/206 ✓；Contract 84/84 ✓。`make test-solution` 全绿。
+
+## 迭代 17：前端追平三件套
+
+- 范围冻结：关闭三个「后端已通但前端不可见/不可配」缺口。详见 `docs/ITERATION_17_FREEZE.md`。
+- `KC-1701`：`Pending`。
+  - User Outcome：用户在 Canvas Desk 能看到 Agent 通过 `canvas_upsert` 发布的所有产物，点击后可直接阅读内容（Markdown 渲染 / HTML 沙盒预览）。
+  - Scope：`CanvasDesk.tsx` 实现产物列表 + 右侧内容渲染面板；复用已有 `GET /api/canvas` 和 `GET /api/canvas/{id}` API。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run test -- canvas-desk`，手动在 Chat 中调用 `canvas_upsert` 后 Canvas Desk 可见内容。
+- `KC-1702`：`Pending`。
+  - User Outcome：用户在 Automations Desk 选中一条定义后能看到最近运行记录（时间、状态、摘要），确认自动化是否按计划执行。
+  - Scope：`AutomationsDesk.tsx` 增加运行历史展开区；复用已有 `GET /api/automations/runs` API。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run test -- automations-desk`。
+- `KC-1703`：`Pending`。
+  - User Outcome：用户在 Channels Desk 可直接切换每个 thread binding 的 Delivery Mode（AutoSend / DraftApproval / RequireApproval），无需手动调 API 或改 SQLite。
+  - Scope：后端：`thread_bindings` 加 `delivery_mode_override` 列 + `PATCH /api/channels/threads/{id}/settings` 端点；前端：Channels Desk 线程详情加模式选择器。
+  - Modules：`src/KodaClaw.ChannelHub`、`src/KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter DeliveryMode`；UI 改模式后发消息验证行为变化。

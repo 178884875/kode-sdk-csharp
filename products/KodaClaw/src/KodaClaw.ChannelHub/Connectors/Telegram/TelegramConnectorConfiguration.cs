@@ -5,7 +5,8 @@ namespace KodaClaw.ChannelHub.Connectors.Telegram;
 
 internal sealed record TelegramConnectorConfiguration(
     string BotToken,
-    int LongPollingTimeoutSeconds)
+    int LongPollingTimeoutSeconds,
+    DeliveryMode? DefaultDeliveryMode = null)
 {
     private const int DefaultPollingTimeoutSeconds = 25;
 
@@ -24,6 +25,7 @@ internal sealed record TelegramConnectorConfiguration(
         var tokenFromConfig = default(string);
         var credentialReferenceFromConfig = default(string);
         var pollingTimeoutSeconds = DefaultPollingTimeoutSeconds;
+        DeliveryMode? defaultDeliveryMode = null;
 
         if (!string.IsNullOrWhiteSpace(account.ConfigurationJson))
         {
@@ -42,6 +44,13 @@ internal sealed record TelegramConnectorConfiguration(
             {
                 pollingTimeoutSeconds = Math.Clamp(configuredPollingTimeout.Value, 1, 60);
             }
+
+            var configuredDeliveryMode = GetOptionalString(root, "defaultDeliveryMode");
+            if (!string.IsNullOrWhiteSpace(configuredDeliveryMode)
+                && Enum.TryParse<DeliveryMode>(configuredDeliveryMode, ignoreCase: true, out var parsed))
+            {
+                defaultDeliveryMode = parsed;
+            }
         }
 
         var botToken = (secretResolver ?? new ChannelSecretResolver()).Resolve(
@@ -57,7 +66,8 @@ internal sealed record TelegramConnectorConfiguration(
 
         return new TelegramConnectorConfiguration(
             BotToken: botToken,
-            LongPollingTimeoutSeconds: pollingTimeoutSeconds);
+            LongPollingTimeoutSeconds: pollingTimeoutSeconds,
+            DefaultDeliveryMode: defaultDeliveryMode);
     }
 
     private static int? GetOptionalInt(JsonElement element, string propertyName)
