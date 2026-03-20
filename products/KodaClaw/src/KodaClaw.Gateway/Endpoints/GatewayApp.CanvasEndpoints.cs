@@ -118,13 +118,62 @@ public static partial class GatewayApp
                     ["artifactId"] = artifact?.Id,
                 });
 
-            var entryPath = artifact?.EntryPath ?? DefaultCanvasEntryPath;
-            return Results.Ok(new CanvasEntryResponse(
-                EntryUrl: BuildCanvasEntryUrl(entryPath),
-                EntryPath: entryPath,
-                ArtifactId: artifact?.Id,
-                Route: artifact?.Route,
-                Title: artifact?.Title));
+            return Results.Ok(BuildCanvasEntryResponse(context, configuration, artifact));
+        });
+
+        canvas.MapGet("/{id}/entry", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            ICanvasArtifactRepository canvasRepository,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to canvas entry endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var artifact = await canvasRepository.GetByIdAsync(id, cancellationToken);
+            if (artifact is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.canvas",
+                    eventType: "gateway.canvas.not_found",
+                    level: "warning",
+                    message: "Requested canvas artifact entry was not found.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["artifactId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "canvas.not_found",
+                    Message: "Canvas artifact was not found."));
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.canvas",
+                eventType: "gateway.canvas.entry_fetched",
+                level: "info",
+                message: "Fetched canvas artifact preview entry.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["artifactId"] = artifact.Id,
+                    ["kind"] = artifact.Kind.ToString(),
+                });
+
+            return Results.Ok(BuildCanvasEntryResponse(context, configuration, artifact));
         });
 
         canvas.MapGet("/{id}", async (
@@ -289,6 +338,43 @@ public static partial class GatewayApp
                 configuration,
                 workspaceService,
                 diagnosticsService,
+                path,
+                cancellationToken);
+        });
+
+        canvas.MapGet("/preview/{previewToken}", async (
+            HttpContext context,
+            string previewToken,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            return await ServeCanvasPreviewAsync(
+                context,
+                configuration,
+                workspaceService,
+                diagnosticsService,
+                previewToken,
+                path: null,
+                cancellationToken);
+        });
+
+        canvas.MapGet("/preview/{previewToken}/{**path}", async (
+            HttpContext context,
+            string previewToken,
+            string? path,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            return await ServeCanvasPreviewAsync(
+                context,
+                configuration,
+                workspaceService,
+                diagnosticsService,
+                previewToken,
                 path,
                 cancellationToken);
         });

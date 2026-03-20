@@ -16,4 +16,5 @@ public sealed record ChannelThreadSummary(
     DateTimeOffset? LastOutboundAt = null,
     string? LastMessagePreview = null,
     string? PendingApprovalId = null,
-    bool HasPendingDraft = false);
+    bool HasPendingDraft = false,
+    ChannelTurnOutcome? LastTurnOutcome = null);

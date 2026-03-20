@@ -312,14 +312,15 @@ test("KC-0212 models/settings desk: manage endpoints and persist settings", asyn
   const desk = page.getByTestId("models-settings-desk");
   await expect(desk).toBeVisible();
   await expect(page.getByTestId("models-list")).toBeVisible();
+  await expect(page.getByTestId("model-detail")).toContainText("OpenAI Core");
   await expect(page.getByTestId("settings-form")).toBeVisible();
   await expect(page.getByTestId("settings-update-watch")).toBeVisible();
   await expect(page.getByTestId("settings-risk-briefing")).toBeVisible();
-  await expect(page.getByText("更新观察台")).toBeVisible();
-  await expect(page.getByText("沙箱与风险简报")).toBeVisible();
+  await expect(page.getByTestId("settings-update-watch").getByText("更新观察台")).toBeVisible();
+  await expect(page.getByTestId("settings-risk-briefing").getByText("沙箱与风险简报")).toBeVisible();
   await expect(page.getByTestId("update-component-gateway")).toBeVisible();
   await expect(page.getByTestId("update-component-desktop")).toBeVisible();
-  await expect(page.getByText("Fixture Plugin")).toBeVisible();
+  await expect(page.getByTestId("settings-risk-briefing").getByText("Fixture Plugin")).toBeVisible();
   const initialUpdateCheckCount = updateCheckCount;
   await page.getByTestId("settings-update-check").click();
   await expect.poll(() => updateCheckCount).toBe(initialUpdateCheckCount + 1);
@@ -331,11 +332,12 @@ test("KC-0212 models/settings desk: manage endpoints and persist settings", asyn
   await page.getByTestId("model-api-key-env").fill("PROXY_X_KEY");
   await page.getByTestId("model-create-submit").click();
 
-  await expect(page.getByText("Proxy X")).toBeVisible();
+  await expect(page.getByTestId("model-item-model-c")).toContainText("Proxy X");
+  await expect(page.getByTestId("model-detail")).toContainText("Proxy X");
 
   const modelItems = page.getByTestId("models-list").locator("li");
   await modelItems.first().getByTestId("model-default").click();
-  await expect(modelItems.first().locator(".mode-badge")).toHaveText("默认");
+  await expect(modelItems.first()).toContainText("默认");
 
   await page.getByTestId("settings-theme").selectOption("Dark");
   await page.getByTestId("settings-save").click();

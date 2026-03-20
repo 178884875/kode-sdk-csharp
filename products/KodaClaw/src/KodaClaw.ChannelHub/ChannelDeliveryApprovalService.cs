@@ -1,6 +1,4 @@
 using System.Text.Json;
-using KodaClaw.ChannelHub.Connectors.Telegram;
-using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -15,8 +13,7 @@ public sealed class ChannelDeliveryApprovalService
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly IThreadBindingRepository _threadBindingRepository;
     private readonly IChannelAuditRepository? _channelAuditRepository;
-    private readonly TelegramConnector _telegramConnector;
-    private readonly GenericWebhookConnector _genericWebhookConnector;
+    private readonly ChannelDeliveryDispatchService _deliveryDispatchService;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
 
@@ -25,8 +22,7 @@ public sealed class ChannelDeliveryApprovalService
         IInboxRepository inboxRepository,
         IChannelAccountRepository channelAccountRepository,
         IThreadBindingRepository threadBindingRepository,
-        TelegramConnector telegramConnector,
-        GenericWebhookConnector genericWebhookConnector,
+        ChannelDeliveryDispatchService deliveryDispatchService,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null)
@@ -35,8 +31,7 @@ public sealed class ChannelDeliveryApprovalService
         _inboxRepository = inboxRepository ?? throw new ArgumentNullException(nameof(inboxRepository));
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _threadBindingRepository = threadBindingRepository ?? throw new ArgumentNullException(nameof(threadBindingRepository));
-        _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
-        _genericWebhookConnector = genericWebhookConnector ?? throw new ArgumentNullException(nameof(genericWebhookConnector));
+        _deliveryDispatchService = deliveryDispatchService ?? throw new ArgumentNullException(nameof(deliveryDispatchService));
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
         _correlationContextAccessor = correlationContextAccessor;
@@ -164,6 +159,18 @@ public sealed class ChannelDeliveryApprovalService
             eventType: approve ? "approval.approved" : "approval.rejected",
             summary: BuildDecisionSummary(approve, payload.MessageText, note),
             createdAt: now,
+            outcome: approve
+                ? null
+                : new ChannelTurnOutcome(
+                    Kind: ChannelTurnOutcomeKind.NoAction,
+                    Summary: BuildDecisionSummary(approved: false, payload.MessageText, note),
+                    OccurredAt: now,
+                    ReplyText: payload.MessageText,
+                    DeliveryMode: payload.DeliveryMode,
+                    ApprovalId: approval.Id,
+                    InboxItemId: approval.InboxItemId,
+                    DraftId: payload.DraftId,
+                    ReasonCode: "approval_rejected"),
             cancellationToken);
 
         RecordDiagnosticEvent(
@@ -186,119 +193,42 @@ public sealed class ChannelDeliveryApprovalService
                 decidedApproval);
         }
 
-        try
-        {
-            await SendAsync(
-                account,
-                new ChannelOutboundDraft(
-                    DraftId: payload.DraftId,
-                    BindingId: payload.BindingId,
-                    ConnectorKind: payload.ConnectorKind,
-                    AccountId: payload.AccountId,
-                    ExternalThreadId: payload.ExternalThreadId,
-                    MessageText: payload.MessageText,
-                    DeliveryMode: payload.DeliveryMode,
-                    CreatedAt: now,
-                    SessionId: approval.SessionId,
-                    CorrelationId: approval.CorrelationId ?? _correlationContextAccessor?.CorrelationId,
-                    ApprovalId: approval.Id),
-                cancellationToken);
-        }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            await AppendAuditAsync(
-                binding,
-                payload,
-                decidedApproval,
-                eventType: "delivery.failed",
-                summary: $"Delivery failed: {ex.Message}",
-                createdAt: DateTimeOffset.UtcNow,
-                cancellationToken);
+        var dispatch = await _deliveryDispatchService.DispatchAsync(
+            account,
+            binding,
+            new ChannelOutboundDraft(
+                DraftId: payload.DraftId,
+                BindingId: payload.BindingId,
+                ConnectorKind: payload.ConnectorKind,
+                AccountId: payload.AccountId,
+                ExternalThreadId: payload.ExternalThreadId,
+                MessageText: payload.MessageText,
+                DeliveryMode: payload.DeliveryMode,
+                CreatedAt: now,
+                SessionId: approval.SessionId,
+                CorrelationId: approval.CorrelationId ?? _correlationContextAccessor?.CorrelationId,
+                ApprovalId: approval.Id),
+            new ChannelTurnOutcome(
+                Kind: ChannelTurnOutcomeKind.Delivered,
+                Summary: BuildPreview(payload.MessageText),
+                OccurredAt: now,
+                ReplyText: payload.MessageText,
+                DeliveryMode: payload.DeliveryMode,
+                ApprovalId: approval.Id,
+                DraftId: payload.DraftId),
+            cancellationToken);
 
-            RecordDiagnosticEvent(
-                eventType: "channel.delivery.failed",
-                level: "error",
-                message: ex.Message,
-                approval: decidedApproval,
-                binding: binding,
-                payload: payload,
-                account: account);
-
+        if (!dispatch.Succeeded)
+        {
             return new ChannelDeliveryApprovalDispatchResult(
                 ChannelDeliveryApprovalDispatchStatus.DeliveryFailed,
                 decidedApproval,
-                ex.Message);
+                dispatch.ErrorMessage);
         }
-
-        var deliveredAt = DateTimeOffset.UtcNow;
-        await _threadBindingRepository.UpsertAsync(
-            binding with
-            {
-                UpdatedAt = deliveredAt,
-                LastOutboundAt = deliveredAt,
-                LastMessagePreview = BuildPreview(payload.MessageText),
-            },
-            cancellationToken);
-
-        await AppendAuditAsync(
-            binding,
-            payload,
-            decidedApproval,
-            eventType: "delivery.sent",
-            summary: BuildPreview(payload.MessageText),
-            createdAt: deliveredAt,
-            cancellationToken);
-
-        RecordDiagnosticEvent(
-            eventType: "channel.delivery.sent",
-            level: "info",
-            message: "Channel delivery completed successfully.",
-            approval: decidedApproval,
-            binding: binding,
-            payload: payload,
-            account: account);
 
         return new ChannelDeliveryApprovalDispatchResult(
             ChannelDeliveryApprovalDispatchStatus.Completed,
             decidedApproval);
-    }
-
-    private async Task SendAsync(
-        ChannelAccount account,
-        ChannelOutboundDraft draft,
-        CancellationToken cancellationToken)
-    {
-        switch (account.ConnectorKind)
-        {
-            case ChannelConnectorKind.Telegram:
-                await EnsureTelegramStartedAsync(account, cancellationToken);
-                await _telegramConnector.SendAsync(draft, cancellationToken);
-                return;
-            case ChannelConnectorKind.GenericWebhook:
-                await _genericWebhookConnector.SendAsync(draft, cancellationToken);
-                return;
-            default:
-                throw new NotSupportedException(
-                    $"Connector '{account.ConnectorKind}' does not support channel delivery dispatch.");
-        }
-    }
-
-    private async Task EnsureTelegramStartedAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            await _telegramConnector.StartAsync(
-                account,
-                static (_, _) => Task.CompletedTask,
-                cancellationToken);
-        }
-        catch (InvalidOperationException)
-        {
-            // Approval dispatch may run after the connector has already been started by
-            // another inbound path; treat that as ready-for-send.
-        }
     }
 
     private async Task AppendAuditAsync(
@@ -308,6 +238,7 @@ public sealed class ChannelDeliveryApprovalService
         string eventType,
         string summary,
         DateTimeOffset createdAt,
+        ChannelTurnOutcome? outcome,
         CancellationToken cancellationToken)
     {
         if (_channelAuditRepository is null)
@@ -329,7 +260,7 @@ public sealed class ChannelDeliveryApprovalService
                 ApprovalId: approval.Id,
                 DeliveryMode: payload.DeliveryMode,
                 Summary: summary,
-                MetadataJson: BuildAuditMetadata(payload, approval)),
+                MetadataJson: BuildAuditMetadata(payload, approval, outcome)),
             cancellationToken);
     }
 
@@ -450,8 +381,33 @@ public sealed class ChannelDeliveryApprovalService
             : $"{action}: {preview} ({note.Trim()})";
     }
 
-    private static string BuildAuditMetadata(StoredChannelDeliveryPayload payload, Approval approval)
+    private static string BuildAuditMetadata(
+        StoredChannelDeliveryPayload payload,
+        Approval approval,
+        ChannelTurnOutcome? outcome)
     {
+        if (outcome is not null)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                outcome.Kind,
+                outcome.Summary,
+                outcome.OccurredAt,
+                outcome.ReplyText,
+                outcome.DeliveryMode,
+                outcome.ApprovalId,
+                outcome.InboxItemId,
+                outcome.DraftId,
+                outcome.SourceEventId,
+                outcome.ReasonCode,
+                outcome.HasExplicitMention,
+                payload.BindingId,
+                payload.AccountId,
+                payload.ExternalThreadId,
+                payload.ConnectorKind,
+            }, JsonOptions);
+        }
+
         return JsonSerializer.Serialize(new
         {
             draftId = payload.DraftId,

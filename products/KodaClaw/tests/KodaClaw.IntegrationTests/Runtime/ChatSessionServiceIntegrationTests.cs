@@ -4,6 +4,7 @@ using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
+using Kode.Agent.Store.Json;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Runtime;
@@ -25,6 +26,38 @@ public sealed class ChatSessionServiceIntegrationTests
         events[0].Timestamp.Should().NotBeNull();
         events[1].Reason.Should().NotBeNullOrWhiteSpace();
         events.Select(item => item.SessionId).Distinct().Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Stream_main_session_should_persist_ready_breakpoint_after_completion()
+    {
+        using var fixture = new RuntimeFixture(new StubModelProvider());
+        await using var mainSessionService = fixture.CreateMainSessionService();
+        var chatService = new ChatSessionService(mainSessionService);
+
+        var events = await CollectAsync(chatService.StreamMainSessionAsync(new ChatStreamRequest("persist ready")));
+        var sessionId = events.Select(item => item.SessionId).Distinct().Single();
+
+        AgentInfo? info = null;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            info = await fixture.LoadPersistedInfoAsync(sessionId);
+            if (info?.Breakpoint == BreakpointState.Ready)
+            {
+                break;
+            }
+
+            await Task.Delay(50);
+        }
+
+        info.Should().NotBeNull();
+        info!.Breakpoint.Should().Be(BreakpointState.Ready);
+
+        var promptReport = await SessionPromptReportStore.TryReadAsync(
+            fixture.Workspace.GetSessionDirectory(sessionId));
+        promptReport.Should().NotBeNull();
+        promptReport!.ProfileId.Should().Be("Main");
+        promptReport.SystemPrompt.Should().Contain("Id: Main");
     }
 
     [Fact]
@@ -111,6 +144,12 @@ public sealed class ChatSessionServiceIntegrationTests
                     Model = "stub-model",
                     MaxIterations = 4,
                 });
+        }
+
+        public Task<AgentInfo?> LoadPersistedInfoAsync(string sessionId)
+        {
+            var store = new JsonAgentStore(Path.Combine(RootPath, "sessions"));
+            return store.LoadInfoAsync(sessionId);
         }
 
         public void Dispose()

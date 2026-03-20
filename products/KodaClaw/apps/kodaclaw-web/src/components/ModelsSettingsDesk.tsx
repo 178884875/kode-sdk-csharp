@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
@@ -38,6 +38,8 @@ type ModelDraft = {
   enabled: boolean;
   supportsToolCalling: boolean;
 };
+
+type DeskStage = "model" | "runtime" | "updates" | "risk";
 
 const DEFAULT_MODEL_DRAFT: ModelDraft = {
   displayName: "",
@@ -175,6 +177,30 @@ export function ModelsSettingsDesk() {
         riskEyebrow: "操作员简报",
         riskTitle: "沙箱与风险简报",
         riskIntro: "诚实展示当前执行边界：现阶段默认是主机本地沙箱 + 边界约束，Docker 仍只是 SDK 支持但未激活的更强选项，插件与渠道能力仍可能扩大外发范围。",
+      },
+      stageNav: {
+        eyebrow: "对象导航",
+        title: "右侧舞台",
+        model: "模型编辑器",
+        modelSummary: "创建端点、切换默认模型，或编辑选中的 endpoint。",
+        runtime: "运行时偏好",
+        runtimeSummary: "维护默认路由、主题、审批与通知偏好。",
+        updates: "更新观察台",
+        updatesSummary: "跟踪 Gateway / Desktop 发布信号与手动升级交接。",
+        risk: "风险简报",
+        riskSummary: "查看沙箱姿态、插件权限与渠道外发风险。",
+      },
+      detail: {
+        modelFocus: "模型焦点",
+        createHint: "选择左侧端点进入编辑，或重置编辑器后创建新端点。",
+        providerModel: "提供商 / 模型",
+        endpointState: "端点状态",
+        toolCalling: "工具调用",
+        lastUpdated: "最近更新",
+        enabled: "已启用",
+        disabled: "已停用",
+        supported: "已支持",
+        unsupported: "未支持",
       },
       modelList: {
         edit: "编辑",
@@ -340,6 +366,30 @@ export function ModelsSettingsDesk() {
         riskTitle: "Sandbox & Risk Briefing",
         riskIntro: "Keep the blast radius honest: current sessions run in a host-local sandbox with boundary enforcement, Docker is only an SDK-supported stronger option for now, and plugin/channel surfaces can still widen outbound reach.",
       },
+      stageNav: {
+        eyebrow: "Object navigation",
+        title: "Right-stage focus",
+        model: "Model editor",
+        modelSummary: "Create endpoints, switch the default, or edit the selected endpoint.",
+        runtime: "Runtime preferences",
+        runtimeSummary: "Maintain the default route, theme, approval, and notification posture.",
+        updates: "Update watch",
+        updatesSummary: "Track Gateway/Desktop release signals and the manual upgrade handoff.",
+        risk: "Risk briefing",
+        riskSummary: "Inspect sandbox posture, plugin permissions, and channel outbound risk.",
+      },
+      detail: {
+        modelFocus: "Model focus",
+        createHint: "Pick an endpoint from the left to edit it, or reset the composer to create a new one.",
+        providerModel: "Provider / Model",
+        endpointState: "Endpoint state",
+        toolCalling: "Tool calling",
+        lastUpdated: "Last updated",
+        enabled: "Enabled",
+        disabled: "Disabled",
+        supported: "Supported",
+        unsupported: "Unsupported",
+      },
       modelList: {
         edit: "Edit",
         setDefault: "Set default",
@@ -465,6 +515,7 @@ export function ModelsSettingsDesk() {
   const [updateState, setUpdateState] = useState<UpdateStateResponse | null>(null);
   const [modelDraft, setModelDraft] = useState<ModelDraft>(DEFAULT_MODEL_DRAFT);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [activeStage, setActiveStage] = useState<DeskStage>("model");
   const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
   const [isRefreshingUpdate, setIsRefreshingUpdate] = useState(false);
@@ -472,6 +523,15 @@ export function ModelsSettingsDesk() {
   const [riskError, setRiskError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const modelStageRef = useRef<HTMLElement | null>(null);
+  const runtimeStageRef = useRef<HTMLElement | null>(null);
+  const updatesStageRef = useRef<HTMLElement | null>(null);
+  const riskStageRef = useRef<HTMLElement | null>(null);
+
+  const selectedModel = useMemo(
+    () => models.find((item) => item.id === selectedModelId) ?? null,
+    [models, selectedModelId],
+  );
 
   const formatDeliveryMode = (mode: ChannelRiskItem["deliveryMode"]): string => {
     return text.deliveryModeLabels[mode] ?? mode;
@@ -531,9 +591,19 @@ export function ModelsSettingsDesk() {
         throw settingsResult.reason;
       }
 
-      setModels(modelsResult.value.items);
+      const nextModels = modelsResult.value.items;
+      const nextSelectedModelId =
+        selectedModelId && nextModels.some((item) => item.id === selectedModelId)
+          ? selectedModelId
+          : nextModels.find((item) => item.isDefault)?.id ?? nextModels[0]?.id ?? null;
+
+      setModels(nextModels);
       setSettings(settingsResult.value);
       setSettingsDraft(settingsResult.value);
+      setSelectedModelId(nextSelectedModelId);
+
+      const nextSelectedModel = nextModels.find((item) => item.id === nextSelectedModelId) ?? null;
+      setModelDraft(nextSelectedModel ? toDraft(nextSelectedModel) : DEFAULT_MODEL_DRAFT);
 
       if (riskResult.status === "fulfilled") {
         setRiskOverview(riskResult.value);
@@ -555,15 +625,6 @@ export function ModelsSettingsDesk() {
         setUpdateError(detail);
       }
 
-      if (selectedModelId) {
-        const selected = modelsResult.value.items.find((item) => item.id === selectedModelId);
-        if (!selected) {
-          setSelectedModelId(null);
-          setModelDraft(DEFAULT_MODEL_DRAFT);
-        } else {
-          setModelDraft(toDraft(selected));
-        }
-      }
     } catch (nextError) {
       const detail = nextError instanceof Error ? nextError.message : text.errors.loadDesk;
       setError(detail);
@@ -592,6 +653,24 @@ export function ModelsSettingsDesk() {
     void refreshDesk();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setSelectedModelId((current) => {
+      if (current && models.some((item) => item.id === current)) {
+        return current;
+      }
+
+      return models.find((item) => item.isDefault)?.id ?? models[0]?.id ?? null;
+    });
+  }, [models]);
+
+  useEffect(() => {
+    if (!selectedModel) {
+      return;
+    }
+
+    setModelDraft(toDraft(selectedModel));
+  }, [selectedModel]);
 
   async function handleCreateModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -713,6 +792,7 @@ export function ModelsSettingsDesk() {
   function handleSelectModel(endpoint: ModelEndpoint) {
     setSelectedModelId(endpoint.id);
     setModelDraft(toDraft(endpoint));
+    setActiveStage("model");
     setNote(null);
     setError(null);
   }
@@ -720,7 +800,53 @@ export function ModelsSettingsDesk() {
   function resetModelComposer() {
     setSelectedModelId(null);
     setModelDraft(DEFAULT_MODEL_DRAFT);
+    setActiveStage("model");
   }
+
+  function focusStage(stage: DeskStage) {
+    setActiveStage(stage);
+
+    const target =
+      stage === "model"
+        ? modelStageRef.current
+        : stage === "runtime"
+          ? runtimeStageRef.current
+          : stage === "updates"
+            ? updatesStageRef.current
+            : riskStageRef.current;
+
+    target?.scrollIntoView?.({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }
+
+  const stageNavItems: Array<{
+    id: DeskStage;
+    label: string;
+    summary: string;
+  }> = [
+    {
+      id: "model",
+      label: text.stageNav.model,
+      summary: text.stageNav.modelSummary,
+    },
+    {
+      id: "runtime",
+      label: text.stageNav.runtime,
+      summary: text.stageNav.runtimeSummary,
+    },
+    {
+      id: "updates",
+      label: text.stageNav.updates,
+      summary: text.stageNav.updatesSummary,
+    },
+    {
+      id: "risk",
+      label: text.stageNav.risk,
+      summary: text.stageNav.riskSummary,
+    },
+  ];
 
   return (
     <section className="bootstrap-panel" data-testid="models-settings-desk">
@@ -751,65 +877,174 @@ export function ModelsSettingsDesk() {
         </p>
       ) : null}
 
-      <div className="control-plane-two-pane">
-        <section className="status-card status-card--normal" data-testid="models-list">
-          <div className="section-eyebrow">{text.sections.modelRegistryEyebrow}</div>
-          <h3 className="section-title control-plane-card-title">{text.sections.modelRegistryTitle}</h3>
-          {isLoading ? <p className="section-copy">{text.sections.modelRegistryLoading}</p> : null}
-          {!isLoading && models.length === 0 ? (
-            <p className="section-copy">{text.sections.modelRegistryEmpty}</p>
-          ) : null}
-          <ul className="control-plane-list">
-            {models.map((item) => (
-              <li key={item.id}>
-                <div className="metric-item control-plane-stack">
-                  <div className="control-plane-split-header">
-                    <strong>{item.displayName}</strong>
-                    {item.isDefault ? <span className="mode-badge mode-badge--main">{text.common.defaultBadge}</span> : null}
-                  </div>
-                  <span className="metric-label">
-                    {text.providerLabels[item.provider]} · {item.modelId}
+      <div className="control-plane-pane-shell">
+        <div className="control-plane-pane-rail control-plane-stack">
+          <section className="timeline" data-testid="models-list">
+            <div className="timeline__header">
+              <div>
+                <h3 className="section-title">{text.sections.modelRegistryTitle}</h3>
+                <p className="section-copy control-plane-compact-copy">{text.stageNav.modelSummary}</p>
+              </div>
+              <span className="composer__status">{isLoading ? text.common.loading : models.length}</span>
+            </div>
+            <div className="timeline__body">
+              {isLoading ? <p className="timeline__empty">{text.sections.modelRegistryLoading}</p> : null}
+              {!isLoading && models.length === 0 ? (
+                <p className="timeline__empty">{text.sections.modelRegistryEmpty}</p>
+              ) : null}
+              <ul className="control-plane-list control-plane-session-list">
+                {models.map((item) => {
+                  const isSelected = selectedModelId === item.id;
+                  return (
+                    <li key={item.id}>
+                      <article
+                        className={`control-plane-session-card control-plane-stack ${isSelected ? "control-plane-list-button--selected" : ""}`}
+                        data-testid={`model-item-${item.id}`}
+                      >
+                        <div className="control-plane-session-card__topline">
+                          <span className="metric-label">{text.providerLabels[item.provider]}</span>
+                          {item.isDefault ? (
+                            <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
+                          ) : null}
+                        </div>
+                        <strong className="control-plane-session-card__title">{item.displayName}</strong>
+                        <div className="control-plane-session-card__meta">
+                          <span>{item.modelId}</span>
+                          <span>
+                            {text.detail.lastUpdated}: {formatTimestamp(item.updatedAt)}
+                          </span>
+                        </div>
+                        <div className="control-plane-item-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => handleSelectModel(item)}
+                            disabled={isMutating}
+                          >
+                            {text.modelList.edit}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            data-testid="model-default"
+                            onClick={() => void handleSetDefault(item.id)}
+                            disabled={isMutating || item.isDefault || !item.enabled}
+                          >
+                            {text.modelList.setDefault}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            data-testid={`model-delete-${item.id}`}
+                            onClick={() => void handleDeleteModel(item.id)}
+                            disabled={isMutating}
+                          >
+                            {text.modelList.delete}
+                          </button>
+                        </div>
+                      </article>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </section>
+
+          <section className="status-card status-card--normal" data-testid="settings-sections">
+            <div className="section-eyebrow">{text.stageNav.eyebrow}</div>
+            <h3 className="section-title">{text.stageNav.title}</h3>
+            <ul className="control-plane-list">
+              {stageNavItems.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`control-plane-session-card control-plane-list-button ${activeStage === item.id ? "control-plane-list-button--selected" : ""}`}
+                    data-testid={`stage-select-${item.id}`}
+                    aria-pressed={activeStage === item.id}
+                    onClick={() => focusStage(item.id)}
+                  >
+                    <strong className="control-plane-session-card__title">{item.label}</strong>
+                    <span className="control-plane-session-card__meta">{item.summary}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+
+        <div className="control-plane-pane-stage control-plane-stack">
+          <section
+            ref={modelStageRef}
+            className="status-card status-card--warning control-plane-stage-hero"
+            data-testid="model-create"
+          >
+            <div data-testid="model-detail" className="control-plane-stack">
+              <p className="section-eyebrow">{text.detail.modelFocus}</p>
+              <div className="control-plane-stage-hero__header">
+                <div>
+                  <h3 className="section-title control-plane-card-title">
+                    {selectedModel ? selectedModel.displayName : text.sections.modelComposerCreate}
+                  </h3>
+                  <p className="section-copy control-plane-compact-copy">
+                    {selectedModel
+                      ? `${text.providerLabels[selectedModel.provider]} · ${selectedModel.modelId}`
+                      : text.detail.createHint}
+                  </p>
+                </div>
+                <div className="control-plane-chip-row">
+                  {selectedModel?.isDefault ? (
+                    <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
+                  ) : null}
+                  <span className="control-plane-chip">
+                    {selectedModel?.enabled ? text.detail.enabled : text.detail.disabled}
                   </span>
-                  <div className="control-plane-item-actions">
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      onClick={() => handleSelectModel(item)}
-                      disabled={isMutating}
-                    >
-                      {text.modelList.edit}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      data-testid="model-default"
-                      onClick={() => void handleSetDefault(item.id)}
-                      disabled={isMutating || item.isDefault || !item.enabled}
-                    >
-                      {text.modelList.setDefault}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      type="button"
-                      data-testid={`model-delete-${item.id}`}
-                      onClick={() => void handleDeleteModel(item.id)}
-                      disabled={isMutating}
-                    >
-                      {text.modelList.delete}
-                    </button>
+                  <span className="control-plane-chip">
+                    {selectedModel?.supportsToolCalling ? text.detail.supported : text.detail.unsupported}
+                  </span>
+                </div>
+              </div>
+
+              {selectedModel ? (
+                <div className="control-plane-summary-grid">
+                  <div className="metric-item">
+                    <span className="metric-label">{text.detail.providerModel}</span>
+                    <span className="metric-value">
+                      {text.providerLabels[selectedModel.provider]} · {selectedModel.modelId}
+                    </span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.detail.lastUpdated}</span>
+                    <span className="metric-value">{formatTimestamp(selectedModel.updatedAt)}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.composer.baseUrl}</span>
+                    <span className="metric-value metric-value--path">
+                      {selectedModel.baseUrl ?? text.common.none}
+                    </span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.composer.apiKeyEnv}</span>
+                    <span className="metric-value metric-value--path">
+                      {selectedModel.apiKeyEnvironmentVariable ?? text.common.none}
+                    </span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.detail.endpointState}</span>
+                    <span className="metric-value">
+                      {selectedModel.enabled ? text.detail.enabled : text.detail.disabled}
+                    </span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.detail.toolCalling}</span>
+                    <span className="metric-value">
+                      {selectedModel.supportsToolCalling ? text.detail.supported : text.detail.unsupported}
+                    </span>
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
-        </section>
+              ) : null}
+            </div>
 
-        <section className="status-card status-card--warning" data-testid="model-create">
-          <div className="section-eyebrow">{text.sections.modelComposerEyebrow}</div>
-          <h3 className="section-title control-plane-card-title">
-            {selectedModelId ? text.sections.modelComposerEdit : text.sections.modelComposerCreate}
-          </h3>
-          <form className="bootstrap-form" onSubmit={handleCreateModel}>
+            <form className="bootstrap-form" onSubmit={handleCreateModel}>
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.displayName}</span>
               <input
@@ -916,15 +1151,18 @@ export function ModelsSettingsDesk() {
                 {text.composer.reset}
               </button>
             </div>
-          </form>
-        </section>
-      </div>
+            </form>
+          </section>
 
-      <section className="status-card status-card--normal control-plane-panel" data-testid="settings-form">
-        <div className="section-eyebrow">{text.sections.settingsEyebrow}</div>
-        <h3 className="section-title control-plane-card-title">{text.sections.settingsTitle}</h3>
-        {settingsDraft ? (
-          <form className="bootstrap-form" onSubmit={handleSaveSettings}>
+          <section
+            ref={runtimeStageRef}
+            className="status-card status-card--normal control-plane-stage-panel"
+            data-testid="settings-form"
+          >
+            <div className="section-eyebrow">{text.sections.settingsEyebrow}</div>
+            <h3 className="section-title control-plane-card-title">{text.sections.settingsTitle}</h3>
+            {settingsDraft ? (
+              <form className="bootstrap-form" onSubmit={handleSaveSettings}>
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.settings.defaultLandingRoute}</span>
               <input
@@ -1071,18 +1309,22 @@ export function ModelsSettingsDesk() {
                 {text.settings.lastPersisted}: {formatDateTime(settings?.updatedAt, text.common.none)}
               </span>
             </div>
-          </form>
-        ) : (
-          <p className="section-copy">{text.sections.settingsLoading}</p>
-        )}
-      </section>
+              </form>
+            ) : (
+              <p className="section-copy">{text.sections.settingsLoading}</p>
+            )}
+          </section>
 
-      <section className="status-card status-card--normal update-watch control-plane-panel" data-testid="settings-update-watch">
+          <section
+            ref={updatesStageRef}
+            className="status-card status-card--normal update-watch control-plane-stage-panel"
+            data-testid="settings-update-watch"
+          >
         <div className="update-watch__header">
           <div>
             <div className="section-eyebrow">{text.sections.updateEyebrow}</div>
             <h3 className="section-title control-plane-card-title">{text.sections.updateTitle}</h3>
-            <p className="section-copy control-plane-panel">
+            <p className="section-copy control-plane-compact-copy">
               {text.sections.updateIntro}
             </p>
           </div>
@@ -1200,9 +1442,13 @@ export function ModelsSettingsDesk() {
         ) : (
           <p className="section-copy">{text.update.loading}</p>
         )}
-      </section>
+          </section>
 
-      <section className="status-card status-card--warning risk-briefing control-plane-panel" data-testid="settings-risk-briefing">
+          <section
+            ref={riskStageRef}
+            className="status-card status-card--warning risk-briefing control-plane-stage-panel"
+            data-testid="settings-risk-briefing"
+          >
         <div className="section-eyebrow">{text.sections.riskEyebrow}</div>
         <h3 className="section-title control-plane-card-title">{text.sections.riskTitle}</h3>
         <p className="section-copy">{text.sections.riskIntro}</p>
@@ -1392,7 +1638,9 @@ export function ModelsSettingsDesk() {
         ) : (
           <p className="section-copy">{text.common.loading}</p>
         )}
-      </section>
+          </section>
+        </div>
+      </div>
     </section>
   );
 }

@@ -1096,6 +1096,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var toolUses = response.Content.OfType<ToolUseContent>().ToList();
         AgentStepResult stepResult;
         Bookmark? doneBookmark = null;
+        var shouldPersistReadyState = false;
 
         if (toolUses.Count > 0)
         {
@@ -1146,6 +1147,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         {
             // No tool calls, we're done
             _breakpointManager.TransitionTo(BreakpointState.Ready);
+            shouldPersistReadyState = true;
 
             var envelope = _eventBus.EmitProgress(new DoneEvent
             {
@@ -1178,6 +1180,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             });
         }
         _iterationCount++;
+
+        if (shouldPersistReadyState)
+        {
+            await SaveStateAsync(cancellationToken);
+        }
 
         return stepResult;
     }
@@ -2382,6 +2389,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                         {
                             TransitionState(AgentRuntimeState.Ready);
                             _breakpointManager.TransitionTo(BreakpointState.Ready);
+                            await SaveStateAsync();
                         }
 
                         if (runAgain)

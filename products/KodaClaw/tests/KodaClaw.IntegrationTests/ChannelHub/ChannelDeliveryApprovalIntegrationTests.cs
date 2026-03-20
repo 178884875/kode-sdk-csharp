@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Telegram;
@@ -11,6 +12,8 @@ namespace KodaClaw.IntegrationTests.ChannelHub;
 
 public sealed class ChannelDeliveryApprovalIntegrationTests
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
     [Fact]
     public async Task Approve_should_send_telegram_draft_and_append_delivery_audit()
     {
@@ -131,6 +134,14 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
         var entries = await audit.ListByBindingIdAsync(binding.Id, 20);
         entries.Select(item => item.EventType).Should().Contain("approval.rejected");
         entries.Select(item => item.EventType).Should().NotContain("delivery.sent");
+
+        var rejectionEntry = entries.Single(item => item.EventType == "approval.rejected");
+        rejectionEntry.MetadataJson.Should().NotBeNullOrWhiteSpace();
+        var outcome = JsonSerializer.Deserialize<ChannelTurnOutcome>(rejectionEntry.MetadataJson!, JsonOptions);
+        outcome.Should().NotBeNull();
+        outcome!.Kind.Should().Be(ChannelTurnOutcomeKind.NoAction);
+        outcome.ReasonCode.Should().Be("approval_rejected");
+        outcome.ApprovalId.Should().Be(evaluation.ApprovalId);
     }
 
     private static ServiceProvider CreateServiceProvider(string workspaceRoot, FakeTelegramApiClient fakeTelegramApiClient)

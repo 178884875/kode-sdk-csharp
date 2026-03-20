@@ -81,7 +81,11 @@ export function useGatewaySnapshot() {
   }, [refresh]);
 
   const mode = useMemo<ShellMode>(() => {
-    return snapshot?.mode === "Bootstrap" ? "bootstrap" : "main";
+    if (!snapshot) {
+      return "bootstrap";
+    }
+
+    return snapshot.mode === "Bootstrap" ? "bootstrap" : "main";
   }, [snapshot]);
 
   return {

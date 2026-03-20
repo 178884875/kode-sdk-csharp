@@ -5,17 +5,29 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AutomationsDesk } from "../components/AutomationsDesk";
 import { renderWithI18n } from "./test-utils";
-import { fetchAutomationRuns, fetchAutomations, updateAutomationDefinition } from "../lib/api";
-import type { AutomationDefinition, AutomationDefinitionSource, AutomationRunRecord } from "../types/contracts";
+import {
+  fetchAutomationRuns,
+  fetchAutomations,
+  fetchSessionDetail,
+  updateAutomationDefinition,
+} from "../lib/api";
+import type {
+  AutomationDefinition,
+  AutomationDefinitionSource,
+  AutomationRunRecord,
+  SessionDetail,
+} from "../types/contracts";
 
 vi.mock("../lib/api", () => ({
   fetchAutomations: vi.fn(),
   fetchAutomationRuns: vi.fn(),
+  fetchSessionDetail: vi.fn(),
   updateAutomationDefinition: vi.fn(),
 }));
 
 const automationsApi = vi.mocked(fetchAutomations);
 const runsApi = vi.mocked(fetchAutomationRuns);
+const sessionDetailApi = vi.mocked(fetchSessionDetail);
 const updateApi = vi.mocked(updateAutomationDefinition);
 
 function buildAutomation(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -53,6 +65,47 @@ function buildRun(overrides: Partial<AutomationRunRecord> = {}): AutomationRunRe
     completedAt: "2026-03-18T09:31:00.000Z",
     summary: "Digest generated.",
     errorMessage: null,
+    ...overrides,
+  };
+}
+
+function buildSessionDetail(overrides: Partial<SessionDetail> = {}): SessionDetail {
+  return {
+    sessionId: "auto-session-a",
+    sessionKind: "Automation",
+    status: {
+      isActiveMainSession: false,
+      breakpointState: "Ready",
+      messageCount: 4,
+      pendingApprovalCount: 0,
+    },
+    createdAt: "2026-03-18T09:30:00.000Z",
+    lastEventAt: "2026-03-18T09:31:00.000Z",
+    userMessageCount: 1,
+    assistantMessageCount: 2,
+    toolCallCount: 1,
+    lastSfpIndex: 3,
+    pendingApprovalCallIds: [],
+    promptReport: {
+      profileId: "Automation",
+      systemPrompt: "Automation system prompt",
+      characterCount: 348,
+      loadedContextFiles: ["workspace/IDENTITY.md", "workspace/tasks/daily-note.md"],
+      generatedAt: "2026-03-18T09:30:00.000Z",
+      characterBudget: 1200,
+      remainingCharacterBudget: 852,
+      wasTruncated: false,
+      truncatedContextFiles: [],
+      truncationNotes: [],
+    },
+    promptReportDelta: {
+      previousGeneratedAt: "2026-03-18T08:30:00.000Z",
+      characterCountDelta: 24,
+      truncationStateChanged: false,
+      addedContextFiles: ["workspace/tasks/daily-note.md"],
+      removedContextFiles: [],
+    },
+    recentPromptReports: [],
     ...overrides,
   };
 }
@@ -169,6 +222,7 @@ describe("AutomationsDesk", () => {
     runsApi.mockImplementation(async (automationId) => ({
       items: runsByAutomation[automationId] ?? [],
     }));
+    sessionDetailApi.mockResolvedValue(buildSessionDetail());
 
     renderWithI18n(<AutomationsDesk />);
 
@@ -187,6 +241,10 @@ describe("AutomationsDesk", () => {
     expect(screen.getByTestId("automation-detail-last-error")).toHaveTextContent("drift threshold exceeded");
     expect(screen.getByTestId("automation-runs")).toHaveTextContent("Pipeline drift exceeded threshold.");
     expect(runsApi).toHaveBeenCalledWith("auto-b", { limit: 12 });
+    expect(sessionDetailApi).toHaveBeenCalledWith("auto-session-a");
+    expect(screen.getByTestId("automation-prompt-diagnostics")).toHaveTextContent("Automation");
+    expect(screen.getByTestId("automation-prompt-diagnostics")).toHaveTextContent("workspace/tasks/daily-note.md");
+    expect(screen.getByTestId("automation-prompt-diagnostics")).toHaveTextContent("默认不读取长期记忆");
   });
 
   it("applies enable/disable toggle and refreshes detail state", async () => {
@@ -202,6 +260,7 @@ describe("AutomationsDesk", () => {
       items: filterAutomations(automations, query),
     }));
     runsApi.mockResolvedValue({ items: [buildRun()] });
+    sessionDetailApi.mockResolvedValue(buildSessionDetail());
     updateApi.mockImplementation(async (id, enabled) => {
       automations = automations.map((item) =>
         item.id === id
@@ -242,6 +301,7 @@ describe("AutomationsDesk", () => {
   it("renders error state when automations request fails", async () => {
     automationsApi.mockRejectedValueOnce(new Error("automations unavailable"));
     runsApi.mockResolvedValue({ items: [] });
+    sessionDetailApi.mockResolvedValue(buildSessionDetail());
 
     renderWithI18n(<AutomationsDesk />);
 

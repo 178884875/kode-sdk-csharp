@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   fetchApprovals,
   fetchInbox,
   submitApprovalDecision,
   updateInboxStatus,
 } from "../lib/api";
+import { resolveGatewayPath } from "../lib/config";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import type {
   Approval,
   ApprovalStatus,
+  DeliveryMode,
   InboxItem,
   InboxItemStatus,
 } from "../types/contracts";
@@ -16,6 +18,15 @@ import "./ControlPlaneDesk.css";
 
 type InboxStatusFilter = InboxItemStatus | "all";
 type ApprovalStatusFilter = ApprovalStatus | "all";
+type ChannelDeliveryPayload = {
+  draftId: string;
+  bindingId: string;
+  connectorKind: string;
+  accountId: string;
+  externalThreadId: string;
+  deliveryMode: DeliveryMode;
+  messageText: string;
+};
 
 const INBOX_STATUS_OPTIONS: Array<InboxItemStatus> = [
   "Open",
@@ -50,6 +61,8 @@ export function InboxApprovalDesk() {
       approvalStatusFilter: "审批状态",
       inboxTitle: "收件队列",
       approvalTitle: "审批队列",
+      inboxDetailTitle: "收件焦点",
+      approvalDetailTitle: "审批焦点",
       emptyInbox: "当前筛选下没有收件项目。",
       emptyApproval: "当前筛选下没有审批请求。",
       errorEyebrow: "异常",
@@ -59,7 +72,31 @@ export function InboxApprovalDesk() {
       approve: "批准",
       reject: "拒绝",
       status: "状态",
+      kind: "类型",
+      source: "来源",
+      route: "路由",
+      session: "会话",
+      approvalLink: "关联审批",
+      inboxLink: "关联收件",
+      correlation: "关联 ID",
+      requestedAt: "请求时间",
       lastUpdated: "最近更新",
+      decisionNote: "决策备注",
+      deliveryContext: "渠道投递上下文",
+      connector: "连接器",
+      account: "账号",
+      threadBinding: "线程绑定",
+      thread: "线程",
+      draft: "草稿",
+      messagePreview: "消息预览",
+      threadDetailApi: "线程详情 API",
+      threadAuditApi: "线程审计 API",
+      deliveryModeLabels: {
+        AutoSend: "自动发送",
+        DraftApproval: "草稿审批",
+        RequireApproval: "需审批后发送",
+      },
+      selectionHint: "从左侧队列选择对象，右侧保持当前焦点细节。",
       approvalKindLabels: {
         Approval: "审批",
         AutomationResult: "自动化结果",
@@ -109,6 +146,8 @@ export function InboxApprovalDesk() {
       approvalStatusFilter: "Approval status",
       inboxTitle: "Inbox",
       approvalTitle: "Approvals",
+      inboxDetailTitle: "Inbox focus",
+      approvalDetailTitle: "Approval focus",
       emptyInbox: "No inbox items match the current filter.",
       emptyApproval: "No approvals match the current filter.",
       errorEyebrow: "Error",
@@ -118,7 +157,31 @@ export function InboxApprovalDesk() {
       approve: "Approve",
       reject: "Reject",
       status: "Status",
+      kind: "Kind",
+      source: "Source",
+      route: "Route",
+      session: "Session",
+      approvalLink: "Linked approval",
+      inboxLink: "Linked inbox",
+      correlation: "Correlation",
+      requestedAt: "Requested at",
       lastUpdated: "Last updated",
+      decisionNote: "Decision note",
+      deliveryContext: "Channel delivery context",
+      connector: "Connector",
+      account: "Account",
+      threadBinding: "Thread binding",
+      thread: "Thread",
+      draft: "Draft",
+      messagePreview: "Message preview",
+      threadDetailApi: "Thread detail API",
+      threadAuditApi: "Thread audit API",
+      deliveryModeLabels: {
+        AutoSend: "Auto send",
+        DraftApproval: "Draft approval",
+        RequireApproval: "Require approval",
+      },
+      selectionHint: "Pick an object from the left queues and keep the current focus visible on the right.",
       approvalKindLabels: {
         Approval: "Approval",
         AutomationResult: "Automation result",
@@ -164,6 +227,8 @@ export function InboxApprovalDesk() {
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
   const [pendingApprovalIds, setPendingApprovalIds] = useState<Record<string, boolean>>({});
   const [pendingInboxIds, setPendingInboxIds] = useState<Record<string, boolean>>({});
+  const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
+  const [selectedApprovalId, setSelectedApprovalId] = useState<string | null>(null);
 
   const formatTimestamp = (value?: string | null): string => {
     return formatDateTime(value, text.common.none);
@@ -180,6 +245,63 @@ export function InboxApprovalDesk() {
   const formatApprovalKind = (kind: InboxItem["kind"] | Approval["kind"]): string => {
     return text.approvalKindLabels[kind] ?? kind;
   };
+
+  const formatDeliveryMode = (mode: DeliveryMode): string => {
+    return text.deliveryModeLabels[mode] ?? mode;
+  };
+
+  function parseChannelDeliveryPayload(payloadJson?: string | null): ChannelDeliveryPayload | null {
+    if (!payloadJson) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(payloadJson) as Partial<ChannelDeliveryPayload>;
+      if (
+        typeof parsed.draftId !== "string" ||
+        typeof parsed.bindingId !== "string" ||
+        typeof parsed.connectorKind !== "string" ||
+        typeof parsed.accountId !== "string" ||
+        typeof parsed.externalThreadId !== "string" ||
+        typeof parsed.deliveryMode !== "string" ||
+        typeof parsed.messageText !== "string"
+      ) {
+        return null;
+      }
+
+      return parsed as ChannelDeliveryPayload;
+    } catch {
+      return null;
+    }
+  }
+
+  function buildChannelThreadDetailApi(bindingId: string): string {
+    return resolveGatewayPath(`/api/channels/threads/${bindingId}`);
+  }
+
+  function buildChannelThreadAuditApi(bindingId: string): string {
+    return resolveGatewayPath(`/api/channels/threads/${bindingId}/audit?limit=20`);
+  }
+
+  useEffect(() => {
+    setSelectedInboxId((current) => {
+      if (current && inboxItems.some((item) => item.id === current)) {
+        return current;
+      }
+
+      return inboxItems[0]?.id ?? null;
+    });
+  }, [inboxItems]);
+
+  useEffect(() => {
+    setSelectedApprovalId((current) => {
+      if (current && approvals.some((approval) => approval.id === current)) {
+        return current;
+      }
+
+      return approvals[0]?.id ?? null;
+    });
+  }, [approvals]);
 
   async function loadData(loadingMode: "initial" | "refresh") {
     if (loadingMode === "initial") {
@@ -259,6 +381,26 @@ export function InboxApprovalDesk() {
     }
   }
 
+  const selectedInboxItem = useMemo(
+    () => inboxItems.find((item) => item.id === selectedInboxId) ?? null,
+    [inboxItems, selectedInboxId],
+  );
+
+  const selectedApproval = useMemo(
+    () => approvals.find((approval) => approval.id === selectedApprovalId) ?? null,
+    [approvals, selectedApprovalId],
+  );
+
+  const selectedInboxPayload = useMemo(
+    () => parseChannelDeliveryPayload(selectedInboxItem?.payloadJson),
+    [selectedInboxItem],
+  );
+
+  const selectedApprovalPayload = useMemo(
+    () => parseChannelDeliveryPayload(selectedApproval?.payloadJson),
+    [selectedApproval],
+  );
+
   return (
     <section data-testid="inbox-approval-desk" className="bootstrap-panel control-plane-stack">
       <div className="section-eyebrow">{text.eyebrow}</div>
@@ -321,10 +463,14 @@ export function InboxApprovalDesk() {
         </section>
       ) : null}
 
-      <div className="control-plane-two-pane">
+      <div className="control-plane-pane-shell">
+        <div className="control-plane-pane-rail control-plane-stack">
         <section className="timeline" data-testid="inbox-list">
           <div className="timeline__header">
-            <h3 className="section-title">{text.inboxTitle}</h3>
+            <div>
+              <h3 className="section-title">{text.inboxTitle}</h3>
+              <p className="section-copy control-plane-compact-copy">{text.selectionHint}</p>
+            </div>
             <span className="composer__status">
               {isLoading ? text.common.loading : text.common.items(inboxItems.length)}
             </span>
@@ -338,8 +484,14 @@ export function InboxApprovalDesk() {
               return (
                 <article
                   key={item.id}
-                  className="message message--system control-plane-stack"
+                  className={`message message--system control-plane-stack control-plane-queue-card ${selectedInboxId === item.id ? "control-plane-list-button--selected" : ""}`}
                   data-testid={`inbox-item-${item.id}`}
+                  onClick={() => {
+                    setSelectedInboxId(item.id);
+                    if (item.approvalId) {
+                      setSelectedApprovalId(item.approvalId);
+                    }
+                  }}
                 >
                   <div className="message__meta">
                     <span className="message__role">{formatApprovalKind(item.kind)}</span>
@@ -355,6 +507,7 @@ export function InboxApprovalDesk() {
                       value={item.status}
                       disabled={pending}
                       onChange={(event) => {
+                        setSelectedInboxId(item.id);
                         void handleInboxStatusUpdate(item.id, event.target.value as InboxItemStatus);
                       }}
                     >
@@ -392,8 +545,14 @@ export function InboxApprovalDesk() {
               return (
                 <article
                   key={approval.id}
-                  className="message message--assistant control-plane-stack"
+                  className={`message message--assistant control-plane-stack control-plane-queue-card ${selectedApprovalId === approval.id ? "control-plane-list-button--selected" : ""}`}
                   data-testid={`approval-item-${approval.id}`}
+                  onClick={() => {
+                    setSelectedApprovalId(approval.id);
+                    if (approval.inboxItemId) {
+                      setSelectedInboxId(approval.inboxItemId);
+                    }
+                  }}
                 >
                   <div className="message__meta">
                     <span className="message__role">{formatApprovalKind(approval.kind)}</span>
@@ -408,6 +567,7 @@ export function InboxApprovalDesk() {
                     className="bootstrap-form__textarea"
                     disabled={!actionable || pending}
                     onChange={(event) => {
+                      setSelectedApprovalId(approval.id);
                       setApprovalNotes((current) => ({
                         ...current,
                         [approval.id]: event.target.value,
@@ -421,7 +581,8 @@ export function InboxApprovalDesk() {
                       className="secondary-button"
                       data-testid="approval-approve"
                       disabled={!actionable || pending}
-                      onClick={() => {
+                    onClick={() => {
+                        setSelectedApprovalId(approval.id);
                         void handleApprovalDecision(approval.id, true);
                       }}
                     >
@@ -432,7 +593,8 @@ export function InboxApprovalDesk() {
                       className="secondary-button"
                       data-testid="approval-reject"
                       disabled={!actionable || pending}
-                      onClick={() => {
+                    onClick={() => {
+                        setSelectedApprovalId(approval.id);
                         void handleApprovalDecision(approval.id, false);
                       }}
                     >
@@ -444,6 +606,211 @@ export function InboxApprovalDesk() {
             })}
           </div>
         </section>
+        </div>
+
+        <div className="control-plane-pane-stage">
+          <section className="status-card status-card--normal control-plane-stage-hero" data-testid="inbox-detail">
+            <p className="section-eyebrow">{text.inboxDetailTitle}</p>
+            {selectedInboxItem ? (
+              <div className="control-plane-stack">
+                <div className="control-plane-stage-hero__header">
+                  <div>
+                    <h3 className="section-title control-plane-card-title">{selectedInboxItem.title}</h3>
+                    <p className="section-copy control-plane-compact-copy">{selectedInboxItem.summary}</p>
+                  </div>
+                  <div className="control-plane-chip-row">
+                    <span className="control-plane-chip">{formatInboxStatus(selectedInboxItem.status)}</span>
+                    {selectedInboxItem.requiresAction ? (
+                      <span className="control-plane-chip control-plane-chip--warning">{text.actionRequired}</span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="control-plane-summary-grid">
+                  <div className="metric-item">
+                    <span className="metric-label">{text.kind}</span>
+                    <span className="metric-value">{formatApprovalKind(selectedInboxItem.kind)}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.lastUpdated}</span>
+                    <span className="metric-value">{formatTimestamp(selectedInboxItem.updatedAt)}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.source}</span>
+                    <span className="metric-value metric-value--path">{selectedInboxItem.source}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.approvalLink}</span>
+                    <span className="metric-value metric-value--path">{selectedInboxItem.approvalId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.session}</span>
+                    <span className="metric-value metric-value--path">{selectedInboxItem.sessionId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.route}</span>
+                    <span className="metric-value metric-value--path">{selectedInboxItem.route ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.correlation}</span>
+                    <span className="metric-value metric-value--path">{selectedInboxItem.correlationId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.status}</span>
+                    <span className="metric-value">{formatInboxStatus(selectedInboxItem.status)}</span>
+                  </div>
+                </div>
+
+                {selectedInboxPayload ? (
+                  <div className="control-plane-summary-grid">
+                    <div className="metric-item">
+                      <span className="metric-label">{text.deliveryContext}</span>
+                      <span className="metric-value">{formatDeliveryMode(selectedInboxPayload.deliveryMode)}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.connector}</span>
+                      <span className="metric-value metric-value--path">{selectedInboxPayload.connectorKind}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.account}</span>
+                      <span className="metric-value metric-value--path">{selectedInboxPayload.accountId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadBinding}</span>
+                      <span className="metric-value metric-value--path">{selectedInboxPayload.bindingId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.thread}</span>
+                      <span className="metric-value metric-value--path">{selectedInboxPayload.externalThreadId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.draft}</span>
+                      <span className="metric-value metric-value--path">{selectedInboxPayload.draftId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.messagePreview}</span>
+                      <span className="metric-value">{selectedInboxPayload.messageText}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadDetailApi}</span>
+                      <span className="metric-value metric-value--path">
+                        {buildChannelThreadDetailApi(selectedInboxPayload.bindingId)}
+                      </span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadAuditApi}</span>
+                      <span className="metric-value metric-value--path">
+                        {buildChannelThreadAuditApi(selectedInboxPayload.bindingId)}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="section-copy">{text.emptyInbox}</p>
+            )}
+          </section>
+
+          <section className="status-card status-card--warning control-plane-stage-panel" data-testid="approval-detail">
+            <p className="section-eyebrow">{text.approvalDetailTitle}</p>
+            {selectedApproval ? (
+              <div className="control-plane-stack">
+                <div className="control-plane-stage-hero__header">
+                  <div>
+                    <h3 className="section-title control-plane-card-title">{selectedApproval.title}</h3>
+                    <p className="section-copy control-plane-compact-copy">{selectedApproval.summary}</p>
+                  </div>
+                  <div className="control-plane-chip-row">
+                    <span className="control-plane-chip">{formatApprovalStatus(selectedApproval.status)}</span>
+                    <span className="control-plane-chip">{formatApprovalKind(selectedApproval.kind)}</span>
+                  </div>
+                </div>
+
+                <div className="control-plane-summary-grid">
+                  <div className="metric-item">
+                    <span className="metric-label">{text.requestedAt}</span>
+                    <span className="metric-value">{formatTimestamp(selectedApproval.requestedAt)}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.lastUpdated}</span>
+                    <span className="metric-value">{formatTimestamp(selectedApproval.updatedAt)}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.source}</span>
+                    <span className="metric-value metric-value--path">{selectedApproval.source}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.inboxLink}</span>
+                    <span className="metric-value metric-value--path">{selectedApproval.inboxItemId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.session}</span>
+                    <span className="metric-value metric-value--path">{selectedApproval.sessionId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.correlation}</span>
+                    <span className="metric-value metric-value--path">{selectedApproval.correlationId ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.decisionNote}</span>
+                    <span className="metric-value">{selectedApproval.decisionNote ?? text.common.none}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">{text.status}</span>
+                    <span className="metric-value">{formatApprovalStatus(selectedApproval.status)}</span>
+                  </div>
+                </div>
+
+                {selectedApprovalPayload ? (
+                  <div className="control-plane-summary-grid">
+                    <div className="metric-item">
+                      <span className="metric-label">{text.deliveryContext}</span>
+                      <span className="metric-value">{formatDeliveryMode(selectedApprovalPayload.deliveryMode)}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.connector}</span>
+                      <span className="metric-value metric-value--path">{selectedApprovalPayload.connectorKind}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.account}</span>
+                      <span className="metric-value metric-value--path">{selectedApprovalPayload.accountId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadBinding}</span>
+                      <span className="metric-value metric-value--path">{selectedApprovalPayload.bindingId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.thread}</span>
+                      <span className="metric-value metric-value--path">{selectedApprovalPayload.externalThreadId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.draft}</span>
+                      <span className="metric-value metric-value--path">{selectedApprovalPayload.draftId}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.messagePreview}</span>
+                      <span className="metric-value">{selectedApprovalPayload.messageText}</span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadDetailApi}</span>
+                      <span className="metric-value metric-value--path">
+                        {buildChannelThreadDetailApi(selectedApprovalPayload.bindingId)}
+                      </span>
+                    </div>
+                    <div className="metric-item">
+                      <span className="metric-label">{text.threadAuditApi}</span>
+                      <span className="metric-value metric-value--path">
+                        {buildChannelThreadAuditApi(selectedApprovalPayload.bindingId)}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="section-copy">{text.emptyApproval}</p>
+            )}
+          </section>
+        </div>
       </div>
     </section>
   );

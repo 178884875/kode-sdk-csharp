@@ -8,4 +8,6 @@ public sealed record ChannelThreadDetail(
     IReadOnlyList<ChannelAuditEntry> RecentAudit,
     SessionSummary? Session = null,
     string? PendingApprovalId = null,
-    bool HasPendingDraft = false);
+    bool HasPendingDraft = false,
+    IReadOnlyList<string>? PolicyEvidence = null,
+    ChannelTurnOutcome? LastTurnOutcome = null);

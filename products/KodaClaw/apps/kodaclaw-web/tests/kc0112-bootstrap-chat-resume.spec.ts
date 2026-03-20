@@ -44,6 +44,7 @@ test("KC-0112 acceptance: bootstrap, chat, reopen, and resume main session", asy
         workspaceRootPath: "/tmp/.kodaclaw-acceptance",
         bootstrapCompleted: true,
         identityFilePath: "/tmp/.kodaclaw-acceptance/workspace/IDENTITY.md",
+        soulFilePath: "/tmp/.kodaclaw-acceptance/workspace/SOUL.md",
         userFilePath: "/tmp/.kodaclaw-acceptance/workspace/USER.md",
         bootstrapFileArchived: true,
       }),
@@ -74,6 +75,7 @@ test("KC-0112 acceptance: bootstrap, chat, reopen, and resume main session", asy
 
   await expect(page.getByText("引导编排")).toBeVisible();
   await page.getByTestId("bootstrap-identity-input").fill("# Koda Identity\n\n- Name: Koda");
+  await page.getByTestId("bootstrap-soul-input").fill("# Koda Soul\n\n- Rule: protect trust");
   await page.getByTestId("bootstrap-user-input").fill("# User Profile\n\n- Boundaries: direct");
   await page.getByTestId("bootstrap-submit").click();
 

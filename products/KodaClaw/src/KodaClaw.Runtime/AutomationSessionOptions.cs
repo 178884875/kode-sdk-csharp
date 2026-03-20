@@ -11,6 +11,8 @@ public sealed class AutomationSessionOptions
 
     public int MaxIterations { get; init; } = 8;
 
+    public int MaxPromptCharacters { get; init; } = 16000;
+
     public IReadOnlyList<string> Tools { get; init; } = MainSessionOptions.DefaultTools;
 
     public PermissionConfig Permissions { get; init; } = new()

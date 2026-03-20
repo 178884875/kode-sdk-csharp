@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using KodaClaw.Contracts;
+using KodaClaw.Runtime;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -97,6 +99,40 @@ public sealed class GatewaySessionsIntegrationTests
     }
 
     [Fact]
+    public async Task Sessions_list_should_report_ready_after_chat_completion()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await SeedWorkspaceConfigAsync(workspace.Path, activeMainSessionId: null);
+        await using var hosted = await StartChatEnabledWorkspaceGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "test-token");
+
+        var chatResponse = await hosted.Client.PostAsJsonAsync("/api/chat/stream", new { message = "hello ready" });
+
+        chatResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        await chatResponse.Content.ReadAsStringAsync();
+
+        SessionsQueryResponse? payload = null;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            payload = await hosted.Client.GetFromJsonAsync<SessionsQueryResponse>("/api/sessions");
+            var session = payload?.Sessions.SingleOrDefault();
+            if (session?.Status.BreakpointState == "Ready")
+            {
+                break;
+            }
+
+            await Task.Delay(50);
+        }
+
+        payload.Should().NotBeNull();
+        payload!.Sessions.Should().ContainSingle();
+        payload.Sessions[0].Status.BreakpointState.Should().Be("Ready");
+        payload.Sessions[0].Status.IsActiveMainSession.Should().BeTrue();
+        payload.Sessions[0].Status.MessageCount.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task Sessions_detail_should_return_not_found_when_session_missing()
     {
         using var workspace = new TempWorkspaceRoot();
@@ -140,6 +176,32 @@ public sealed class GatewaySessionsIntegrationTests
                 CreateApprovalRequiredCall("call-approval-001"),
                 CreateCompletedCall("call-completed-001")
             ]);
+        await SeedPromptReportAsync(
+            workspace.Path,
+            "session-main-001",
+            new PromptBuildResult(
+                ProfileId: PromptProfileId.Main,
+                SystemPrompt: "You are KodaClaw main assistant.\n\nPrompt Profile\nId: Main",
+                CharacterCount: 46,
+                LoadedContextFiles: ["workspace/IDENTITY.md"],
+                CharacterBudget: 16000,
+                RemainingCharacterBudget: 15954,
+                WasTruncated: false,
+                TruncatedContextFiles: [],
+                TruncationNotes: []));
+        await SeedPromptReportAsync(
+            workspace.Path,
+            "session-main-001",
+            new PromptBuildResult(
+                ProfileId: PromptProfileId.Main,
+                SystemPrompt: "You are KodaClaw main assistant.\n\nPrompt Profile\nId: Main",
+                CharacterCount: 58,
+                LoadedContextFiles: ["workspace/IDENTITY.md", "workspace/SOUL.md"],
+                CharacterBudget: 16000,
+                RemainingCharacterBudget: 15942,
+                WasTruncated: false,
+                TruncatedContextFiles: [],
+                TruncationNotes: []));
 
         await using var hosted = await StartRealWorkspaceGatewayAsync(workspace.Path);
         hosted.Client.DefaultRequestHeaders.Authorization =
@@ -162,6 +224,20 @@ public sealed class GatewaySessionsIntegrationTests
         payload.LastSfpIndex.Should().Be(11);
         payload.PendingApprovalCallIds.Should().ContainSingle().Which.Should().Be("call-approval-001");
         payload.LastEventAt.Should().NotBeNull();
+        payload.PromptReport.Should().NotBeNull();
+        payload.PromptReport!.ProfileId.Should().Be("Main");
+        payload.PromptReport.CharacterCount.Should().Be(58);
+        payload.PromptReport.CharacterBudget.Should().Be(16000);
+        payload.PromptReport.RemainingCharacterBudget.Should().Be(15942);
+        payload.PromptReport.WasTruncated.Should().BeFalse();
+        payload.PromptReport.LoadedContextFiles.Should().Contain("workspace/IDENTITY.md");
+        payload.PromptReportDelta.Should().NotBeNull();
+        payload.PromptReportDelta!.CharacterCountDelta.Should().Be(12);
+        payload.PromptReportDelta.AddedContextFiles.Should().Contain("workspace/SOUL.md");
+        payload.PromptReportDelta.RemovedContextFiles.Should().BeEmpty();
+        payload.RecentPromptReports.Should().HaveCount(2);
+        payload.RecentPromptReports![0].CharacterCount.Should().Be(58);
+        payload.RecentPromptReports[1].CharacterCount.Should().Be(46);
     }
 
     [Fact]
@@ -230,6 +306,18 @@ public sealed class GatewaySessionsIntegrationTests
         await store.SaveInfoAsync(sessionId, info);
         await store.SaveMessagesAsync(sessionId, messages ?? []);
         await store.SaveToolCallRecordsAsync(sessionId, toolCalls ?? []);
+    }
+
+    private static Task SeedPromptReportAsync(
+        string workspaceRoot,
+        string sessionId,
+        PromptBuildResult prompt)
+    {
+        var sessionDirectory = Path.Combine(
+            workspaceRoot,
+            KodaClawWorkspaceLayout.SessionsDirectory,
+            sessionId);
+        return SessionPromptReportStore.WriteAsync(sessionDirectory, prompt);
     }
 
     private static AgentInfo CreateAgentInfo(
@@ -310,6 +398,29 @@ public sealed class GatewaySessionsIntegrationTests
             useTestWorkspaceService: false);
     }
 
+    private static Task<HostedGateway> StartChatEnabledWorkspaceGatewayAsync(string workspaceRoot)
+    {
+        return HostedGateway.StartAsync(
+            gatewayToken: "test-token",
+            workspaceSnapshot: GatewayAuthIntegrationTests.CreateSnapshot(
+                requiresBootstrap: false,
+                rootPath: workspaceRoot),
+            configureServices: services =>
+            {
+                services.AddSingleton<IModelProvider>(new StubModelProvider());
+            },
+            configureConfiguration: configuration =>
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["KODACLAW_WORKSPACE_ROOT"] = workspaceRoot,
+                    ["KODACLAW_DEFAULT_MODEL"] = "gpt-4o-mini",
+                    ["OPENAI_API_KEY"] = "stub-key",
+                });
+            },
+            useTestWorkspaceService: false);
+    }
+
     private sealed class TempWorkspaceRoot : IDisposable
     {
         public TempWorkspaceRoot()
@@ -329,6 +440,62 @@ public sealed class GatewaySessionsIntegrationTests
             {
                 Directory.Delete(Path, recursive: true);
             }
+        }
+    }
+
+    private sealed class StubModelProvider : IModelProvider
+    {
+        public string ProviderName => "stub";
+
+        public async IAsyncEnumerable<StreamChunk> StreamAsync(
+            ModelRequest request,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Yield();
+
+            yield return new StreamChunk
+            {
+                Type = StreamChunkType.TextDelta,
+                TextDelta = "stub",
+            };
+
+            yield return new StreamChunk
+            {
+                Type = StreamChunkType.MessageStop,
+                StopReason = ModelStopReason.EndTurn,
+                Usage = new TokenUsage
+                {
+                    InputTokens = 0,
+                    OutputTokens = 0,
+                },
+            };
+        }
+
+        public Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new ModelResponse
+            {
+                Content =
+                [
+                    new TextContent
+                    {
+                        Text = "stub",
+                    },
+                ],
+                StopReason = ModelStopReason.EndTurn,
+                Usage = new TokenUsage
+                {
+                    InputTokens = 0,
+                    OutputTokens = 0,
+                },
+                Model = request.Model,
+            });
+        }
+
+        public Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(true);
         }
     }
 }

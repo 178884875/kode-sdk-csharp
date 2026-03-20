@@ -166,6 +166,6 @@ test("KC-0210 inbox/approval desk: list, approve, reject, and inbox feedback loo
   await expect(page.getByTestId("inbox-status-inbox-b")).toHaveValue("Acknowledged");
 
   await page.getByTestId("inbox-refresh").click();
-  await expect(page.getByText("Outbound safety check")).toBeVisible();
-  await expect(page.getByText("Channel dispatch decision")).toBeVisible();
+  await expect(page.getByTestId("inbox-item-inbox-a")).toContainText("Outbound safety check");
+  await expect(page.getByTestId("inbox-item-inbox-b")).toContainText("Channel dispatch decision");
 });

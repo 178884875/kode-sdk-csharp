@@ -8,6 +8,7 @@ import { renderWithI18n } from "./test-utils";
 import {
   buildCanvasEntryUrl,
   fetchCanvasArtifact,
+  fetchCanvasArtifactEntry,
   fetchCanvasArtifacts,
   fetchCanvasDefaultEntry,
 } from "../lib/api";
@@ -17,12 +18,14 @@ vi.mock("../lib/api", () => ({
   fetchCanvasArtifacts: vi.fn(),
   fetchCanvasDefaultEntry: vi.fn(),
   fetchCanvasArtifact: vi.fn(),
+  fetchCanvasArtifactEntry: vi.fn(),
   buildCanvasEntryUrl: vi.fn(),
 }));
 
 const artifactsApi = vi.mocked(fetchCanvasArtifacts);
 const defaultEntryApi = vi.mocked(fetchCanvasDefaultEntry);
 const artifactApi = vi.mocked(fetchCanvasArtifact);
+const artifactEntryApi = vi.mocked(fetchCanvasArtifactEntry);
 const buildEntryUrl = vi.mocked(buildCanvasEntryUrl);
 
 const reportArtifact: CanvasArtifact = {
@@ -58,11 +61,27 @@ const dashboardArtifact: CanvasArtifact = {
 };
 
 const defaultEntryResponse = {
-  entryUrl: "/api/canvas/fs/canvas/default/index.html",
+  entryUrl: "/api/canvas/preview/default-token/canvas/default/index.html",
   entryPath: "canvas/default/index.html",
   artifactId: null,
   route: "/canvas/default",
   title: "Canvas default entry",
+};
+
+const reportEntryResponse = {
+  entryUrl: "/api/canvas/preview/report-token/canvas/launch/index.html",
+  entryPath: reportArtifact.entryPath,
+  artifactId: reportArtifact.id,
+  route: reportArtifact.route,
+  title: reportArtifact.title,
+};
+
+const dashboardEntryResponse = {
+  entryUrl: "/api/canvas/preview/dashboard-token/canvas/ops/index.html",
+  entryPath: dashboardArtifact.entryPath,
+  artifactId: dashboardArtifact.id,
+  route: dashboardArtifact.route,
+  title: dashboardArtifact.title,
 };
 
 const defaultArtifactsPayload: CanvasQueryResponse = {
@@ -82,6 +101,13 @@ describe("CanvasDesk", () => {
 
       return dashboardArtifact;
     });
+    artifactEntryApi.mockImplementation(async (id: string) => {
+      if (id === reportArtifact.id) {
+        return reportEntryResponse;
+      }
+
+      return dashboardEntryResponse;
+    });
     buildEntryUrl.mockImplementation((entryPath: string) => `/api/canvas/fs/${entryPath}`);
   });
 
@@ -93,7 +119,7 @@ describe("CanvasDesk", () => {
     renderWithI18n(<CanvasDesk />);
 
     const iframe = (await screen.findByTestId("canvas-entry-frame")) as HTMLIFrameElement;
-    expect(iframe.src).toContain("/api/canvas/fs/canvas/default/index.html");
+    expect(iframe.src).toContain("/api/canvas/preview/default-token/canvas/default/index.html");
     expect(screen.getByTestId("canvas-metadata")).toHaveTextContent("/canvas/default");
     expect(screen.getByTestId("canvas-metadata")).toHaveTextContent("暂无");
   });
@@ -124,10 +150,11 @@ describe("CanvasDesk", () => {
 
     await waitFor(() => {
       expect(artifactApi).toHaveBeenCalledWith(dashboardArtifact.id);
+      expect(artifactEntryApi).toHaveBeenCalledWith(dashboardArtifact.id);
     });
 
     const iframe = screen.getByTestId("canvas-entry-frame") as HTMLIFrameElement;
-    expect(iframe.src).toContain("/api/canvas/fs/canvas/ops/index.html");
+    expect(iframe.src).toContain("/api/canvas/preview/dashboard-token/canvas/ops/index.html");
     expect(screen.getByTestId("canvas-metadata")).toHaveTextContent("canvas/ops");
     expect(screen.getByTestId("canvas-metadata")).toHaveTextContent("Realtime operations dashboard");
   });

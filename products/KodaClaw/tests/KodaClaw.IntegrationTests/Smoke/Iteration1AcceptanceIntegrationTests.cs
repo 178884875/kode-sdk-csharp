@@ -35,7 +35,7 @@ public sealed class Iteration1AcceptanceIntegrationTests
 
             var bootstrapResponse = await hosted.Client.PostAsJsonAsync(
                 "/api/system/bootstrap-complete",
-                new BootstrapCompletionRequest("# identity", "# user", ArchiveBootstrapFile: true));
+                new BootstrapCompletionRequest("# identity", "# soul", "# user", ArchiveBootstrapFile: true));
             bootstrapResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
             var postBootstrapSnapshot = await hosted.Client.GetFromJsonAsync<BootstrapStateResponse>("/api/system/bootstrap-state");

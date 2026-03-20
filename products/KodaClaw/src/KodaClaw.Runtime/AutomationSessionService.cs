@@ -44,11 +44,13 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
 
         var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
         var contextDocuments = await LoadContextDocumentsAsync(snapshot.RootPath, definition, cancellationToken);
-        var systemPrompt = BuildSystemPrompt(definition, contextDocuments);
+        var prompt = BuildSystemPrompt(definition, contextDocuments);
+        var systemPrompt = prompt.SystemPrompt;
 
         var sessionId = GenerateSessionId(definition.Id);
         var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
         Directory.CreateDirectory(sessionDirectory);
+        await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var configuredModel = ResolveConfiguredModel();
@@ -97,12 +99,12 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         }
     }
 
-    private async Task<IReadOnlyList<ContextDocument>> LoadContextDocumentsAsync(
+    private async Task<IReadOnlyList<PromptContextDocument>> LoadContextDocumentsAsync(
         string workspaceRoot,
         AutomationDefinition definition,
         CancellationToken cancellationToken)
     {
-        var documents = new List<ContextDocument>();
+        var documents = new List<PromptContextDocument>();
         var seenPaths = new HashSet<string>(GetPathComparer());
         var workspaceDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.WorkspaceDirectory);
 
@@ -128,7 +130,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         string absolutePath,
         string workspaceRoot,
         HashSet<string> seenPaths,
-        ICollection<ContextDocument> documents,
+        ICollection<PromptContextDocument> documents,
         CancellationToken cancellationToken)
     {
         if (!seenPaths.Add(absolutePath))
@@ -143,7 +145,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
 
         var content = await File.ReadAllTextAsync(absolutePath, cancellationToken);
         var displayPath = ToDisplayPath(workspaceRoot, absolutePath);
-        documents.Add(new ContextDocument(displayPath, content));
+        documents.Add(new PromptContextDocument(displayPath, content));
     }
 
     private static string ResolveInputPath(string workspaceRoot, string inputPath)
@@ -229,38 +231,30 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             _options.Model);
     }
 
-    private string BuildSystemPrompt(
+    private PromptBuildResult BuildSystemPrompt(
         AutomationDefinition definition,
-        IReadOnlyList<ContextDocument> contextDocuments)
+        IReadOnlyList<PromptContextDocument> contextDocuments)
     {
-        var builder = new StringBuilder();
+        var prompt = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
+            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .AddSection(
+                "Automation Definition",
+                [
+                    $"Id: {definition.Id}",
+                    !string.IsNullOrWhiteSpace(definition.Title) ? $"Title: {definition.Title}" : string.Empty,
+                ])
+            .AddSection("Prompt", definition.Prompt.Trim())
+            .AddSection(
+                "Memory Boundary",
+                [
+                    "Treat only the loaded context files below as available memory for this run.",
+                    "Do not infer or recall workspace/MEMORY.md unless it was explicitly loaded as an automation input.",
+                    "If required context is missing, state that gap instead of pretending the automation remembers it.",
+                ])
+            .AddContextDocuments(contextDocuments)
+            .Build();
 
-        if (!string.IsNullOrWhiteSpace(_options.SystemPrompt))
-        {
-            builder.AppendLine(_options.SystemPrompt);
-            builder.AppendLine();
-        }
-
-        builder.AppendLine("Automation Definition");
-        builder.AppendLine($"Id: {definition.Id}");
-        if (!string.IsNullOrWhiteSpace(definition.Title))
-        {
-            builder.AppendLine($"Title: {definition.Title}");
-        }
-
-        builder.AppendLine("Prompt:");
-        builder.AppendLine(definition.Prompt.Trim());
-        builder.AppendLine();
-        builder.AppendLine("Loaded Context Files:");
-
-        foreach (var document in contextDocuments)
-        {
-            builder.AppendLine($"### File: {document.Path}");
-            builder.AppendLine(document.Content);
-            builder.AppendLine();
-        }
-
-        return builder.ToString().Trim();
+        return prompt;
     }
 
     private static string GenerateSessionId(string automationId)
@@ -292,6 +286,4 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             ? StringComparer.OrdinalIgnoreCase
             : StringComparer.Ordinal;
     }
-
-    private sealed record ContextDocument(string Path, string Content);
 }

@@ -22,14 +22,17 @@ public sealed class BootstrapService : IBootstrapService
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.IdentityMarkdown);
+        ArgumentNullException.ThrowIfNull(request.SoulMarkdown);
         ArgumentNullException.ThrowIfNull(request.UserMarkdown);
 
         await workspaceService.EnsureInitializedAsync(cancellationToken);
 
         var identityPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.IdentityFile);
+        var soulPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.SoulFile);
         var userPath = GetWorkspaceFilePath(KodaClawWorkspaceLayout.UserFile);
 
         await WriteTextAsync(identityPath, request.IdentityMarkdown, cancellationToken);
+        await WriteTextAsync(soulPath, request.SoulMarkdown, cancellationToken);
         await WriteTextAsync(userPath, request.UserMarkdown, cancellationToken);
 
         var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
@@ -42,6 +45,7 @@ public sealed class BootstrapService : IBootstrapService
             workspaceService.RootPath,
             updatedConfig.BootstrapCompleted,
             identityPath,
+            soulPath,
             userPath,
             bootstrapFileArchived);
     }

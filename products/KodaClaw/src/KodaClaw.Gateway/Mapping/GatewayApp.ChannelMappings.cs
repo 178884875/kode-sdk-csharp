@@ -2,6 +2,7 @@ using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
 using Microsoft.AspNetCore.Http;
+using System.Text.Json;
 
 public static partial class GatewayApp
 {
@@ -46,16 +47,21 @@ public static partial class GatewayApp
             approvalRepository,
             binding.SessionId,
             cancellationToken);
+        var lastTurnOutcome = TryResolveLastTurnOutcome(audit);
+        var policy = channelPolicyEngine.CreateDefaultPolicy(binding.ThreadType, binding.UpdatedAt, binding.PolicyId);
+        var policyEvidence = BuildPolicyEvidence(policy, pendingApproval, lastTurnOutcome, audit);
 
         return new ChannelThreadDetail(
             Account: account,
             Binding: binding,
-            Policy: channelPolicyEngine.CreateDefaultPolicy(binding.ThreadType, binding.UpdatedAt, binding.PolicyId),
+            Policy: policy,
             DeliveryRule: BuildDefaultChannelDeliveryRule(binding.ThreadType, binding.UpdatedAt, binding.DeliveryRuleId),
             RecentAudit: audit,
             Session: session,
             PendingApprovalId: pendingApproval?.Id,
-            HasPendingDraft: pendingApproval is not null);
+            HasPendingDraft: pendingApproval is not null,
+            PolicyEvidence: policyEvidence,
+            LastTurnOutcome: lastTurnOutcome);
     }
 
     private static async Task<Approval?> LoadPendingChannelApprovalAsync(
@@ -77,7 +83,8 @@ public static partial class GatewayApp
     private static ChannelThreadSummary BuildChannelThreadSummary(
         ThreadBinding binding,
         ChannelAccount? account,
-        Approval? pendingApproval)
+        Approval? pendingApproval,
+        ChannelTurnOutcome? lastTurnOutcome)
     {
         return new ChannelThreadSummary(
             BindingId: binding.Id,
@@ -95,7 +102,116 @@ public static partial class GatewayApp
             LastOutboundAt: binding.LastOutboundAt,
             LastMessagePreview: binding.LastMessagePreview,
             PendingApprovalId: pendingApproval?.Id,
-            HasPendingDraft: pendingApproval is not null);
+            HasPendingDraft: pendingApproval is not null,
+            LastTurnOutcome: lastTurnOutcome);
+    }
+
+    private static ChannelTurnOutcome? TryResolveLastTurnOutcome(IReadOnlyList<ChannelAuditEntry> audit)
+    {
+        foreach (var entry in audit)
+        {
+            if (!string.IsNullOrWhiteSpace(entry.MetadataJson))
+            {
+                try
+                {
+                    var outcome = JsonSerializer.Deserialize<ChannelTurnOutcome>(
+                        entry.MetadataJson,
+                        new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                    if (outcome is not null)
+                    {
+                        return outcome;
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Ignore legacy or non-turn audit metadata.
+                }
+            }
+
+            if (TryMapOutcomeFromEventType(entry, out var mapped))
+            {
+                return mapped;
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<string> BuildPolicyEvidence(
+        ChannelPolicy policy,
+        Approval? pendingApproval,
+        ChannelTurnOutcome? lastTurnOutcome,
+        IReadOnlyList<ChannelAuditEntry> audit)
+    {
+        List<string> items = [];
+        var latestNoAction = audit.FirstOrDefault(entry => entry.EventType == "turn.no_action");
+        var latestApprovalRejected = audit.FirstOrDefault(entry => entry.EventType == "approval.rejected");
+
+        if (policy.ThreadType == ChannelThreadType.Group && policy.RequireExplicitMention)
+        {
+            items.Add("group_mention_required");
+        }
+
+        if (lastTurnOutcome?.ReasonCode == "policy_blocked_requires_mention")
+        {
+            items.Add("blocked_without_mention");
+        }
+
+        if (lastTurnOutcome?.ReasonCode == "approval_rejected")
+        {
+            items.Add($"approval_rejected|{lastTurnOutcome.OccurredAt:O}");
+        }
+
+        if (pendingApproval is not null)
+        {
+            items.Add("pending_approval");
+        }
+        else if (lastTurnOutcome?.Kind is ChannelTurnOutcomeKind.DraftCreated or ChannelTurnOutcomeKind.ApprovalRequested)
+        {
+            items.Add("draft_waiting");
+        }
+
+        if (latestApprovalRejected is not null && lastTurnOutcome?.ReasonCode != "approval_rejected")
+        {
+            items.Add($"last_approval_reject|{latestApprovalRejected.CreatedAt:O}");
+        }
+
+        if (latestNoAction is not null &&
+            lastTurnOutcome?.Kind == ChannelTurnOutcomeKind.NoAction &&
+            lastTurnOutcome.ReasonCode != "approval_rejected")
+        {
+            items.Add($"last_no_action|{latestNoAction.CreatedAt:O}");
+        }
+
+        return items.Count > 0 ? items : ["none"];
+    }
+
+    private static bool TryMapOutcomeFromEventType(ChannelAuditEntry entry, out ChannelTurnOutcome? outcome)
+    {
+        var kind = entry.EventType switch
+        {
+            "turn.no_action" => ChannelTurnOutcomeKind.NoAction,
+            "turn.draft_created" => ChannelTurnOutcomeKind.DraftCreated,
+            "turn.approval_requested" => ChannelTurnOutcomeKind.ApprovalRequested,
+            "turn.failed" => ChannelTurnOutcomeKind.Failed,
+            "delivery.sent" => ChannelTurnOutcomeKind.Delivered,
+            "delivery.failed" => ChannelTurnOutcomeKind.Failed,
+            _ => (ChannelTurnOutcomeKind?)null,
+        };
+
+        if (kind is null)
+        {
+            outcome = null;
+            return false;
+        }
+
+        outcome = new ChannelTurnOutcome(
+            Kind: kind.Value,
+            Summary: entry.Summary ?? entry.EventType,
+            OccurredAt: entry.CreatedAt,
+            DeliveryMode: entry.DeliveryMode,
+            ApprovalId: entry.ApprovalId);
+        return true;
     }
 
     private static string ResolveChannelDisplayTitle(ThreadBinding binding)

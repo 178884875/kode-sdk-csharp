@@ -11,6 +11,8 @@ import {
   type AutomationRunsQueryResponse,
   type BootstrapCompletionRequest,
   type BootstrapCompletionResult,
+  type BootstrapDraftRequest,
+  type BootstrapDraftResult,
   type BootstrapStateResponse,
   type CanvasArtifact,
   type CanvasArtifactKind,
@@ -158,6 +160,20 @@ export function buildCanvasEntryUrl(entryPath: string): string {
   return resolveGatewayPath(`/api/canvas/fs/${encodePathSegments(entryPath)}`);
 }
 
+function isAbsoluteUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function normalizeCanvasEntryResponse(payload: CanvasEntryResponse): CanvasEntryResponse {
+  const entryUrl = payload.entryUrl.trim();
+  return {
+    ...payload,
+    entryUrl: entryUrl
+      ? (isAbsoluteUrl(entryUrl) ? entryUrl : resolveGatewayPath(entryUrl))
+      : buildCanvasEntryUrl(payload.entryPath),
+  };
+}
+
 export async function fetchGatewayHealth(signal?: AbortSignal): Promise<GatewayHealthResponse> {
   return requestJson<GatewayHealthResponse>("/api/system/health", {
     headers: buildHeaders(),
@@ -177,6 +193,18 @@ export async function completeBootstrap(
   signal?: AbortSignal,
 ): Promise<BootstrapCompletionResult> {
   return requestJson<BootstrapCompletionResult>("/api/system/bootstrap-complete", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(request),
+    signal,
+  });
+}
+
+export async function generateBootstrapDraft(
+  request: BootstrapDraftRequest,
+  signal?: AbortSignal,
+): Promise<BootstrapDraftResult> {
+  return requestJson<BootstrapDraftResult>("/api/system/bootstrap-draft", {
     method: "POST",
     headers: buildHeaders(true),
     body: JSON.stringify(request),
@@ -562,10 +590,24 @@ export async function fetchCanvasArtifact(id: string, signal?: AbortSignal): Pro
 }
 
 export async function fetchCanvasDefaultEntry(signal?: AbortSignal): Promise<CanvasEntryResponse> {
-  return requestJson<CanvasEntryResponse>("/api/canvas/default", {
+  const payload = await requestJson<CanvasEntryResponse>("/api/canvas/default", {
     headers: buildHeaders(),
     signal,
   });
+
+  return normalizeCanvasEntryResponse(payload);
+}
+
+export async function fetchCanvasArtifactEntry(
+  id: string,
+  signal?: AbortSignal,
+): Promise<CanvasEntryResponse> {
+  const payload = await requestJson<CanvasEntryResponse>(`/api/canvas/${id}/entry`, {
+    headers: buildHeaders(),
+    signal,
+  });
+
+  return normalizeCanvasEntryResponse(payload);
 }
 
 export async function publishCanvasArtifact(

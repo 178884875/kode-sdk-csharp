@@ -9,6 +9,13 @@ public interface IChannelSessionService
         ThreadBinding binding,
         ChannelPolicy policy,
         CancellationToken cancellationToken = default);
+
+    Task<ChannelTurnExecutionResult> RunInboundTurnAsync(
+        ThreadBinding binding,
+        ChannelPolicy policy,
+        ChannelEventEnvelope envelope,
+        bool hasExplicitMention,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

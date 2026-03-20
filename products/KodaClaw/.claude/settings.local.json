@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/vanzheng/projects/ai-agent/kode-sdk-csharp/products/KodaClaw/src -name \"*.csproj\" | xargs -I {} basename {} .csproj | sort)",
+      "Bash(ls -la /Users/vanzheng/projects/ai-agent/kode-sdk-csharp/products/KodaClaw/docs/ | grep -E \"\\\\.md$\")",
+      "Bash(dotnet test:*)"
+    ]
+  }
+}

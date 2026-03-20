@@ -54,6 +54,11 @@ public static class ServiceCollectionExtensions
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw main assistant.",
             MaxIterations = options.MaxIterations,
         });
+        services.TryAddSingleton(new BootstrapDraftOptions
+        {
+            Model = options.DefaultModel ?? string.Empty,
+            SystemPrompt = options.SystemPrompt ?? "You are KodaClaw bootstrap assistant.",
+        });
         services.TryAddSingleton(new AutomationSessionOptions
         {
             Model = options.DefaultModel ?? string.Empty,
@@ -80,6 +85,7 @@ public static class ServiceCollectionExtensions
             });
         });
         services.TryAddSingleton<IMainSessionService, MainSessionService>();
+        services.TryAddSingleton<IBootstrapDraftService, BootstrapDraftService>();
         services.TryAddSingleton<IAutomationSessionService, AutomationSessionService>();
         services.TryAddSingleton<IChannelSessionService, ChannelSessionService>();
         services.TryAddSingleton<IChatSessionService, ChatSessionService>();

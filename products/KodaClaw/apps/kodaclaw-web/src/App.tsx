@@ -4,7 +4,6 @@ import { BootstrapPanel } from "./components/BootstrapPanel";
 import { CanvasDesk } from "./components/CanvasDesk";
 import { ChannelsDesk } from "./components/ChannelsDesk";
 import { ChatComposer } from "./components/ChatComposer";
-import { DeskHeader } from "./components/DeskHeader";
 import { InboxApprovalDesk } from "./components/InboxApprovalDesk";
 import { MessageTimeline } from "./components/MessageTimeline";
 import { ModelsSettingsDesk } from "./components/ModelsSettingsDesk";
@@ -21,18 +20,27 @@ import {
   type DesktopDeskId,
   type DesktopLaunchTarget,
 } from "./lib/config";
-import { completeBootstrap } from "./lib/api";
-
-type MainDesk = "chat" | "inbox" | "sessions" | "models" | "automations" | "channels" | "plugins" | "canvas";
-
-type DeskMeta = {
-  id: MainDesk;
-  label: string;
-  eyebrow: string;
-  summary: string;
-};
+import { completeBootstrap, generateBootstrapDraft } from "./lib/api";
+import { LegacyShell } from "./shell-v1/LegacyShell";
+import { V2Shell } from "./shell-v2/V2Shell";
+import { persistShellVariant, readStoredShellVariant } from "./shell-shared/shell-variant";
+import { DeskMeta, MainDesk, StatusModel } from "./shell-shared/types";
+import type { ChatMessage } from "./types/chat";
+import type { BootstrapDraftMessage } from "./types/contracts";
 
 const MAIN_DESK_STORAGE_KEY = "kodaclaw.mainDesk";
+
+function buildBootstrapConversation(messages: ChatMessage[]): BootstrapDraftMessage[] {
+  return messages
+    .filter((message): message is ChatMessage & { role: "user" | "assistant" } =>
+      (message.role === "user" || message.role === "assistant") &&
+      message.status !== "streaming" &&
+      message.text.trim().length > 0)
+    .map((message) => ({
+      role: message.role,
+      text: message.text.trim(),
+    }));
+}
 
 function resolveHealthTone(healthStatus: string): "healthy" | "warning" | "error" | "unknown" {
   const normalized = healthStatus.trim().toLowerCase();
@@ -94,6 +102,12 @@ export default function App() {
 - 默认语气：冷静、务实、直接
 - 工作方式：可审视、可回退、必要时先审批后执行
 `,
+      soulMarkdown: `# Koda 灵魂准则
+
+- 第一原则：优先保护用户信任与本地数据边界
+- 决策风格：先澄清，再行动；能回退的优先可回退
+- 行为约束：涉及外部影响或高风险动作时，默认先走审批
+`,
       userMarkdown: `# 用户画像
 
 - 偏好的工作节奏：
@@ -109,6 +123,12 @@ export default function App() {
 - Role: local-first AI collaborator
 - Default tone: calm, practical, direct
 - Operating style: inspectable, reversible, approval-first when needed
+`,
+      soulMarkdown: `# Koda Soul
+
+- First principle: protect user trust and local data boundaries
+- Decision style: clarify before acting and prefer reversible paths
+- Behavior rule: use approvals by default for risky or outward-facing actions
 `,
       userMarkdown: `# User Profile
 
@@ -229,11 +249,17 @@ export default function App() {
         gatewayError: (detail: string) => `Gateway 快照错误：${detail}`,
       },
       bootstrap: {
-        required: "在完成引导前，身份设定与用户画像都不能为空。",
+        required: "在完成引导前，身份设定、灵魂准则与用户画像都不能为空。",
+        draftInputRequired: "请先通过聊天梳理引导信息，或先写下一版初稿，再生成结构化草稿。",
+        generating: "正在根据引导对话生成草稿…",
+        generate: "根据对话生成草稿",
+        generated: "已根据引导对话刷新草稿，请检查后再提交。",
+        summaryLabel: "草稿摘要",
         archived: "引导结果已保存，`BOOTSTRAP.md` 已归档。",
         removed: "引导结果已保存，`BOOTSTRAP.md` 已在提交后移除。",
-        completed: (identityPath: string, userPath: string) =>
-          `引导完成。身份设定写入 ${identityPath}；用户画像写入 ${userPath}。`,
+        completed: (identityPath: string, soulPath: string, userPath: string) =>
+          `引导完成。身份设定写入 ${identityPath}；灵魂准则写入 ${soulPath}；用户画像写入 ${userPath}。`,
+        draftApplied: (summary: string) => `已生成引导草稿：${summary}`,
         failed: (detail: string) => `引导提交失败：${detail}`,
         unknown: "未知错误",
         detail: (sessionId: string) => `当前主会话：${sessionId}`,
@@ -357,11 +383,17 @@ export default function App() {
         gatewayError: (detail: string) => `Gateway snapshot error: ${detail}`,
       },
       bootstrap: {
-        required: "Identity and user markdown are both required before bootstrap can complete.",
+        required: "Identity, soul, and user markdown are all required before bootstrap can complete.",
+        draftInputRequired: "Add onboarding conversation detail in chat or seed the draft fields before generating a structured draft.",
+        generating: "Generating a draft from the onboarding conversation...",
+        generate: "Generate draft from chat",
+        generated: "Draft refreshed from the onboarding conversation. Review it before committing.",
+        summaryLabel: "Draft summary",
         archived: "Bootstrap completion stored. BOOTSTRAP.md has been archived.",
         removed: "Bootstrap completion stored. BOOTSTRAP.md was removed after commit.",
-        completed: (identityPath: string, userPath: string) =>
-          `Bootstrap completed. Identity saved to ${identityPath}; user profile saved to ${userPath}.`,
+        completed: (identityPath: string, soulPath: string, userPath: string) =>
+          `Bootstrap completed. Identity saved to ${identityPath}; soul saved to ${soulPath}; user profile saved to ${userPath}.`,
+        draftApplied: (summary: string) => `Bootstrap draft generated: ${summary}`,
         failed: (detail: string) => `Bootstrap completion failed: ${detail}`,
         unknown: "unknown error",
         detail: (sessionId: string) => `Active main session: ${sessionId}`,
@@ -383,18 +415,28 @@ export default function App() {
   const { draft, setDraft, isStreaming, messages, placeholder, sendMessage, appendSystemNote } =
     useChatConsole(mode, text.chat);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
+  const [shellVariant] = useState(() => readStoredShellVariant());
   const identityTemplateRef = useRef(bootstrapTemplates.identityMarkdown);
+  const soulTemplateRef = useRef(bootstrapTemplates.soulMarkdown);
   const userTemplateRef = useRef(bootstrapTemplates.userMarkdown);
   const [identityMarkdown, setIdentityMarkdown] = useState(() => bootstrapTemplates.identityMarkdown);
+  const [soulMarkdown, setSoulMarkdown] = useState(() => bootstrapTemplates.soulMarkdown);
   const [userMarkdown, setUserMarkdown] = useState(() => bootstrapTemplates.userMarkdown);
   const [archiveBootstrapFile, setArchiveBootstrapFile] = useState(true);
+  const [isGeneratingBootstrapDraft, setIsGeneratingBootstrapDraft] = useState(false);
   const [isCompletingBootstrap, setIsCompletingBootstrap] = useState(false);
+  const [bootstrapDraftSummary, setBootstrapDraftSummary] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [bootstrapSuccess, setBootstrapSuccess] = useState<string | null>(null);
+  const [sessionsFocusRequest, setSessionsFocusRequest] = useState<{
+    sessionId: string;
+    requestId: number;
+  } | null>(null);
   const lastSnapshotSignature = useRef<string | null>(null);
   const lastErrorSignature = useRef<string | null>(null);
   const modeRef = useRef(mode);
   const pendingLaunchTarget = useRef<DesktopLaunchTarget | null>(getInitialLaunchTarget());
+  const sessionsFocusRequestId = useRef(0);
 
   useEffect(() => {
     if (identityMarkdown === identityTemplateRef.current) {
@@ -403,6 +445,14 @@ export default function App() {
 
     identityTemplateRef.current = bootstrapTemplates.identityMarkdown;
   }, [bootstrapTemplates.identityMarkdown, identityMarkdown]);
+
+  useEffect(() => {
+    if (soulMarkdown === soulTemplateRef.current) {
+      setSoulMarkdown(bootstrapTemplates.soulMarkdown);
+    }
+
+    soulTemplateRef.current = bootstrapTemplates.soulMarkdown;
+  }, [bootstrapTemplates.soulMarkdown, soulMarkdown]);
 
   useEffect(() => {
     if (userMarkdown === userTemplateRef.current) {
@@ -498,16 +548,31 @@ export default function App() {
     window.localStorage.setItem(MAIN_DESK_STORAGE_KEY, mainDesk);
   }, [mainDesk, mode]);
 
+  useEffect(() => {
+    persistShellVariant(shellVariant);
+  }, [shellVariant]);
+
   const clearBootstrapFeedback = useCallback(() => {
+    setBootstrapDraftSummary(null);
     setBootstrapError(null);
     setBootstrapSuccess(null);
   }, []);
 
+  const handleOpenSessionDetail = useCallback((sessionId: string) => {
+    sessionsFocusRequestId.current += 1;
+    setSessionsFocusRequest({
+      sessionId,
+      requestId: sessionsFocusRequestId.current,
+    });
+    setMainDesk("sessions");
+  }, []);
+
   const handleBootstrapSubmit = useCallback(async () => {
     const nextIdentityMarkdown = identityMarkdown.trim();
+    const nextSoulMarkdown = soulMarkdown.trim();
     const nextUserMarkdown = userMarkdown.trim();
 
-    if (!nextIdentityMarkdown || !nextUserMarkdown) {
+    if (!nextIdentityMarkdown || !nextSoulMarkdown || !nextUserMarkdown) {
       setBootstrapError(text.bootstrap.required);
       setBootstrapSuccess(null);
       return;
@@ -520,13 +585,14 @@ export default function App() {
     try {
       const result = await completeBootstrap({
         identityMarkdown: nextIdentityMarkdown,
+        soulMarkdown: nextSoulMarkdown,
         userMarkdown: nextUserMarkdown,
         archiveBootstrapFile,
       });
 
       setBootstrapSuccess(result.bootstrapFileArchived ? text.bootstrap.archived : text.bootstrap.removed);
       setMainDesk("chat");
-      appendSystemNote(text.bootstrap.completed(result.identityFilePath, result.userFilePath));
+      appendSystemNote(text.bootstrap.completed(result.identityFilePath, result.soulFilePath, result.userFilePath));
       await refresh();
     } catch (nextError) {
       const detail = nextError instanceof Error ? nextError.message : text.bootstrap.unknown;
@@ -535,7 +601,48 @@ export default function App() {
     } finally {
       setIsCompletingBootstrap(false);
     }
-  }, [appendSystemNote, archiveBootstrapFile, identityMarkdown, refresh, text.bootstrap, userMarkdown]);
+  }, [appendSystemNote, archiveBootstrapFile, identityMarkdown, refresh, soulMarkdown, text.bootstrap, userMarkdown]);
+
+  const handleBootstrapDraftGenerate = useCallback(async () => {
+    const conversation = buildBootstrapConversation(messages);
+    const hasSeedDraft =
+      identityMarkdown.trim().length > 0 ||
+      soulMarkdown.trim().length > 0 ||
+      userMarkdown.trim().length > 0;
+    if (conversation.length === 0 && !hasSeedDraft) {
+      setBootstrapError(text.bootstrap.draftInputRequired);
+      setBootstrapSuccess(null);
+      setBootstrapDraftSummary(null);
+      return;
+    }
+
+    setIsGeneratingBootstrapDraft(true);
+    setBootstrapError(null);
+    setBootstrapSuccess(null);
+    setBootstrapDraftSummary(null);
+
+    try {
+      const result = await generateBootstrapDraft({
+        conversation,
+        identityMarkdown: identityMarkdown.trim() || null,
+        soulMarkdown: soulMarkdown.trim() || null,
+        userMarkdown: userMarkdown.trim() || null,
+      });
+
+      setIdentityMarkdown(result.identityMarkdown);
+      setSoulMarkdown(result.soulMarkdown);
+      setUserMarkdown(result.userMarkdown);
+      setBootstrapDraftSummary(result.summary);
+      setBootstrapSuccess(text.bootstrap.generated);
+      appendSystemNote(text.bootstrap.draftApplied(result.summary));
+    } catch (nextError) {
+      const detail = nextError instanceof Error ? nextError.message : text.bootstrap.unknown;
+      setBootstrapError(detail);
+      appendSystemNote(text.bootstrap.failed(detail));
+    } finally {
+      setIsGeneratingBootstrapDraft(false);
+    }
+  }, [appendSystemNote, identityMarkdown, messages, soulMarkdown, text.bootstrap, userMarkdown]);
 
   const activeDeskMeta = useMemo(() => {
     if (mode !== "main") {
@@ -545,7 +652,7 @@ export default function App() {
     return text.desks.find((item) => item.id === mainDesk) ?? text.desks[0];
   }, [mainDesk, mode, text.activeBootstrap, text.desks]);
 
-  const statusModel = useMemo(() => {
+  const statusModel = useMemo<StatusModel>(() => {
     if (error) {
       return {
         title: text.status.unavailableTitle,
@@ -624,7 +731,10 @@ export default function App() {
     if (mainDesk === "sessions") {
       return (
         <section className="shell-workbench desk-column desk-column--chat" data-testid="control-plane-view" data-kc-view="sessions">
-          <SessionsDiagnosticsDesk />
+          <SessionsDiagnosticsDesk
+            focusRequest={sessionsFocusRequest}
+            onFocusRequestConsumed={() => setSessionsFocusRequest(null)}
+          />
         </section>
       );
     }
@@ -682,118 +792,116 @@ export default function App() {
         />
       </section>
     );
-  }, [draft, isCompletingBootstrap, isLoading, isStreaming, mainDesk, messages, mode, placeholder, sendMessage, setDraft]);
+  }, [
+    draft,
+    isCompletingBootstrap,
+    isLoading,
+    isStreaming,
+    mainDesk,
+    messages,
+    mode,
+    placeholder,
+    sendMessage,
+    sessionsFocusRequest,
+    setDraft,
+  ]);
 
-  return (
-    <div className="app-shell">
-      <div className="paper-haze" />
-      <div className="grain-layer" />
-      <main className={`shell-grid shell-grid--${mode}`} data-kc-mode={mode} data-testid={`${mode}-shell`}>
-        <aside className="shell-rail">
-          <div className="shell-rail__brand">
-            <p className="section-eyebrow">{text.railEyebrow}</p>
-            <h2 className="shell-rail__title">{text.railTitle}</h2>
-            <p className="section-copy">{text.railCopy}</p>
-          </div>
+  const contextPanel = useMemo(() => {
+    return (
+      <>
+        <SystemStatusCard
+          statusTitle={statusModel.title}
+          statusBody={statusModel.body}
+          level={statusModel.level}
+          eyebrow={text.contextStatusEyebrow}
+        />
+        <BootstrapPanel
+          needsBootstrap={mode === "bootstrap"}
+          detail={
+            snapshot
+              ? text.bootstrap.detail(snapshot.activeMainSessionId ?? text.notCreatedYet)
+              : text.bootstrap.waitingDetail
+          }
+          identityMarkdown={identityMarkdown}
+          soulMarkdown={soulMarkdown}
+          userMarkdown={userMarkdown}
+          archiveBootstrapFile={archiveBootstrapFile}
+          isGeneratingDraft={isGeneratingBootstrapDraft}
+          isSubmitting={isCompletingBootstrap}
+          draftSummary={bootstrapDraftSummary}
+          error={bootstrapError}
+          success={bootstrapSuccess}
+          onIdentityChange={(next) => {
+            clearBootstrapFeedback();
+            setIdentityMarkdown(next);
+          }}
+          onSoulChange={(next) => {
+            clearBootstrapFeedback();
+            setSoulMarkdown(next);
+          }}
+          onUserChange={(next) => {
+            clearBootstrapFeedback();
+            setUserMarkdown(next);
+          }}
+          onArchiveBootstrapChange={(next) => {
+            clearBootstrapFeedback();
+            setArchiveBootstrapFile(next);
+          }}
+          onGenerateDraft={handleBootstrapDraftGenerate}
+          onSubmit={handleBootstrapSubmit}
+        />
+      </>
+    );
+  }, [
+    archiveBootstrapFile,
+    bootstrapDraftSummary,
+    bootstrapError,
+    bootstrapSuccess,
+    clearBootstrapFeedback,
+    handleBootstrapDraftGenerate,
+    handleBootstrapSubmit,
+    identityMarkdown,
+    isGeneratingBootstrapDraft,
+    isCompletingBootstrap,
+    mode,
+    snapshot,
+    soulMarkdown,
+    statusModel.body,
+    statusModel.level,
+    statusModel.title,
+    text.bootstrap,
+    text.contextStatusEyebrow,
+    text.notCreatedYet,
+    userMarkdown,
+  ]);
 
-          {mode === "main" ? (
-            <section className="desk-command-bar shell-nav" data-testid="desk-switcher">
-              <div>
-                <p className="section-eyebrow">{text.commandEyebrow}</p>
-                <h3 className="command-title">{activeDeskMeta.label}</h3>
-                <p className="section-copy">{text.commandBody(activeDeskMeta.eyebrow, activeSessionLabel)}</p>
-              </div>
-              <div className="desk-command-bar__actions shell-nav__actions">
-                {text.desks.map((option) => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    className={`desk-tab ${mainDesk === option.id ? "desk-tab--active" : ""}`}
-                    data-testid={`desk-tab-${option.id}`}
-                    onClick={() => setMainDesk(option.id)}
-                  >
-                    <span className="metric-label">{option.eyebrow}</span>
-                    <span>{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : (
-            <section className="desk-command-bar shell-nav shell-nav--bootstrap" data-testid="desk-switcher">
-              <div>
-                <p className="section-eyebrow">{text.activeBootstrap.eyebrow}</p>
-                <h3 className="command-title">{text.bootstrapNavTitle}</h3>
-                <p className="section-copy">{text.bootstrapNavBody}</p>
-              </div>
-            </section>
-          )}
+  const shellLayoutProps = {
+    mode,
+    activeDeskMeta,
+    mainDesk,
+    desks: text.desks,
+    onMainDeskChange: setMainDesk,
+    onOpenSessionDetail: handleOpenSessionDetail,
+    railEyebrow: text.railEyebrow,
+    railTitle: text.railTitle,
+    railCopy: text.railCopy,
+    railModeLabel: text.railModeLabel,
+    railModeValue: modeLabel,
+    railSessionLabel: text.railSessionLabel,
+    activeSessionId: snapshot?.activeMainSessionId,
+    activeSessionValue: activeSessionLabel,
+    railVersionLabel: text.railVersionLabel,
+    workspaceVersionValue: workspaceVersionLabel,
+    bootstrapNavTitle: text.bootstrapNavTitle,
+    bootstrapNavBody: text.bootstrapNavBody,
+    commandEyebrow: text.commandEyebrow,
+    commandBody: text.commandBody(activeDeskMeta.eyebrow, activeSessionLabel),
+    gatewayUrl,
+    healthStatus: health?.status ?? "unknown",
+    workspaceRootPath: snapshot?.workspaceRootPath,
+    workbench,
+    contextPanel,
+  };
 
-          <div className="shell-rail__meta">
-            <div className="metric-item">
-              <span className="metric-label">{text.railModeLabel}</span>
-              <span className="metric-value">{modeLabel}</span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">{text.railSessionLabel}</span>
-              <span className="metric-value metric-value--path">{activeSessionLabel}</span>
-            </div>
-            <div className="metric-item">
-              <span className="metric-label">{text.railVersionLabel}</span>
-              <span className="metric-value">{workspaceVersionLabel}</span>
-            </div>
-          </div>
-        </aside>
-
-        <section className="shell-hero">
-          <DeskHeader
-            mode={mode}
-            workspaceRootPath={snapshot?.workspaceRootPath}
-            gatewayUrl={gatewayUrl}
-            healthStatus={health?.status ?? "unknown"}
-            activeDeskLabel={activeDeskMeta.label}
-            activeDeskEyebrow={activeDeskMeta.eyebrow}
-            activeDeskSummary={activeDeskMeta.summary}
-          />
-        </section>
-
-        <aside className="shell-context">
-          <SystemStatusCard
-            statusTitle={statusModel.title}
-            statusBody={statusModel.body}
-            level={statusModel.level}
-            eyebrow={text.contextStatusEyebrow}
-          />
-          <BootstrapPanel
-            needsBootstrap={mode === "bootstrap"}
-            detail={
-              snapshot
-                ? text.bootstrap.detail(snapshot.activeMainSessionId ?? text.notCreatedYet)
-                : text.bootstrap.waitingDetail
-            }
-            identityMarkdown={identityMarkdown}
-            userMarkdown={userMarkdown}
-            archiveBootstrapFile={archiveBootstrapFile}
-            isSubmitting={isCompletingBootstrap}
-            error={bootstrapError}
-            success={bootstrapSuccess}
-            onIdentityChange={(next) => {
-              clearBootstrapFeedback();
-              setIdentityMarkdown(next);
-            }}
-            onUserChange={(next) => {
-              clearBootstrapFeedback();
-              setUserMarkdown(next);
-            }}
-            onArchiveBootstrapChange={(next) => {
-              clearBootstrapFeedback();
-              setArchiveBootstrapFile(next);
-            }}
-            onSubmit={handleBootstrapSubmit}
-          />
-        </aside>
-
-        {workbench}
-      </main>
-    </div>
-  );
+  return shellVariant === "v2" ? <V2Shell {...shellLayoutProps} /> : <LegacyShell {...shellLayoutProps} />;
 }

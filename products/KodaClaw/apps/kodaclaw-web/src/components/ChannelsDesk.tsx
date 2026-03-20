@@ -15,6 +15,7 @@ import type {
   ChannelThreadDetail,
   ChannelThreadSummary,
   DeliveryMode,
+  ChannelTurnOutcomeKind,
   SessionKind,
 } from "../types/contracts";
 
@@ -121,8 +122,13 @@ export function ChannelsDesk() {
         sessionKind: "会话类型",
         deliveryMode: "投递模式",
         policy: "策略",
+        policyEvidence: "策略证据",
         replyGuard: "回复保护",
         pending: "待处理",
+        lastOutcome: "最近结果",
+        outcomeReason: "结果原因",
+        mentionSignal: "提及信号",
+        replyPreview: "回复预览",
         recentAudit: "最近审计",
         noAudit: "暂无审计记录。",
       },
@@ -136,9 +142,43 @@ export function ChannelsDesk() {
       detailPendingApproval: (approvalId: string) => `审批 ${approvalId}`,
       detailPendingDraft: "草稿待审批",
       detailNoPending: "暂无待审批或待发送草稿",
+      noLastOutcome: "尚未产生入站处理结果",
       unavailable: "暂无",
       loadDetailError: "加载线程详情失败。",
       loadDeskError: "加载渠道工作台失败。",
+      outcomeKind: {
+        NoAction: "无动作",
+        DraftCreated: "已生成草稿",
+        ApprovalRequested: "已请求审批",
+        Delivered: "已送达",
+        Failed: "执行失败",
+      },
+      outcomeReason: {
+        event_not_eligible: "事件只做记录，不触发回复回合",
+        model_no_reply: "模型判断当前无需对外回复",
+        policy_blocked: "命中渠道策略，暂不允许直接回复",
+        policy_blocked_requires_mention: "群组未显式提及 Koda，按策略阻止回复",
+        draft_created: "已生成草稿，等待人工复核",
+        approval_requested: "回复需要审批后才能发送",
+        auto_send_ready: "满足自动发送条件，允许直接投递",
+        approval_rejected: "审批已拒绝，当前回合回退为不发送",
+        turn_failed: "回合执行失败，需要检查运行时或提示词",
+      },
+      mentionSignal: {
+        present: "已显式提及",
+        absent: "未显式提及",
+        unknown: "未记录",
+      },
+      evidence: {
+        groupMentionRequired: "群组线程当前启用了显式提及保护。",
+        blockedWithoutMention: "最近一轮未出现对 Koda 的显式提及，因此回复被阻止。",
+        rejectedByOperator: (timestamp: string) => `最近一次待发送回复已被操作员拒绝${timestamp ? `（${timestamp}）` : ""}。`,
+        pendingApproval: "线程上仍有一个待审批回复，尚未决策。",
+        draftWaiting: "线程上已有待处理草稿，尚未发送。",
+        lastNoAction: (timestamp: string) => `最近一次无动作回合记录于 ${timestamp}。`,
+        lastApprovalReject: (timestamp: string) => `最近一次审批拒绝记录于 ${timestamp}。`,
+        noSpecialEvidence: "当前线程没有额外的策略证据摘要。",
+      },
       deliveryMode: {
         AutoSend: "自动发送",
         DraftApproval: "草稿审批",
@@ -199,8 +239,13 @@ export function ChannelsDesk() {
         sessionKind: "Session kind",
         deliveryMode: "Delivery mode",
         policy: "Policy",
+        policyEvidence: "Policy evidence",
         replyGuard: "Reply guard",
         pending: "Pending",
+        lastOutcome: "Last outcome",
+        outcomeReason: "Outcome reason",
+        mentionSignal: "Mention signal",
+        replyPreview: "Reply preview",
         recentAudit: "Recent audit",
         noAudit: "No audit entries.",
       },
@@ -214,9 +259,44 @@ export function ChannelsDesk() {
       detailPendingApproval: (approvalId: string) => `Approval ${approvalId}`,
       detailPendingDraft: "Draft pending",
       detailNoPending: "No pending approval/draft",
+      noLastOutcome: "No inbound turn outcome recorded yet.",
       unavailable: "n/a",
       loadDetailError: "Failed to load thread detail.",
       loadDeskError: "Failed to load channels desk.",
+      outcomeKind: {
+        NoAction: "No action",
+        DraftCreated: "Draft created",
+        ApprovalRequested: "Approval requested",
+        Delivered: "Delivered",
+        Failed: "Failed",
+      },
+      outcomeReason: {
+        event_not_eligible: "Event was recorded without triggering a reply turn",
+        model_no_reply: "Model decided no outward reply was needed",
+        policy_blocked: "Channel policy blocked a direct reply",
+        policy_blocked_requires_mention: "Group thread did not explicitly mention Koda",
+        draft_created: "Draft created and waiting for operator review",
+        approval_requested: "Reply requires approval before delivery",
+        auto_send_ready: "Turn qualified for direct delivery",
+        approval_rejected: "Approval was rejected, so the turn remains no-send",
+        turn_failed: "Turn execution failed and needs runtime inspection",
+      },
+      mentionSignal: {
+        present: "Explicit mention",
+        absent: "No explicit mention",
+        unknown: "Not recorded",
+      },
+      evidence: {
+        groupMentionRequired: "This group thread currently requires an explicit mention before replying.",
+        blockedWithoutMention: "The latest turn did not explicitly mention Koda, so the reply stayed blocked.",
+        rejectedByOperator: (timestamp: string) =>
+          `The most recent proposed reply was rejected by an operator${timestamp ? ` (${timestamp})` : ""}.`,
+        pendingApproval: "A reply is still pending approval on this thread.",
+        draftWaiting: "A draft already exists on this thread and has not been sent.",
+        lastNoAction: (timestamp: string) => `The latest no-action turn was recorded at ${timestamp}.`,
+        lastApprovalReject: (timestamp: string) => `The latest approval rejection was recorded at ${timestamp}.`,
+        noSpecialEvidence: "No extra policy evidence is available for this thread.",
+      },
       deliveryMode: {
         AutoSend: "Auto send",
         DraftApproval: "Draft approval",
@@ -271,6 +351,100 @@ export function ChannelsDesk() {
 
   function resolveSessionKindLabel(kind: SessionKind): string {
     return text.sessionKind[kind] ?? kind;
+  }
+
+  function resolveOutcomeKindLabel(kind: ChannelTurnOutcomeKind): string {
+    return text.outcomeKind[kind] ?? kind;
+  }
+
+  function resolveOutcomeReasonLabel(reasonCode?: string | null): string {
+    if (!reasonCode) {
+      return text.unavailable;
+    }
+
+    return text.outcomeReason[reasonCode as keyof typeof text.outcomeReason] ?? reasonCode;
+  }
+
+  function resolveMentionSignalLabel(hasExplicitMention?: boolean | null): string {
+    if (hasExplicitMention === true) {
+      return text.mentionSignal.present;
+    }
+
+    if (hasExplicitMention === false) {
+      return text.mentionSignal.absent;
+    }
+
+    return text.mentionSignal.unknown;
+  }
+
+  function buildLegacyPolicyEvidence(detail: ChannelThreadDetail, audit: ChannelAuditEntry[]): string[] {
+    const items: string[] = [];
+    const outcome = detail.lastTurnOutcome;
+    const latestNoAction = audit.find((entry) => entry.eventType === "turn.no_action");
+    const latestApprovalRejected = audit.find((entry) => entry.eventType === "approval.rejected");
+
+    if (detail.binding.threadType === "Group" && detail.policy.requireExplicitMention) {
+      items.push(text.evidence.groupMentionRequired);
+    }
+
+    if (outcome?.reasonCode === "policy_blocked_requires_mention") {
+      items.push(text.evidence.blockedWithoutMention);
+    }
+
+    if (outcome?.reasonCode === "approval_rejected") {
+      items.push(text.evidence.rejectedByOperator(formatDateTime(outcome.occurredAt, "")));
+    }
+
+    if (detail.pendingApprovalId) {
+      items.push(text.evidence.pendingApproval);
+    } else if (detail.hasPendingDraft) {
+      items.push(text.evidence.draftWaiting);
+    }
+
+    if (latestApprovalRejected && outcome?.reasonCode !== "approval_rejected") {
+      items.push(text.evidence.lastApprovalReject(formatDateTime(latestApprovalRejected.createdAt, text.unavailable)));
+    }
+
+    if (latestNoAction && outcome?.kind === "NoAction" && outcome.reasonCode !== "approval_rejected") {
+      items.push(text.evidence.lastNoAction(formatDateTime(latestNoAction.createdAt, text.unavailable)));
+    }
+
+    return items.length > 0 ? items : [text.evidence.noSpecialEvidence];
+  }
+
+  function resolvePolicyEvidenceLabel(token: string): string {
+    const separatorIndex = token.indexOf("|");
+    const code = separatorIndex >= 0 ? token.slice(0, separatorIndex) : token;
+    const payload = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : undefined;
+
+    switch (code) {
+      case "group_mention_required":
+        return text.evidence.groupMentionRequired;
+      case "blocked_without_mention":
+        return text.evidence.blockedWithoutMention;
+      case "approval_rejected":
+        return text.evidence.rejectedByOperator(formatDateTime(payload, ""));
+      case "pending_approval":
+        return text.evidence.pendingApproval;
+      case "draft_waiting":
+        return text.evidence.draftWaiting;
+      case "last_approval_reject":
+        return text.evidence.lastApprovalReject(formatDateTime(payload, text.unavailable));
+      case "last_no_action":
+        return text.evidence.lastNoAction(formatDateTime(payload, text.unavailable));
+      case "none":
+        return text.evidence.noSpecialEvidence;
+      default:
+        return token;
+    }
+  }
+
+  function resolvePolicyEvidence(detail: ChannelThreadDetail, audit: ChannelAuditEntry[]): string[] {
+    if (detail.policyEvidence && detail.policyEvidence.length > 0) {
+      return detail.policyEvidence.map(resolvePolicyEvidenceLabel);
+    }
+
+    return buildLegacyPolicyEvidence(detail, audit);
   }
 
   function trimText(value?: string | null, maxLength = 92): string {
@@ -607,6 +781,39 @@ export function ChannelsDesk() {
                         ? text.detailPendingDraft
                         : text.detailNoPending}
                   </span>
+                  <span className="metric-label">{text.detail.lastOutcome}</span>
+                  <span className="metric-value">
+                    {threadDetail.lastTurnOutcome
+                      ? `${resolveOutcomeKindLabel(threadDetail.lastTurnOutcome.kind)} · ${threadDetail.lastTurnOutcome.summary}`
+                      : text.noLastOutcome}
+                  </span>
+                  {threadDetail.lastTurnOutcome ? (
+                    <>
+                      <span className="metric-label">{text.detail.outcomeReason}</span>
+                      <span className="metric-value">
+                        {resolveOutcomeReasonLabel(threadDetail.lastTurnOutcome.reasonCode)}
+                      </span>
+                      <span className="metric-label">{text.detail.mentionSignal}</span>
+                      <span className="metric-value">
+                        {resolveMentionSignalLabel(threadDetail.lastTurnOutcome.hasExplicitMention)}
+                      </span>
+                    </>
+                  ) : null}
+                  {threadDetail.lastTurnOutcome?.replyText ? (
+                    <>
+                      <span className="metric-label">{text.detail.replyPreview}</span>
+                      <span className="metric-value">{trimText(threadDetail.lastTurnOutcome.replyText, 140)}</span>
+                    </>
+                  ) : null}
+                </div>
+
+                <div className="metric-item" data-testid="channel-thread-policy-evidence">
+                  <span className="metric-label">{text.detail.policyEvidence}</span>
+                  {resolvePolicyEvidence(threadDetail, threadAudit).map((item) => (
+                    <span key={item} className="metric-value">
+                      {item}
+                    </span>
+                  ))}
                 </div>
 
                 <div className="metric-item" data-testid="channel-thread-audit">

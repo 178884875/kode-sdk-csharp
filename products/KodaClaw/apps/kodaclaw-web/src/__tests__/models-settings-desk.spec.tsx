@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom";
 import React from "react";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelsSettingsDesk } from "../components/ModelsSettingsDesk";
@@ -251,6 +251,28 @@ describe("ModelsSettingsDesk", () => {
     expect(screen.getByText("默认模型已切换。")).toBeInTheDocument();
   });
 
+  it("keeps a focused model detail stage in sync with the selected endpoint", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(<ModelsSettingsDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-detail")).toHaveTextContent("OpenAI Core");
+    });
+
+    await user.click(
+      within(screen.getByTestId("model-item-model-b")).getByRole("button", { name: "编辑" }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-detail")).toHaveTextContent("Anthropic Draft");
+    });
+
+    expect(screen.getByTestId("model-id")).toHaveValue("claude-3-7-sonnet");
+    expect(screen.getByTestId("settings-form")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-update-watch")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-risk-briefing")).toBeInTheDocument();
+  });
+
   it("saves settings payload", async () => {
     const user = userEvent.setup();
     renderWithI18n(<ModelsSettingsDesk />);
@@ -258,9 +280,9 @@ describe("ModelsSettingsDesk", () => {
     await screen.findByTestId("settings-form");
     expect(await screen.findByTestId("settings-risk-briefing")).toBeInTheDocument();
     expect(await screen.findByTestId("settings-update-watch")).toBeInTheDocument();
-    expect(screen.getByText("沙箱与风险简报")).toBeInTheDocument();
-    expect(screen.getByText("更新观察台")).toBeInTheDocument();
-    expect(screen.getByText("Fixture Plugin")).toBeInTheDocument();
+    expect(within(screen.getByTestId("settings-risk-briefing")).getByText("沙箱与风险简报")).toBeInTheDocument();
+    expect(within(screen.getByTestId("settings-update-watch")).getByText("更新观察台")).toBeInTheDocument();
+    expect(within(screen.getByTestId("settings-risk-briefing")).getByText("Fixture Plugin")).toBeInTheDocument();
     expect(screen.getByTestId("update-component-gateway")).toBeInTheDocument();
     await user.selectOptions(screen.getByTestId("settings-theme"), "Dark");
     await user.click(screen.getByTestId("settings-save"));
@@ -331,7 +353,7 @@ describe("ModelsSettingsDesk", () => {
     await screen.findByTestId("settings-form");
     expect(screen.getByTestId("settings-risk-error")).toHaveTextContent("risk endpoint offline");
     expect(screen.getByTestId("settings-risk-briefing")).toBeInTheDocument();
-    expect(screen.getByText("运行时偏好")).toBeInTheDocument();
+    expect(within(screen.getByTestId("settings-form")).getByText("运行时偏好")).toBeInTheDocument();
   });
 
   it("keeps the desk available when update check fails", async () => {
@@ -341,6 +363,6 @@ describe("ModelsSettingsDesk", () => {
     await screen.findByTestId("settings-form");
     expect(screen.getByTestId("settings-update-error")).toHaveTextContent("manifest unavailable");
     expect(screen.getByTestId("settings-update-watch")).toBeInTheDocument();
-    expect(screen.getByText("更新观察台")).toBeInTheDocument();
+    expect(within(screen.getByTestId("settings-update-watch")).getByText("更新观察台")).toBeInTheDocument();
   });
 });

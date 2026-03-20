@@ -183,11 +183,7 @@ public static partial class GatewayApp
 
     private static bool TryAuthorize(HttpContext context, IConfiguration configuration)
     {
-        var configuredToken = context.RequestServices
-            .GetService<GatewayAuthTokenAccessor>()?
-            .GetConfiguredToken()
-            ?? configuration["KODACLAW_GATEWAY_TOKEN"]
-            ?? configuration["Gateway:Token"];
+        var configuredToken = GetConfiguredGatewayToken(context, configuration);
         if (string.IsNullOrWhiteSpace(configuredToken))
         {
             return false;
@@ -207,5 +203,14 @@ public static partial class GatewayApp
 
         var token = authorization[bearerPrefix.Length..].Trim();
         return string.Equals(token, configuredToken, StringComparison.Ordinal);
+    }
+
+    private static string? GetConfiguredGatewayToken(HttpContext context, IConfiguration configuration)
+    {
+        return context.RequestServices
+            .GetService<GatewayAuthTokenAccessor>()?
+            .GetConfiguredToken()
+            ?? configuration["KODACLAW_GATEWAY_TOKEN"]
+            ?? configuration["Gateway:Token"];
     }
 }

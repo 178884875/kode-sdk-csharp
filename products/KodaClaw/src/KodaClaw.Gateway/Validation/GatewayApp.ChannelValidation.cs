@@ -1,5 +1,6 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Gateway.Channels;
 
 public static partial class GatewayApp
 {
@@ -87,5 +88,65 @@ public static partial class GatewayApp
 
         using var document = JsonDocument.Parse(normalized);
         return document.RootElement.GetRawText();
+    }
+
+    private static async Task<ChannelAccount> ReconcileChannelAccountRuntimeAsync(
+        ChannelAccount account,
+        ChannelAccount? existing,
+        IChannelAccountRepository channelAccountRepository,
+        ChannelInboundGatewayService channelInboundGatewayService,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(channelAccountRepository);
+        ArgumentNullException.ThrowIfNull(channelInboundGatewayService);
+
+        if (account.ConnectorKind != ChannelConnectorKind.Telegram)
+        {
+            await channelAccountRepository.UpsertAsync(account, cancellationToken);
+            return account;
+        }
+
+        if (!account.InboundEnabled)
+        {
+            await channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+            var disconnected = account with
+            {
+                State = ChannelAccountState.Disconnected,
+                LastDisconnectedAt = account.LastDisconnectedAt ?? DateTimeOffset.UtcNow,
+                LastError = null,
+            };
+            await channelAccountRepository.UpsertAsync(disconnected, cancellationToken);
+            return disconnected;
+        }
+
+        try
+        {
+            await channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+            await channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+
+            var connectedAt = DateTimeOffset.UtcNow;
+            var connected = account with
+            {
+                State = ChannelAccountState.Connected,
+                LastConnectedAt = existing?.LastConnectedAt ?? connectedAt,
+                LastDisconnectedAt = existing?.LastDisconnectedAt,
+                LastError = null,
+            };
+            await channelAccountRepository.UpsertAsync(connected, cancellationToken);
+            return connected;
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        {
+            var degraded = account with
+            {
+                State = ChannelAccountState.Degraded,
+                LastConnectedAt = existing?.LastConnectedAt,
+                LastDisconnectedAt = existing?.LastDisconnectedAt,
+                LastError = ex.Message,
+            };
+            await channelAccountRepository.UpsertAsync(degraded, cancellationToken);
+            return degraded;
+        }
     }
 }

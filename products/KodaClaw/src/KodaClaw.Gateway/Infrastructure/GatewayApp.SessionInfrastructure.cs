@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
@@ -22,7 +23,7 @@ public static partial class GatewayApp
         var details = new List<SessionDetail>(sessionIds.Count);
         foreach (var sessionId in sessionIds)
         {
-            var detail = await LoadSessionDetailAsync(store, sessionId, activeMainSessionId, cancellationToken);
+            var detail = await LoadSessionDetailAsync(store, workspaceRoot, sessionId, activeMainSessionId, cancellationToken);
             if (detail is not null)
             {
                 details.Add(detail);
@@ -44,11 +45,12 @@ public static partial class GatewayApp
         CancellationToken cancellationToken)
     {
         var store = CreateSessionStore(workspaceRoot);
-        return LoadSessionDetailAsync(store, sessionId, activeMainSessionId, cancellationToken);
+        return LoadSessionDetailAsync(store, workspaceRoot, sessionId, activeMainSessionId, cancellationToken);
     }
 
     private static async Task<SessionDetail?> LoadSessionDetailAsync(
         IAgentStore store,
+        string workspaceRoot,
         string sessionId,
         string? activeMainSessionId,
         CancellationToken cancellationToken)
@@ -74,6 +76,14 @@ public static partial class GatewayApp
         var messageCount = messages.Count > 0 ? messages.Count : info.MessageCount;
         var userMessageCount = messages.Count(static message => message.Role == MessageRole.User);
         var assistantMessageCount = messages.Count(static message => message.Role == MessageRole.Assistant);
+        var sessionDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
+        var promptReport = await SessionPromptReportStore.TryReadAsync(
+            sessionDirectory,
+            cancellationToken);
+        var promptReportHistory = await SessionPromptReportStore.TryReadHistoryAsync(
+            sessionDirectory,
+            cancellationToken);
+        var promptReportDelta = BuildPromptReportDelta(promptReportHistory);
 
         return new SessionDetail(
             SessionId: sessionId,
@@ -89,7 +99,34 @@ public static partial class GatewayApp
             AssistantMessageCount: assistantMessageCount,
             ToolCallCount: toolCalls.Count,
             LastSfpIndex: info.LastSfpIndex,
-            PendingApprovalCallIds: pendingApprovalCallIds);
+            PendingApprovalCallIds: pendingApprovalCallIds,
+            PromptReport: promptReport,
+            PromptReportDelta: promptReportDelta,
+            RecentPromptReports: promptReportHistory);
+    }
+
+    private static PromptReportDelta? BuildPromptReportDelta(IReadOnlyList<PromptReport>? history)
+    {
+        if (history is not { Count: > 1 })
+        {
+            return null;
+        }
+
+        var current = history[0];
+        var previous = history[1];
+        var previousFiles = previous.LoadedContextFiles.ToHashSet(StringComparer.Ordinal);
+        var currentFiles = current.LoadedContextFiles.ToHashSet(StringComparer.Ordinal);
+
+        return new PromptReportDelta(
+            PreviousGeneratedAt: previous.GeneratedAt,
+            CharacterCountDelta: current.CharacterCount - previous.CharacterCount,
+            TruncationStateChanged: current.WasTruncated != previous.WasTruncated,
+            AddedContextFiles: current.LoadedContextFiles
+                .Where(path => !previousFiles.Contains(path))
+                .ToArray(),
+            RemovedContextFiles: previous.LoadedContextFiles
+                .Where(path => !currentFiles.Contains(path))
+                .ToArray());
     }
 
     private static SessionKind ResolveSessionKind(string sessionId)

@@ -1,0 +1,360 @@
+using System.Text.Json;
+using KodaClaw.Contracts;
+using KodaClaw.Runtime;
+
+namespace KodaClaw.ChannelHub;
+
+public sealed class ChannelTurnOrchestrator
+{
+    private const string TurnSource = "channel.turn";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private readonly ChannelEventIngestionService _ingestionService;
+    private readonly IChannelSessionService _channelSessionService;
+    private readonly ChannelPolicyEngine _policyEngine;
+    private readonly IChannelAccountRepository _channelAccountRepository;
+    private readonly ChannelDeliveryGovernanceService _deliveryGovernanceService;
+    private readonly ChannelDeliveryDispatchService _deliveryDispatchService;
+    private readonly IChannelAuditRepository? _channelAuditRepository;
+    private readonly IDiagnosticsService? _diagnosticsService;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+
+    public ChannelTurnOrchestrator(
+        ChannelEventIngestionService ingestionService,
+        IChannelSessionService channelSessionService,
+        ChannelPolicyEngine policyEngine,
+        IChannelAccountRepository channelAccountRepository,
+        ChannelDeliveryGovernanceService deliveryGovernanceService,
+        ChannelDeliveryDispatchService deliveryDispatchService,
+        IChannelAuditRepository? channelAuditRepository = null,
+        IDiagnosticsService? diagnosticsService = null,
+        ICorrelationContextAccessor? correlationContextAccessor = null)
+    {
+        _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
+        _channelSessionService = channelSessionService ?? throw new ArgumentNullException(nameof(channelSessionService));
+        _policyEngine = policyEngine ?? throw new ArgumentNullException(nameof(policyEngine));
+        _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
+        _deliveryGovernanceService = deliveryGovernanceService ?? throw new ArgumentNullException(nameof(deliveryGovernanceService));
+        _deliveryDispatchService = deliveryDispatchService ?? throw new ArgumentNullException(nameof(deliveryDispatchService));
+        _channelAuditRepository = channelAuditRepository;
+        _diagnosticsService = diagnosticsService;
+        _correlationContextAccessor = correlationContextAccessor;
+    }
+
+    public async Task<ChannelTurnOrchestrationResult> ProcessInboundAsync(
+        ChannelEventEnvelope envelope,
+        CancellationToken cancellationToken = default)
+    {
+        var processing = await _ingestionService.IngestAsync(envelope, cancellationToken);
+        var account = await _channelAccountRepository.GetByIdAsync(processing.Binding.AccountId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Channel account '{processing.Binding.AccountId}' was not found.");
+
+        if (!ShouldExecuteTurn(envelope))
+        {
+            var outcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                summary: "Inbound event recorded without a reply turn.",
+                processing,
+                envelope,
+                reasonCode: "event_not_eligible");
+            await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", outcome, cancellationToken);
+            RecordDiagnosticEvent("channel.turn.no_action", "info", outcome.Summary, processing.Binding, outcome);
+            return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: false);
+        }
+
+        var hasExplicitMention = DetectExplicitMention(envelope, account);
+
+        try
+        {
+            var execution = await _channelSessionService.RunInboundTurnAsync(
+                processing.Binding,
+                processing.Policy,
+                envelope,
+                hasExplicitMention,
+                cancellationToken);
+            var decision = _policyEngine.Evaluate(processing.Policy, hasExplicitMention);
+
+            if (!execution.Proposal.ProposesReply)
+            {
+                var noActionOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.NoAction,
+                    execution.Proposal.Reason,
+                    processing,
+                    envelope,
+                    replyText: null,
+                    reasonCode: "model_no_reply",
+                    hasExplicitMention: hasExplicitMention);
+                await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", noActionOutcome, cancellationToken);
+                RecordDiagnosticEvent("channel.turn.no_action", "info", noActionOutcome.Summary, processing.Binding, noActionOutcome);
+                return new ChannelTurnOrchestrationResult(processing, noActionOutcome, ExecutedTurn: true, execution);
+            }
+
+            if (!decision.CanDirectReply)
+            {
+                var reasonCode = !hasExplicitMention && processing.Policy.RequireExplicitMention
+                    ? "policy_blocked_requires_mention"
+                    : "policy_blocked";
+                var blockedOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.NoAction,
+                    $"Reply blocked by channel policy: {execution.Proposal.Reason}",
+                    processing,
+                    envelope,
+                    replyText: execution.Proposal.ReplyText,
+                    reasonCode: reasonCode,
+                    hasExplicitMention: hasExplicitMention);
+                await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", blockedOutcome, cancellationToken);
+                RecordDiagnosticEvent("channel.turn.no_action", "info", blockedOutcome.Summary, processing.Binding, blockedOutcome);
+                return new ChannelTurnOrchestrationResult(processing, blockedOutcome, ExecutedTurn: true, execution);
+            }
+
+            var draft = new ChannelOutboundDraft(
+                DraftId: $"draft-{Guid.NewGuid():N}",
+                BindingId: processing.Binding.Id,
+                ConnectorKind: processing.Binding.ConnectorKind,
+                AccountId: processing.Binding.AccountId,
+                ExternalThreadId: processing.Binding.ExternalThreadId,
+                MessageText: execution.Proposal.ReplyText!,
+                DeliveryMode: processing.DeliveryRule.Mode,
+                CreatedAt: DateTimeOffset.UtcNow,
+                SessionId: processing.Binding.SessionId,
+                CorrelationId: envelope.CorrelationId ?? _correlationContextAccessor?.CorrelationId,
+                MetadataJson: JsonSerializer.Serialize(execution.Proposal, JsonOptions));
+
+            var evaluation = await _deliveryGovernanceService.EvaluateAsync(
+                processing.Binding,
+                processing.DeliveryRule,
+                draft,
+                cancellationToken);
+
+            if (evaluation.Disposition == ChannelDeliveryDisposition.SendImmediately)
+            {
+                var intendedOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.Delivered,
+                    BuildPreview(draft.MessageText),
+                    processing,
+                    envelope,
+                    replyText: draft.MessageText,
+                    draftId: draft.DraftId,
+                    reasonCode: "auto_send_ready",
+                    hasExplicitMention: hasExplicitMention);
+                var dispatch = await _deliveryDispatchService.DispatchAsync(
+                    account,
+                    processing.Binding,
+                    draft,
+                    intendedOutcome,
+                    cancellationToken);
+
+                RecordDiagnosticEvent(
+                    dispatch.Succeeded ? "channel.turn.delivered" : "channel.turn.failed",
+                    dispatch.Succeeded ? "info" : "error",
+                    dispatch.Outcome.Summary,
+                    processing.Binding,
+                    dispatch.Outcome);
+
+                return new ChannelTurnOrchestrationResult(processing, dispatch.Outcome, ExecutedTurn: true, execution);
+            }
+
+            var outcomeKind = processing.DeliveryRule.Mode == DeliveryMode.DraftApproval
+                ? ChannelTurnOutcomeKind.DraftCreated
+                : ChannelTurnOutcomeKind.ApprovalRequested;
+            var auditEventType = outcomeKind == ChannelTurnOutcomeKind.DraftCreated
+                ? "turn.draft_created"
+                : "turn.approval_requested";
+            var outcome = CreateOutcome(
+                outcomeKind,
+                BuildPreview(draft.MessageText),
+                processing,
+                envelope,
+                replyText: draft.MessageText,
+                approvalId: evaluation.ApprovalId,
+                inboxItemId: evaluation.InboxItemId,
+                draftId: draft.DraftId,
+                reasonCode: outcomeKind == ChannelTurnOutcomeKind.DraftCreated
+                    ? "draft_created"
+                    : "approval_requested",
+                hasExplicitMention: hasExplicitMention);
+
+            await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, auditEventType, outcome, cancellationToken);
+            RecordDiagnosticEvent(
+                outcomeKind == ChannelTurnOutcomeKind.DraftCreated
+                    ? "channel.turn.draft_created"
+                    : "channel.turn.approval_requested",
+                "info",
+                outcome.Summary,
+                processing.Binding,
+                outcome);
+
+            return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true, execution);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException or ArgumentException)
+        {
+            var outcome = CreateOutcome(
+                ChannelTurnOutcomeKind.Failed,
+                $"Channel turn failed: {ex.Message}",
+                processing,
+                envelope,
+                reasonCode: "turn_failed",
+                hasExplicitMention: hasExplicitMention);
+            await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.failed", outcome, cancellationToken);
+            RecordDiagnosticEvent("channel.turn.failed", "error", ex.Message, processing.Binding, outcome);
+            return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true);
+        }
+    }
+
+    private static bool ShouldExecuteTurn(ChannelEventEnvelope envelope)
+    {
+        return envelope.EventType is ChannelEventType.MessageReceived or ChannelEventType.MessageEdited
+            && !string.IsNullOrWhiteSpace(envelope.Text);
+    }
+
+    private static bool DetectExplicitMention(ChannelEventEnvelope envelope, ChannelAccount account)
+    {
+        if (string.IsNullOrWhiteSpace(envelope.Text))
+        {
+            return false;
+        }
+
+        var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "koda",
+            "kodaclaw",
+        };
+
+        AddCandidate(account.DisplayName);
+        AddCandidate(account.ExternalAccountId);
+        AddCandidate(envelope.Recipient?.DisplayName);
+        AddCandidate(envelope.Recipient?.Username);
+        AddCandidate(envelope.Recipient?.Id);
+
+        var normalizedText = envelope.Text.Trim();
+        foreach (var candidate in candidates)
+        {
+            if (string.IsNullOrWhiteSpace(candidate))
+            {
+                continue;
+            }
+
+            if (normalizedText.Contains(candidate, StringComparison.OrdinalIgnoreCase) ||
+                normalizedText.Contains($"@{candidate}", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+
+        void AddCandidate(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            candidates.Add(value.Trim());
+        }
+    }
+
+    private async Task AppendOutcomeAuditAsync(
+        ThreadBinding binding,
+        DeliveryMode deliveryMode,
+        string eventType,
+        ChannelTurnOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        if (_channelAuditRepository is null)
+        {
+            return;
+        }
+
+        await _channelAuditRepository.AppendAsync(
+            new ChannelAuditEntry(
+                Id: $"audit-{Guid.NewGuid():N}",
+                BindingId: binding.Id,
+                ConnectorKind: binding.ConnectorKind,
+                AccountId: binding.AccountId,
+                ExternalThreadId: binding.ExternalThreadId,
+                ThreadType: binding.ThreadType,
+                EventType: eventType,
+                CreatedAt: outcome.OccurredAt,
+                SessionId: binding.SessionId,
+                ApprovalId: outcome.ApprovalId,
+                DeliveryMode: deliveryMode,
+                Summary: outcome.Summary,
+                MetadataJson: JsonSerializer.Serialize(outcome, JsonOptions)),
+            cancellationToken);
+    }
+
+    private void RecordDiagnosticEvent(
+        string eventType,
+        string level,
+        string message,
+        ThreadBinding binding,
+        ChannelTurnOutcome outcome)
+    {
+        if (_diagnosticsService is null)
+        {
+            return;
+        }
+
+        _diagnosticsService.Record(new DiagnosticEvent(
+            Id: $"diag-channel-turn-{Guid.NewGuid():N}",
+            Source: TurnSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            SessionId: binding.SessionId,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
+            Attributes: new Dictionary<string, string?>
+            {
+                ["bindingId"] = binding.Id,
+                ["accountId"] = binding.AccountId,
+                ["connectorKind"] = binding.ConnectorKind.ToString(),
+                ["externalThreadId"] = binding.ExternalThreadId,
+                ["outcomeKind"] = outcome.Kind.ToString(),
+                ["approvalId"] = outcome.ApprovalId,
+                ["inboxItemId"] = outcome.InboxItemId,
+                ["draftId"] = outcome.DraftId,
+            }));
+    }
+
+    private static ChannelTurnOutcome CreateOutcome(
+        ChannelTurnOutcomeKind kind,
+        string summary,
+        ChannelInboundProcessingResult processing,
+        ChannelEventEnvelope envelope,
+        string? replyText = null,
+        string? approvalId = null,
+        string? inboxItemId = null,
+        string? draftId = null,
+        string? reasonCode = null,
+        bool? hasExplicitMention = null)
+    {
+        return new ChannelTurnOutcome(
+            Kind: kind,
+            Summary: summary,
+            OccurredAt: DateTimeOffset.UtcNow,
+            ReplyText: replyText,
+            DeliveryMode: processing.DeliveryRule.Mode,
+            ApprovalId: approvalId,
+            InboxItemId: inboxItemId,
+            DraftId: draftId,
+            SourceEventId: envelope.EventId,
+            ReasonCode: reasonCode,
+            HasExplicitMention: hasExplicitMention);
+    }
+
+    private static string BuildPreview(string text)
+    {
+        const int maxLength = 96;
+
+        var normalized = text.Trim();
+        if (normalized.Length <= maxLength)
+        {
+            return normalized;
+        }
+
+        return $"{normalized[..maxLength]}...";
+    }
+}

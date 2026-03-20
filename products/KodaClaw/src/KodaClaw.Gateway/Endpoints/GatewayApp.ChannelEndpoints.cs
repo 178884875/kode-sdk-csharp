@@ -2,6 +2,7 @@ using System.IO;
 using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
+using KodaClaw.Gateway.Channels;
 using KodaClaw.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -124,6 +125,7 @@ public static partial class GatewayApp
             UpsertChannelAccountRequest request,
             IConfiguration configuration,
             IChannelAccountRepository channelAccountRepository,
+            ChannelInboundGatewayService channelInboundGatewayService,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
@@ -178,7 +180,12 @@ public static partial class GatewayApp
                     : existing?.LastDisconnectedAt,
                 LastError: existing?.LastError);
 
-            await channelAccountRepository.UpsertAsync(account, cancellationToken);
+            account = await ReconcileChannelAccountRuntimeAsync(
+                account,
+                existing,
+                channelAccountRepository,
+                channelInboundGatewayService,
+                cancellationToken);
 
             RecordDiagnosticEvent(
                 diagnosticsService,
@@ -214,6 +221,7 @@ public static partial class GatewayApp
             IConfiguration configuration,
             IThreadBindingRepository threadBindingRepository,
             IChannelAccountRepository channelAccountRepository,
+            ChannelAuditQueryService channelAuditQueryService,
             IApprovalRepository approvalRepository,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
@@ -269,8 +277,13 @@ public static partial class GatewayApp
                     approvalRepository,
                     binding.SessionId,
                     cancellationToken);
+                var recentAudit = await channelAuditQueryService.ListRecentByBindingIdAsync(binding.Id, 6, cancellationToken);
 
-                items.Add(BuildChannelThreadSummary(binding, account, pendingApproval));
+                items.Add(BuildChannelThreadSummary(
+                    binding,
+                    account,
+                    pendingApproval,
+                    TryResolveLastTurnOutcome(recentAudit)));
             }
 
             RecordDiagnosticEvent(
@@ -417,7 +430,6 @@ public static partial class GatewayApp
             IChannelAccountRepository channelAccountRepository,
             IThreadBindingRepository threadBindingRepository,
             GenericWebhookConnector webhookConnector,
-            ChannelEventIngestionService channelEventIngestionService,
             ChannelPolicyEngine channelPolicyEngine,
             ChannelAuditQueryService channelAuditQueryService,
             IApprovalRepository approvalRepository,
@@ -467,63 +479,15 @@ public static partial class GatewayApp
                     Message: "Webhook payload is required."));
             }
 
-            var channelSessionService = context.RequestServices.GetService<IChannelSessionService>();
-            var runtimeConfigurationResolver = context.RequestServices.GetService<IRuntimeConfigurationResolver>();
-            ChannelInboundProcessingResult? processingResult = null;
+            var channelInboundGatewayService = context.RequestServices.GetRequiredService<ChannelInboundGatewayService>();
+            ChannelInboundHandlingResult? handlingResult = null;
             var dispatchResult = await webhookConnector.HandleInboundAsync(
                 account,
                 payloadJson,
                 context.Request.Headers[WebhookSecretHeaderName].ToString(),
                 async (envelope, token) =>
                 {
-                    processingResult = await channelEventIngestionService.IngestAsync(envelope, token);
-                    if (channelSessionService is not null)
-                    {
-                        var runtimeSnapshot = runtimeConfigurationResolver?.Resolve();
-                        if (!IsRuntimeSnapshotReady(runtimeSnapshot))
-                        {
-                            RecordDiagnosticEvent(
-                                diagnosticsService,
-                                context,
-                                source: "gateway.channels",
-                                eventType: "gateway.channels.session_skipped",
-                                level: "warning",
-                                message: "Skipped channel session bootstrap because runtime is not configured.",
-                                sessionId: processingResult.Binding.SessionId,
-                                attributes: new Dictionary<string, string?>
-                                {
-                                    ["accountId"] = processingResult.Binding.AccountId,
-                                    ["bindingId"] = processingResult.Binding.Id,
-                                    ["threadType"] = processingResult.Binding.ThreadType.ToString(),
-                                });
-                            return;
-                        }
-
-                        try
-                        {
-                            await channelSessionService.EnsureChannelSessionAsync(
-                                processingResult.Binding,
-                                processingResult.Policy,
-                                token);
-                        }
-                        catch (InvalidOperationException ex) when (LooksLikeRuntimeConfigurationError(ex.Message))
-                        {
-                            RecordDiagnosticEvent(
-                                diagnosticsService,
-                                context,
-                                source: "gateway.channels",
-                                eventType: "gateway.channels.session_skipped",
-                                level: "warning",
-                                message: ex.Message,
-                                sessionId: processingResult.Binding.SessionId,
-                                attributes: new Dictionary<string, string?>
-                                {
-                                    ["accountId"] = processingResult.Binding.AccountId,
-                                    ["bindingId"] = processingResult.Binding.Id,
-                                    ["threadType"] = processingResult.Binding.ThreadType.ToString(),
-                                });
-                        }
-                    }
+                    handlingResult = await channelInboundGatewayService.ProcessAsync(envelope, token);
                 },
                 cancellationToken);
 
@@ -546,7 +510,7 @@ public static partial class GatewayApp
                 return Results.Json(error, statusCode: statusCode);
             }
 
-            if (processingResult is null)
+            if (handlingResult?.Processing is null)
             {
                 return Results.Json(
                     new ErrorResponse(
@@ -562,7 +526,7 @@ public static partial class GatewayApp
                 channelPolicyEngine,
                 channelAuditQueryService,
                 approvalRepository,
-                processingResult.Binding.Id,
+                handlingResult.Processing.Binding.Id,
                 cancellationToken);
 
             RecordDiagnosticEvent(
@@ -572,13 +536,14 @@ public static partial class GatewayApp
                 eventType: "gateway.channels.webhook_accepted",
                 level: "info",
                 message: "Accepted generic webhook event.",
-                sessionId: processingResult.Binding.SessionId,
+                sessionId: handlingResult.Processing.Binding.SessionId,
                 attributes: new Dictionary<string, string?>
                 {
                     ["accountId"] = account.Id,
-                    ["bindingId"] = processingResult.Binding.Id,
-                    ["createdBinding"] = processingResult.CreatedBinding.ToString(),
+                    ["bindingId"] = handlingResult.Processing.Binding.Id,
+                    ["createdBinding"] = handlingResult.Processing.CreatedBinding.ToString(),
                     ["eventType"] = dispatchResult.Event!.EventType.ToString(),
+                    ["turnOutcomeKind"] = handlingResult.Turn?.Outcome.Kind.ToString(),
                 });
 
             return Results.Ok(detail);

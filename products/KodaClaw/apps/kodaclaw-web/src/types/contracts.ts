@@ -58,6 +58,7 @@ export type PluginRuntimeState = "Stopped" | "Starting" | "Running" | "Degraded"
 export type ChannelConnectorKind = "Telegram" | "GenericWebhook";
 export type ChannelAccountState = "Disconnected" | "Connecting" | "Connected" | "Degraded";
 export type ChannelThreadType = "DirectMessage" | "Group";
+export type ChannelTurnOutcomeKind = "NoAction" | "DraftCreated" | "ApprovalRequested" | "Delivered" | "Failed";
 export type ChannelEventType =
   | "MessageReceived"
   | "MessageEdited"
@@ -304,14 +305,35 @@ export interface BackupImportResponse {
 
 export interface BootstrapCompletionRequest {
   identityMarkdown: string;
+  soulMarkdown: string;
   userMarkdown: string;
   archiveBootstrapFile?: boolean;
+}
+
+export interface BootstrapDraftMessage {
+  role: "user" | "assistant" | "system";
+  text: string;
+}
+
+export interface BootstrapDraftRequest {
+  conversation?: BootstrapDraftMessage[] | null;
+  identityMarkdown?: string | null;
+  soulMarkdown?: string | null;
+  userMarkdown?: string | null;
+}
+
+export interface BootstrapDraftResult {
+  identityMarkdown: string;
+  soulMarkdown: string;
+  userMarkdown: string;
+  summary: string;
 }
 
 export interface BootstrapCompletionResult {
   workspaceRootPath: string;
   bootstrapCompleted: boolean;
   identityFilePath: string;
+  soulFilePath: string;
   userFilePath: string;
   bootstrapFileArchived: boolean;
 }
@@ -459,6 +481,30 @@ export interface SessionDetail {
   toolCallCount: number;
   lastSfpIndex: number;
   pendingApprovalCallIds: string[];
+  promptReport?: PromptReport | null;
+  promptReportDelta?: PromptReportDelta | null;
+  recentPromptReports?: PromptReport[] | null;
+}
+
+export interface PromptReport {
+  profileId: string;
+  systemPrompt: string;
+  characterCount: number;
+  loadedContextFiles: string[];
+  generatedAt: string;
+  characterBudget?: number | null;
+  remainingCharacterBudget?: number | null;
+  wasTruncated: boolean;
+  truncatedContextFiles?: string[] | null;
+  truncationNotes?: string[] | null;
+}
+
+export interface PromptReportDelta {
+  previousGeneratedAt?: string | null;
+  characterCountDelta: number;
+  truncationStateChanged: boolean;
+  addedContextFiles: string[];
+  removedContextFiles: string[];
 }
 
 export interface SessionsQueryResponse {
@@ -777,6 +823,7 @@ export interface ChannelThreadSummary {
   lastMessagePreview?: string | null;
   pendingApprovalId?: string | null;
   hasPendingDraft: boolean;
+  lastTurnOutcome?: ChannelTurnOutcome | null;
 }
 
 export interface ChannelsQueryResponse {
@@ -800,6 +847,20 @@ export interface ChannelAuditEntry {
   metadataJson?: string | null;
 }
 
+export interface ChannelTurnOutcome {
+  kind: ChannelTurnOutcomeKind;
+  summary: string;
+  occurredAt: string;
+  replyText?: string | null;
+  deliveryMode?: DeliveryMode | null;
+  approvalId?: string | null;
+  inboxItemId?: string | null;
+  draftId?: string | null;
+  sourceEventId?: string | null;
+  reasonCode?: string | null;
+  hasExplicitMention?: boolean | null;
+}
+
 export interface ChannelThreadDetail {
   account: ChannelAccount;
   binding: ThreadBinding;
@@ -809,6 +870,8 @@ export interface ChannelThreadDetail {
   session?: SessionSummary | null;
   pendingApprovalId?: string | null;
   hasPendingDraft: boolean;
+  policyEvidence?: string[] | null;
+  lastTurnOutcome?: ChannelTurnOutcome | null;
 }
 
 export interface CreateModelEndpointRequest {

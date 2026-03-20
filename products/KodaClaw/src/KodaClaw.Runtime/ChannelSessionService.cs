@@ -1,7 +1,7 @@
-using System.Text;
 using KodaClaw.Contracts;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
+using System.Text.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace KodaClaw.Runtime;
@@ -9,6 +9,7 @@ namespace KodaClaw.Runtime;
 public sealed class ChannelSessionService : IChannelSessionService, IAsyncDisposable
 {
     private const string ThreadSummaryFileName = "SUMMARY.md";
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IWorkspaceService _workspaceService;
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
@@ -39,11 +40,13 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
         var contextDocuments = await LoadContextDocumentsAsync(snapshot.RootPath, binding, policy, cancellationToken);
-        var systemPrompt = BuildSystemPrompt(binding, policy, contextDocuments);
+        var prompt = BuildSystemPrompt(binding, policy, contextDocuments);
+        var systemPrompt = prompt.SystemPrompt;
         var sessionDirectory = _workspaceService.GetSessionDirectory(binding.SessionId);
 
         if (_agents.TryGetValue(binding.SessionId, out var cached))
         {
+            await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
             return CreateHandle(
                 binding,
                 sessionDirectory,
@@ -53,6 +56,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         Directory.CreateDirectory(sessionDirectory);
+        await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(binding.SessionId, sessionDirectory);
         if (await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
@@ -115,6 +119,32 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             created);
     }
 
+    public async Task<ChannelTurnExecutionResult> RunInboundTurnAsync(
+        ThreadBinding binding,
+        ChannelPolicy policy,
+        ChannelEventEnvelope envelope,
+        bool hasExplicitMention,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+
+        var handle = await EnsureChannelSessionAsync(binding, policy, cancellationToken);
+        var prompt = BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
+        var runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(runResult.Response))
+        {
+            throw new InvalidOperationException("Channel turn did not return a structured response.");
+        }
+
+        return new ChannelTurnExecutionResult(
+            Session: handle,
+            RunResult: runResult,
+            RawResponse: runResult.Response,
+            Proposal: ParseProposal(runResult.Response),
+            HasExplicitMention: hasExplicitMention);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var agent in _agents.Values)
@@ -132,14 +162,14 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _agents.Clear();
     }
 
-    private async Task<IReadOnlyList<ContextDocument>> LoadContextDocumentsAsync(
+    private async Task<IReadOnlyList<PromptContextDocument>> LoadContextDocumentsAsync(
         string workspaceRoot,
         ThreadBinding binding,
         ChannelPolicy policy,
         CancellationToken cancellationToken)
     {
         var scope = ResolveEffectiveScope(policy);
-        var documents = new List<ContextDocument>();
+        var documents = new List<PromptContextDocument>();
         var seenPaths = new HashSet<string>(GetPathComparer());
         var workspaceDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.WorkspaceDirectory);
 
@@ -204,7 +234,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         string absolutePath,
         string workspaceRoot,
         HashSet<string> seenPaths,
-        ICollection<ContextDocument> documents,
+        ICollection<PromptContextDocument> documents,
         CancellationToken cancellationToken)
     {
         if (!seenPaths.Add(absolutePath) || !File.Exists(absolutePath))
@@ -213,7 +243,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         var content = await File.ReadAllTextAsync(absolutePath, cancellationToken);
-        documents.Add(new ContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
+        documents.Add(new PromptContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
     }
 
     private AgentConfig CreateAgentConfig(
@@ -243,64 +273,188 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             _options.Model);
     }
 
-    private string BuildSystemPrompt(
+    private PromptBuildResult BuildSystemPrompt(
         ThreadBinding binding,
         ChannelPolicy policy,
-        IReadOnlyList<ContextDocument> contextDocuments)
+        IReadOnlyList<PromptContextDocument> contextDocuments)
     {
         var scope = ResolveEffectiveScope(policy);
         var displayTitle = binding.ChannelIdentity.DisplayName
             ?? binding.ChannelIdentity.Username
             ?? binding.ExternalThreadId;
 
-        var builder = new StringBuilder();
-        if (!string.IsNullOrWhiteSpace(_options.SystemPrompt))
+        var prompt = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
+            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .AddSection(
+                "Channel Session",
+                [
+                    $"BindingId: {binding.Id}",
+                    $"ConnectorKind: {binding.ConnectorKind}",
+                    $"AccountId: {binding.AccountId}",
+                    $"ExternalThreadId: {binding.ExternalThreadId}",
+                    $"ThreadType: {binding.ThreadType}",
+                    $"SessionKind: {binding.SessionKind}",
+                    $"DisplayTitle: {displayTitle}",
+                ])
+            .AddSection(
+                "Policy",
+                [
+                    $"- AllowDirectReply: {policy.AllowDirectReply}",
+                    $"- RequireExplicitMention: {policy.RequireExplicitMention}",
+                    $"- WorkspaceMuted: {policy.WorkspaceMuted}",
+                    $"- ConnectorMuted: {policy.ConnectorMuted}",
+                    $"- ThreadMuted: {policy.ThreadMuted}",
+                    $"- LoadAgents: {scope.LoadAgents}",
+                    $"- LoadIdentity: {scope.LoadIdentity}",
+                    $"- LoadSoul: {scope.LoadSoul}",
+                    $"- LoadUserProfile: {scope.LoadUserProfile}",
+                    $"- LoadLongTermMemory: {scope.LoadLongTermMemory}",
+                    $"- LoadRecentThreadSummary: {scope.LoadRecentThreadSummary}",
+                ])
+            .AddBody("Only use the loaded context files below. Do not assume access to main-session memory or undeclared user profile data.")
+            .AddContextDocuments(contextDocuments)
+            .Build();
+
+        return prompt;
+    }
+
+    private static string BuildInboundTurnPrompt(
+        ThreadBinding binding,
+        ChannelEventEnvelope envelope,
+        bool hasExplicitMention)
+    {
+        var senderLabel = envelope.Sender?.DisplayName
+            ?? envelope.Sender?.Username
+            ?? envelope.Sender?.Id
+            ?? "(unknown)";
+        var recipientLabel = envelope.Recipient?.DisplayName
+            ?? envelope.Recipient?.Username
+            ?? envelope.Recipient?.Id
+            ?? "(unknown)";
+        var messageText = string.IsNullOrWhiteSpace(envelope.Text)
+            ? "(no text)"
+            : envelope.Text.Trim();
+        var threadGuidance = binding.ThreadType switch
         {
-            builder.AppendLine(_options.SystemPrompt);
-            builder.AppendLine();
+            ChannelThreadType.DirectMessage => """
+- This is a direct message. If the sender is clearly asking for help or a response, you may propose a concise reply draft.
+- Use the loaded user profile only when it is explicitly present in the session context.
+""",
+            ChannelThreadType.Group when hasExplicitMention => """
+- This is a group thread and Koda was explicitly mentioned.
+- If a reply is useful, keep it brief, public-safe, and grounded only in the loaded context.
+""",
+            ChannelThreadType.Group => """
+- This is a group thread without an explicit mention of Koda.
+- Prefer action "no_reply" unless the message clearly requires Koda's intervention or a direct response on Koda's behalf.
+""",
+            _ => string.Empty,
+        };
+
+        return $$"""
+Process the inbound channel event and return JSON only.
+
+Return this exact schema:
+{
+  "action": "no_reply | propose_reply",
+  "replyText": "string or null",
+  "reason": "short reason",
+  "confidence": 0.0
+}
+
+Rules:
+- If no outward response should be sent, return action "no_reply".
+- If a reply is justified, keep it concise and channel-safe.
+- Use only the loaded session context and the inbound event below.
+- Never invent facts, commitments, approvals, or deliveries that did not happen.
+- Never wrap the JSON in markdown fences.
+{{threadGuidance}}
+
+Inbound Event:
+- BindingId: {{binding.Id}}
+- EventType: {{envelope.EventType}}
+- ThreadType: {{binding.ThreadType}}
+- ExternalMessageId: {{envelope.ExternalMessageId ?? "(none)"}}
+- Sender: {{senderLabel}}
+- Recipient: {{recipientLabel}}
+- HasExplicitMention: {{hasExplicitMention}}
+- MessageText:
+{{messageText}}
+""";
+    }
+
+    private static ChannelReplyProposal ParseProposal(string rawResponse)
+    {
+        var json = ExtractJson(rawResponse);
+        var proposal = JsonSerializer.Deserialize<ChannelReplyProposal>(json, JsonOptions);
+        if (proposal is null)
+        {
+            throw new InvalidOperationException("Channel turn response could not be parsed.");
         }
 
-        builder.AppendLine("Channel Session");
-        builder.AppendLine($"BindingId: {binding.Id}");
-        builder.AppendLine($"ConnectorKind: {binding.ConnectorKind}");
-        builder.AppendLine($"AccountId: {binding.AccountId}");
-        builder.AppendLine($"ExternalThreadId: {binding.ExternalThreadId}");
-        builder.AppendLine($"ThreadType: {binding.ThreadType}");
-        builder.AppendLine($"SessionKind: {binding.SessionKind}");
-        builder.AppendLine($"DisplayTitle: {displayTitle}");
-        builder.AppendLine();
-        builder.AppendLine("Policy");
-        builder.AppendLine($"- AllowDirectReply: {policy.AllowDirectReply}");
-        builder.AppendLine($"- RequireExplicitMention: {policy.RequireExplicitMention}");
-        builder.AppendLine($"- WorkspaceMuted: {policy.WorkspaceMuted}");
-        builder.AppendLine($"- ConnectorMuted: {policy.ConnectorMuted}");
-        builder.AppendLine($"- ThreadMuted: {policy.ThreadMuted}");
-        builder.AppendLine($"- LoadAgents: {scope.LoadAgents}");
-        builder.AppendLine($"- LoadIdentity: {scope.LoadIdentity}");
-        builder.AppendLine($"- LoadSoul: {scope.LoadSoul}");
-        builder.AppendLine($"- LoadUserProfile: {scope.LoadUserProfile}");
-        builder.AppendLine($"- LoadLongTermMemory: {scope.LoadLongTermMemory}");
-        builder.AppendLine($"- LoadRecentThreadSummary: {scope.LoadRecentThreadSummary}");
-        builder.AppendLine();
-        builder.AppendLine("Only use the loaded context files below. Do not assume access to main-session memory or undeclared user profile data.");
-        builder.AppendLine();
-        builder.AppendLine("Loaded Context Files:");
-
-        if (contextDocuments.Count == 0)
+        var action = proposal.Action?.Trim();
+        if (!string.Equals(action, "no_reply", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(action, "propose_reply", StringComparison.OrdinalIgnoreCase))
         {
-            builder.AppendLine("(none)");
+            throw new InvalidOperationException("Channel turn response contained an unknown action.");
         }
-        else
+
+        var reason = string.IsNullOrWhiteSpace(proposal.Reason)
+            ? "No reason supplied."
+            : proposal.Reason.Trim();
+        var confidence = Math.Clamp(proposal.Confidence, 0d, 1d);
+
+        if (string.Equals(action, "propose_reply", StringComparison.OrdinalIgnoreCase) &&
+            string.IsNullOrWhiteSpace(proposal.ReplyText))
         {
-            foreach (var document in contextDocuments)
+            throw new InvalidOperationException("Channel turn reply proposal is missing reply text.");
+        }
+
+        return proposal with
+        {
+            Action = action!,
+            ReplyText = string.IsNullOrWhiteSpace(proposal.ReplyText) ? null : proposal.ReplyText.Trim(),
+            Reason = reason,
+            Confidence = confidence,
+        };
+    }
+
+    private static string ExtractJson(string rawResponse)
+    {
+        var trimmed = rawResponse.Trim();
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstLineBreak = trimmed.IndexOf('\n');
+            if (firstLineBreak >= 0)
             {
-                builder.AppendLine($"### File: {document.Path}");
-                builder.AppendLine(document.Content);
-                builder.AppendLine();
+                trimmed = trimmed[(firstLineBreak + 1)..];
+            }
+
+            var closingFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+            if (closingFence >= 0)
+            {
+                trimmed = trimmed[..closingFence].Trim();
             }
         }
 
-        return builder.ToString().Trim();
+        try
+        {
+            JsonDocument.Parse(trimmed);
+            return trimmed;
+        }
+        catch (JsonException)
+        {
+            var start = trimmed.IndexOf('{');
+            var end = trimmed.LastIndexOf('}');
+            if (start < 0 || end <= start)
+            {
+                throw new InvalidOperationException("Channel turn response did not contain JSON.");
+            }
+
+            var candidate = trimmed[start..(end + 1)];
+            JsonDocument.Parse(candidate);
+            return candidate;
+        }
     }
 
     private static void ValidateBindingAndPolicy(ThreadBinding binding, ChannelPolicy policy)
@@ -387,9 +541,6 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             ResumeFailureMessage: resumeFailureMessage,
             Agent: agent);
     }
-
-    private sealed record ContextDocument(string Path, string Content);
-
     private sealed record EffectivePolicyScope(
         bool LoadAgents,
         bool LoadIdentity,

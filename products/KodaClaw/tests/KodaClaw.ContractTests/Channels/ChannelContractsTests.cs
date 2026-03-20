@@ -74,7 +74,22 @@ public sealed class ChannelContractsTests
                 CreatedAt: new DateTimeOffset(2026, 3, 19, 0, 1, 0, TimeSpan.Zero),
                 LastEventAt: new DateTimeOffset(2026, 3, 19, 0, 7, 0, TimeSpan.Zero)),
             PendingApprovalId: "approval-001",
-            HasPendingDraft: true);
+            HasPendingDraft: true,
+            PolicyEvidence:
+            [
+                "pending_approval",
+            ],
+            LastTurnOutcome: new ChannelTurnOutcome(
+                Kind: ChannelTurnOutcomeKind.DraftCreated,
+                Summary: "Thanks, I drafted a reply for review.",
+                OccurredAt: new DateTimeOffset(2026, 3, 19, 0, 8, 0, TimeSpan.Zero),
+                ReplyText: "Thanks, I drafted a reply for review.",
+                DeliveryMode: DeliveryMode.DraftApproval,
+                ApprovalId: "approval-001",
+                DraftId: "draft-001",
+                SourceEventId: "event-001",
+                ReasonCode: "draft_created",
+                HasExplicitMention: true));
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var roundTrip = JsonSerializer.Deserialize<ChannelThreadDetail>(json, JsonOptions);
@@ -87,6 +102,11 @@ public sealed class ChannelContractsTests
         roundTrip.DeliveryRule.Mode.Should().Be(DeliveryMode.DraftApproval);
         roundTrip.RecentAudit.Should().ContainSingle().Which.EventType.Should().Be("message.received");
         roundTrip.HasPendingDraft.Should().BeTrue();
+        roundTrip.PolicyEvidence.Should().Equal("pending_approval");
+        roundTrip.LastTurnOutcome.Should().NotBeNull();
+        roundTrip.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.DraftCreated);
+        roundTrip.LastTurnOutcome.ReasonCode.Should().Be("draft_created");
+        roundTrip.LastTurnOutcome.HasExplicitMention.Should().BeTrue();
     }
 
     [Fact]
@@ -158,7 +178,19 @@ public sealed class ChannelContractsTests
                 LastInboundAt: new DateTimeOffset(2026, 3, 19, 8, 1, 0, TimeSpan.Zero),
                 LastMessagePreview: "incident opened",
                 PendingApprovalId: "approval-001",
-                HasPendingDraft: true),
+                HasPendingDraft: true,
+                LastTurnOutcome: new ChannelTurnOutcome(
+                    Kind: ChannelTurnOutcomeKind.ApprovalRequested,
+                    Summary: "Please approve the proposed response.",
+                    OccurredAt: new DateTimeOffset(2026, 3, 19, 8, 2, 0, TimeSpan.Zero),
+                    ReplyText: "Please confirm the rollout window.",
+                    DeliveryMode: DeliveryMode.RequireApproval,
+                    ApprovalId: "approval-001",
+                    InboxItemId: "inbox-001",
+                    DraftId: "draft-001",
+                    SourceEventId: "event-001",
+                    ReasonCode: "approval_requested",
+                    HasExplicitMention: true)),
         ]);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
@@ -169,5 +201,9 @@ public sealed class ChannelContractsTests
         roundTrip!.Items.Should().ContainSingle();
         roundTrip.Items[0].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
         roundTrip.Items[0].PendingApprovalId.Should().Be("approval-001");
+        roundTrip.Items[0].LastTurnOutcome.Should().NotBeNull();
+        roundTrip.Items[0].LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.ApprovalRequested);
+        roundTrip.Items[0].LastTurnOutcome!.ReasonCode.Should().Be("approval_requested");
+        roundTrip.Items[0].LastTurnOutcome!.HasExplicitMention.Should().BeTrue();
     }
 }

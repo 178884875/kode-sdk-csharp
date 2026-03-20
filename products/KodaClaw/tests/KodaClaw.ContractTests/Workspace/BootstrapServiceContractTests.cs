@@ -11,23 +11,25 @@ namespace KodaClaw.ContractTests.Workspace;
 public sealed class BootstrapServiceContractTests
 {
     [Fact]
-    public async Task Complete_should_write_identity_user_update_config_and_archive_bootstrap()
+    public async Task Complete_should_write_identity_soul_user_update_config_and_archive_bootstrap()
     {
         using var tempDir = new TempDir();
         var workspaceService = CreateWorkspaceService(tempDir.Path);
         var bootstrapService = new BootstrapService(workspaceService);
 
         var identityMarkdown = "# identity";
+        var soulMarkdown = "# soul";
         var userMarkdown = "# user";
 
         var result = await bootstrapService.CompleteAsync(
-            new BootstrapCompletionRequest(identityMarkdown, userMarkdown));
+            new BootstrapCompletionRequest(identityMarkdown, soulMarkdown, userMarkdown));
 
         result.WorkspaceRootPath.Should().Be(tempDir.Path);
         result.BootstrapCompleted.Should().BeTrue();
         result.BootstrapFileArchived.Should().BeTrue();
 
         File.ReadAllText(result.IdentityFilePath).Should().Be(identityMarkdown);
+        File.ReadAllText(result.SoulFilePath).Should().Be(soulMarkdown);
         File.ReadAllText(result.UserFilePath).Should().Be(userMarkdown);
 
         var bootstrapPath = Path.Combine(
@@ -49,7 +51,18 @@ public sealed class BootstrapServiceContractTests
         var bootstrapService = new BootstrapService(workspaceService);
 
         await Assert.ThrowsAsync<ArgumentNullException>(() =>
-            bootstrapService.CompleteAsync(new BootstrapCompletionRequest(null!, "# user")));
+            bootstrapService.CompleteAsync(new BootstrapCompletionRequest(null!, "# soul", "# user")));
+    }
+
+    [Fact]
+    public async Task Complete_should_throw_when_soul_markdown_missing()
+    {
+        using var tempDir = new TempDir();
+        var workspaceService = CreateWorkspaceService(tempDir.Path);
+        var bootstrapService = new BootstrapService(workspaceService);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() =>
+            bootstrapService.CompleteAsync(new BootstrapCompletionRequest("# identity", null!, "# user")));
     }
 
     [Fact]
@@ -60,7 +73,7 @@ public sealed class BootstrapServiceContractTests
         var bootstrapService = new BootstrapService(workspaceService);
 
         var result = await bootstrapService.CompleteAsync(
-            new BootstrapCompletionRequest("# identity", "# user", ArchiveBootstrapFile: false));
+            new BootstrapCompletionRequest("# identity", "# soul", "# user", ArchiveBootstrapFile: false));
 
         var bootstrapPath = Path.Combine(
             tempDir.Path,

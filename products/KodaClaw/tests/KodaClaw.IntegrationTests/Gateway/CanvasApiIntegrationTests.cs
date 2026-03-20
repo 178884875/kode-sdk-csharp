@@ -60,8 +60,60 @@ public sealed class CanvasApiIntegrationTests
         var payload = await response.Content.ReadFromJsonAsync<CanvasEntryResponse>();
         payload.Should().NotBeNull();
         payload!.EntryPath.Should().Be("workspace/canvas/index.html");
-        payload.EntryUrl.Should().Be("/api/canvas/fs/workspace/canvas/index.html");
+        payload.EntryUrl.Should().StartWith("/api/canvas/preview/");
+        payload.EntryUrl.Should().EndWith("/workspace/canvas/index.html");
         payload.ArtifactId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Canvas_artifact_entry_should_issue_preview_url_that_serves_html_and_relative_assets_without_bearer_token()
+    {
+        using var workspace = new TempCanvasWorkspaceRoot();
+        await SeedCanvasArtifactAsync(workspace.Path, CreateArtifact("canvas-dashboard", CanvasArtifactKind.Dashboard, updatedAtHour: 10));
+
+        var entryAbsolutePath = Path.Combine(
+            workspace.Path,
+            "workspace",
+            "canvas",
+            "artifacts",
+            "canvas-dashboard",
+            "index.html");
+        Directory.CreateDirectory(Path.GetDirectoryName(entryAbsolutePath)!);
+        await File.WriteAllTextAsync(entryAbsolutePath, "<html><head><link rel=\"stylesheet\" href=\"app.css\"></head><body><h1>dashboard</h1></body></html>");
+        await File.WriteAllTextAsync(Path.Combine(Path.GetDirectoryName(entryAbsolutePath)!, "app.css"), "body { color: red; }");
+
+        await using var hosted = await StartRealWorkspaceGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-token");
+
+        var response = await hosted.Client.GetAsync("/api/canvas/canvas-dashboard/entry");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<CanvasEntryResponse>();
+        payload.Should().NotBeNull();
+        payload!.ArtifactId.Should().Be("canvas-dashboard");
+        payload.EntryUrl.Should().StartWith("/api/canvas/preview/");
+        payload.EntryUrl.Should().EndWith("/workspace/canvas/artifacts/canvas-dashboard/index.html");
+
+        using var previewClient = new HttpClient
+        {
+            BaseAddress = hosted.Client.BaseAddress
+        };
+
+        var previewResponse = await previewClient.GetAsync(payload.EntryUrl);
+        previewResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var previewHtml = await previewResponse.Content.ReadAsStringAsync();
+        previewHtml.Should().Contain("dashboard");
+
+        var cssResponse = await previewClient.GetAsync(
+            payload.EntryUrl.Replace("/index.html", "/app.css", StringComparison.Ordinal));
+        cssResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        cssResponse.Content.Headers.ContentType.Should().NotBeNull();
+        cssResponse.Content.Headers.ContentType!.MediaType.Should().Be("text/css");
+        var cssBody = await cssResponse.Content.ReadAsStringAsync();
+        cssBody.Should().Contain("color: red");
+
+        var directFsResponse = await previewClient.GetAsync("/api/canvas/fs/workspace/canvas/artifacts/canvas-dashboard/index.html");
+        directFsResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]

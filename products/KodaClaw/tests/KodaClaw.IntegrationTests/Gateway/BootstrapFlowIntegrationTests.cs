@@ -15,10 +15,12 @@ namespace KodaClaw.IntegrationTests.Gateway;
 public sealed class BootstrapFlowIntegrationTests
 {
     [Theory]
-    [InlineData("", "# user")]
-    [InlineData("# identity", "")]
+    [InlineData("", "# soul", "# user")]
+    [InlineData("# identity", "", "# user")]
+    [InlineData("# identity", "# soul", "")]
     public async Task Bootstrap_complete_returns_bad_request_when_markdown_missing(
         string identityMarkdown,
+        string soulMarkdown,
         string userMarkdown)
     {
         using var workspace = new TempWorkspaceRoot();
@@ -32,6 +34,7 @@ public sealed class BootstrapFlowIntegrationTests
             new
             {
                 identityMarkdown,
+                soulMarkdown,
                 userMarkdown
             });
 
@@ -52,6 +55,7 @@ public sealed class BootstrapFlowIntegrationTests
             new
             {
                 identityMarkdown = "# identity",
+                soulMarkdown = "# soul",
                 userMarkdown = "# user"
             });
 
@@ -68,6 +72,7 @@ public sealed class BootstrapFlowIntegrationTests
             new AuthenticationHeaderValue("Bearer", "test-token");
 
         var identityMarkdown = "# identity\n- Name: Koda";
+        var soulMarkdown = "# soul\n- Rule: protect trust";
         var userMarkdown = "# user\n- Boundaries: direct";
 
         var response = await hosted.Client.PostAsJsonAsync(
@@ -75,6 +80,7 @@ public sealed class BootstrapFlowIntegrationTests
             new
             {
                 identityMarkdown,
+                soulMarkdown,
                 userMarkdown,
                 archiveBootstrapFile = true
             });
@@ -86,6 +92,7 @@ public sealed class BootstrapFlowIntegrationTests
         result.BootstrapCompleted.Should().BeTrue();
         result.BootstrapFileArchived.Should().BeTrue();
         File.ReadAllText(result.IdentityFilePath).Should().Be(identityMarkdown);
+        File.ReadAllText(result.SoulFilePath).Should().Be(soulMarkdown);
         File.ReadAllText(result.UserFilePath).Should().Be(userMarkdown);
 
         var bootstrapPath = Path.Combine(

@@ -10,4 +10,7 @@ public sealed record SessionDetail(
     int AssistantMessageCount,
     int ToolCallCount,
     int LastSfpIndex,
-    IReadOnlyList<string> PendingApprovalCallIds);
+    IReadOnlyList<string> PendingApprovalCallIds,
+    PromptReport? PromptReport = null,
+    PromptReportDelta? PromptReportDelta = null,
+    IReadOnlyList<PromptReport>? RecentPromptReports = null);

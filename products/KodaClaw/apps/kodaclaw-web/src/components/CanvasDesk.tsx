@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import {
   buildCanvasEntryUrl,
   fetchCanvasArtifact,
+  fetchCanvasArtifactEntry,
   fetchCanvasArtifacts,
   fetchCanvasDefaultEntry,
 } from "../lib/api";
@@ -214,6 +215,7 @@ export function CanvasDesk() {
   const [kindFilter, setKindFilter] = useState<CanvasKindFilter>("all");
   const [artifacts, setArtifacts] = useState<CanvasArtifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<CanvasArtifact | null>(null);
+  const [selectedEntry, setSelectedEntry] = useState<CanvasEntryResponse | null>(null);
   const [defaultEntry, setDefaultEntry] = useState<CanvasEntryResponse | null>(null);
   const [defaultEntryPath, setDefaultEntryPath] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -263,6 +265,7 @@ export function CanvasDesk() {
       setDefaultEntryPath(artifactsPayload.defaultEntryPath ?? null);
 
       if (!selectedArtifact) {
+        setSelectedEntry(null);
         return;
       }
 
@@ -272,15 +275,20 @@ export function CanvasDesk() {
 
       if (!selectedStillVisible) {
         setSelectedArtifact(null);
+        setSelectedEntry(null);
         return;
       }
 
-      const hydrated = await fetchCanvasArtifact(selectedArtifact.id);
+      const [hydrated, hydratedEntry] = await Promise.all([
+        fetchCanvasArtifact(selectedArtifact.id),
+        fetchCanvasArtifactEntry(selectedArtifact.id),
+      ]);
       if (requestId !== requestIdRef.current) {
         return;
       }
 
       setSelectedArtifact(hydrated);
+      setSelectedEntry(hydratedEntry);
     } catch (nextError) {
       if (requestId !== requestIdRef.current) {
         return;
@@ -314,8 +322,12 @@ export function CanvasDesk() {
     setError(null);
 
     try {
-      const artifact = await fetchCanvasArtifact(artifactId);
+      const [artifact, entry] = await Promise.all([
+        fetchCanvasArtifact(artifactId),
+        fetchCanvasArtifactEntry(artifactId),
+      ]);
       setSelectedArtifact(artifact);
+      setSelectedEntry(entry);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : text.loadArtifactError);
     } finally {
@@ -324,12 +336,16 @@ export function CanvasDesk() {
   }
 
   const previewEntryUrl = useMemo(() => {
+    if (selectedEntry?.entryUrl) {
+      return selectedEntry.entryUrl;
+    }
+
     if (selectedArtifact) {
       return buildCanvasEntryUrl(selectedArtifact.entryPath);
     }
 
     return resolveDefaultEntryUrl(defaultEntry, defaultEntryPath);
-  }, [defaultEntry, defaultEntryPath, selectedArtifact]);
+  }, [defaultEntry, defaultEntryPath, selectedArtifact, selectedEntry]);
 
   const selectionLabel = selectedArtifact ? selectedArtifact.title : defaultEntry?.title ?? text.defaultEntryTitle;
   const selectionKind = selectedArtifact ? resolveKindLabel(selectedArtifact.kind) : text.defaultKind;

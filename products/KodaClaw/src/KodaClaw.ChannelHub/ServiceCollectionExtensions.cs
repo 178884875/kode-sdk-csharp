@@ -19,7 +19,9 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ChannelPolicyEngine>();
         services.TryAddSingleton<ChannelEventIngestionService>();
         services.TryAddSingleton<ChannelDeliveryGovernanceService>();
+        services.TryAddSingleton<ChannelDeliveryDispatchService>();
         services.TryAddSingleton<ChannelDeliveryApprovalService>();
+        services.TryAddSingleton<ChannelTurnOrchestrator>();
         services.TryAddSingleton<ITelegramApiClient, HttpTelegramApiClient>();
         services.TryAddSingleton<TelegramConnector>();
         services.TryAddSingleton<GenericWebhookConnector>();

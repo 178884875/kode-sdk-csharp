@@ -561,6 +561,99 @@ public static partial class GatewayApp
             }
         });
 
+        system.MapPost("/bootstrap-draft", async (
+            HttpContext context,
+            BootstrapDraftRequest request,
+            IBootstrapDraftService bootstrapDraftService,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to bootstrap draft endpoint.");
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            var hasConversation = request.Conversation?.Any(item => !string.IsNullOrWhiteSpace(item.Text)) == true;
+            var hasCurrentDraft =
+                !string.IsNullOrWhiteSpace(request.IdentityMarkdown) ||
+                !string.IsNullOrWhiteSpace(request.SoulMarkdown) ||
+                !string.IsNullOrWhiteSpace(request.UserMarkdown);
+            if (!hasConversation && !hasCurrentDraft)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "workspace.bootstrap",
+                    eventType: "workspace.bootstrap.draft_invalid_request",
+                    level: "warning",
+                    message: "Bootstrap draft generation requires conversation evidence or existing draft content.");
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(
+                    new ErrorResponse(
+                        Code: "validation.bootstrap_draft_input_required",
+                        Message: "Bootstrap draft generation requires conversation evidence or existing draft content."),
+                    cancellationToken);
+                return;
+            }
+
+            try
+            {
+                var result = await bootstrapDraftService.GenerateDraftAsync(request, cancellationToken);
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "workspace.bootstrap",
+                    eventType: "workspace.bootstrap.draft_generated",
+                    level: "info",
+                    message: "Bootstrap draft generated from onboarding conversation.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["conversationCount"] = request.Conversation?.Count.ToString(),
+                    });
+                await context.Response.WriteAsJsonAsync(result, cancellationToken);
+            }
+            catch (ArgumentException ex)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "workspace.bootstrap",
+                    eventType: "workspace.bootstrap.draft_invalid_request",
+                    level: "warning",
+                    message: ex.Message);
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(
+                    new ErrorResponse(
+                        Code: "validation.bootstrap_draft_input_required",
+                        Message: ex.Message),
+                    cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "workspace.bootstrap",
+                    eventType: "workspace.bootstrap.draft_failed",
+                    level: "error",
+                    message: ex.GetBaseException().Message);
+                throw;
+            }
+        });
+
         system.MapPost("/bootstrap-complete", async (
             HttpContext context,
             BootstrapCompletionRequest request,
@@ -583,6 +676,7 @@ public static partial class GatewayApp
             }
 
             if (string.IsNullOrWhiteSpace(request.IdentityMarkdown) ||
+                string.IsNullOrWhiteSpace(request.SoulMarkdown) ||
                 string.IsNullOrWhiteSpace(request.UserMarkdown))
             {
                 RecordDiagnosticEvent(
@@ -591,12 +685,12 @@ public static partial class GatewayApp
                     source: "workspace.bootstrap",
                     eventType: "workspace.bootstrap.invalid_request",
                     level: "warning",
-                    message: "Bootstrap completion requires identity and user markdown.");
+                    message: "Bootstrap completion requires identity, soul, and user markdown.");
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await context.Response.WriteAsJsonAsync(
                     new ErrorResponse(
                         Code: "validation.markdown_required",
-                        Message: "Identity and user markdown are required."),
+                        Message: "Identity, soul, and user markdown are required."),
                     cancellationToken);
                 return;
             }
@@ -610,7 +704,7 @@ public static partial class GatewayApp
                     source: "workspace.bootstrap",
                     eventType: "workspace.bootstrap.completed",
                     level: "info",
-                    message: "Bootstrap completion wrote workspace identity files.");
+                    message: "Bootstrap completion wrote workspace identity, soul, and user files.");
                 await context.Response.WriteAsJsonAsync(result, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

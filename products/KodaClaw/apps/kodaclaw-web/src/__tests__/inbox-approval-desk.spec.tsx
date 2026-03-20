@@ -96,8 +96,8 @@ describe("InboxApprovalDesk", () => {
     expect(screen.getByTestId("inbox-refresh")).toBeInTheDocument();
     expect(screen.getAllByTestId("approval-approve")[0]).toBeInTheDocument();
     expect(screen.getAllByTestId("approval-reject")[0]).toBeInTheDocument();
-    expect(screen.getByText("Outbound approval")).toBeInTheDocument();
-    expect(screen.getByText("Send channel message")).toBeInTheDocument();
+    expect(screen.getByTestId("inbox-item-inbox-001")).toHaveTextContent("Outbound approval");
+    expect(screen.getByTestId("approval-item-approval-001")).toHaveTextContent("Send channel message");
   });
 
   it("supports approval decisions and inbox status updates", async () => {
@@ -173,7 +173,7 @@ describe("InboxApprovalDesk", () => {
     const user = userEvent.setup();
 
     await waitFor(() => {
-      expect(screen.getByText("Call risky tool")).toBeInTheDocument();
+      expect(screen.getByTestId("approval-item-approval-002")).toHaveTextContent("Call risky tool");
     });
 
     await user.type(screen.getByTestId("approval-note-approval-002"), "ship it");
@@ -192,6 +192,94 @@ describe("InboxApprovalDesk", () => {
     await waitFor(() => {
       const element = screen.getByTestId("inbox-status-inbox-002") as HTMLSelectElement;
       expect(element.value).toBe("Resolved");
+    });
+  });
+
+  it("keeps linked inbox and approval detail panes in sync with selection", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = resolveRequestUrl(input);
+
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "inbox-010",
+              kind: "Approval",
+              status: "Open",
+              title: "First inbox",
+              summary: "First inbox summary",
+              source: "runtime.main_session.approval",
+              createdAt: "2026-03-18T09:00:00.000Z",
+              updatedAt: "2026-03-18T09:00:00.000Z",
+              requiresAction: true,
+              approvalId: "approval-010",
+              correlationId: "corr-010",
+            } satisfies InboxItem,
+            {
+              id: "inbox-011",
+              kind: "PluginRequest",
+              status: "Acknowledged",
+              title: "Second inbox",
+              summary: "Second inbox summary",
+              source: "runtime.automation.session",
+              createdAt: "2026-03-18T10:00:00.000Z",
+              updatedAt: "2026-03-18T10:10:00.000Z",
+              requiresAction: false,
+              approvalId: "approval-011",
+              sessionId: "session-011",
+            } satisfies InboxItem,
+          ],
+        });
+      }
+
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "approval-010",
+              kind: "ExternalAction",
+              status: "Pending",
+              title: "First approval",
+              summary: "First approval summary",
+              source: "runtime.main_session.approval",
+              requestedAt: "2026-03-18T09:00:00.000Z",
+              updatedAt: "2026-03-18T09:00:00.000Z",
+              inboxItemId: "inbox-010",
+            } satisfies Approval,
+            {
+              id: "approval-011",
+              kind: "AutomationAction",
+              status: "Approved",
+              title: "Second approval",
+              summary: "Second approval summary",
+              source: "runtime.automation.session",
+              requestedAt: "2026-03-18T10:00:00.000Z",
+              updatedAt: "2026-03-18T10:12:00.000Z",
+              inboxItemId: "inbox-011",
+              sessionId: "session-011",
+            } satisfies Approval,
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+
+    const user = userEvent.setup();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("First inbox");
+      expect(screen.getByTestId("approval-detail")).toHaveTextContent("First approval");
+    });
+
+    await user.click(screen.getByTestId("approval-item-approval-011"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("approval-detail")).toHaveTextContent("Second approval");
+      expect(screen.getByTestId("approval-detail")).toHaveTextContent("session-011");
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("Second inbox");
     });
   });
 
@@ -217,5 +305,80 @@ describe("InboxApprovalDesk", () => {
     });
 
     expect(screen.getByText("inbox unavailable")).toBeInTheDocument();
+  });
+
+  it("renders channel delivery payload context in inbox and approval focus", async () => {
+    const payloadJson = JSON.stringify({
+      draftId: "draft-chan-001",
+      bindingId: "binding-chan-001",
+      connectorKind: "Telegram",
+      accountId: "telegram-main",
+      externalThreadId: "10001",
+      deliveryMode: "DraftApproval",
+      messageText: "Thanks, I have a draft reply ready.",
+    });
+
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = resolveRequestUrl(input);
+
+      if (url.includes("/api/inbox")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "inbox-channel-001",
+              kind: "ChannelUpdate",
+              status: "Open",
+              title: "Channel draft pending",
+              summary: "Review the draft before delivery",
+              source: "channel.delivery",
+              createdAt: "2026-03-18T09:00:00.000Z",
+              updatedAt: "2026-03-18T09:10:00.000Z",
+              requiresAction: true,
+              approvalId: "approval-channel-001",
+              payloadJson,
+            } satisfies InboxItem,
+          ],
+        });
+      }
+
+      if (url.includes("/api/approvals")) {
+        return jsonResponse({
+          items: [
+            {
+              id: "approval-channel-001",
+              kind: "ChannelDelivery",
+              status: "Pending",
+              title: "Approve channel delivery",
+              summary: "Operator review required",
+              source: "channel.delivery",
+              requestedAt: "2026-03-18T09:00:00.000Z",
+              updatedAt: "2026-03-18T09:10:00.000Z",
+              inboxItemId: "inbox-channel-001",
+              payloadJson,
+            } satisfies Approval,
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderWithI18n(<InboxApprovalDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("approval-detail")).toHaveTextContent("Approve channel delivery");
+    });
+
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("渠道投递上下文");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("Telegram");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("telegram-main");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("binding-chan-001");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("draft-chan-001");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("Thanks, I have a draft reply ready.");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("/api/channels/threads/binding-chan-001");
+    expect(screen.getByTestId("approval-detail")).toHaveTextContent("/api/channels/threads/binding-chan-001/audit?limit=20");
+
+    expect(screen.getByTestId("inbox-detail")).toHaveTextContent("渠道投递上下文");
+    expect(screen.getByTestId("inbox-detail")).toHaveTextContent("10001");
   });
 });

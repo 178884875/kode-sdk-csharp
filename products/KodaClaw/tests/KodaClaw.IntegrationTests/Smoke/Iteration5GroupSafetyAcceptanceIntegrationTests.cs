@@ -163,6 +163,9 @@ public sealed class Iteration5GroupSafetyAcceptanceIntegrationTests
         detailAfterReject.HasPendingDraft.Should().BeFalse();
         detailAfterReject.Session.Should().NotBeNull();
         detailAfterReject.Session!.SessionKind.Should().Be(SessionKind.ChannelGroup);
+        detailAfterReject.LastTurnOutcome.Should().NotBeNull();
+        detailAfterReject.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.NoAction);
+        detailAfterReject.LastTurnOutcome!.ReasonCode.Should().Be("approval_rejected");
     }
 
     private static async Task PrepareWorkspaceAsync(string workspaceRoot)

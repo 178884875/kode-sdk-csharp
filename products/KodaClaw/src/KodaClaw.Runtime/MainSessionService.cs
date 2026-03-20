@@ -338,6 +338,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
         Directory.CreateDirectory(sessionDirectory);
+        var prompt = BuildSystemPrompt();
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         if (await dependencies.Store.ExistsAsync(sessionId, cancellationToken))
@@ -352,12 +353,13 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                     overrides: new AgentConfigOverrides
                     {
                         Model = configuredModel,
-                        SystemPrompt = _options.SystemPrompt,
+                        SystemPrompt = prompt.SystemPrompt,
                         Tools = _options.Tools,
                         Permissions = _options.Permissions,
                     },
                     cancellationToken: cancellationToken);
 
+                await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
                 TrackSession(sessionId, resumed);
                 await CancelStalePendingApprovalsAsync(
                     sessionId,
@@ -387,16 +389,18 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     {
         var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
         Directory.CreateDirectory(sessionDirectory);
+        var prompt = BuildSystemPrompt();
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var configuredModel = ResolveConfiguredModel();
         var created = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel),
+            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt),
             dependencies,
             cancellationToken);
 
+        await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
         TrackSession(sessionId, created);
         if (!string.IsNullOrWhiteSpace(attemptedSessionId))
         {
@@ -528,12 +532,13 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         IReadOnlyList<string> tools,
-        string model)
+        string model,
+        string systemPrompt)
     {
         return new AgentConfig
         {
             Model = model,
-            SystemPrompt = _options.SystemPrompt,
+            SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
             Tools = tools,
             Permissions = _options.Permissions,
@@ -550,6 +555,14 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         return RuntimeProviderSelector.ResolveModelOrThrow(
             _runtimeConfigurationResolver,
             _options.Model);
+    }
+
+    private PromptBuildResult BuildSystemPrompt()
+    {
+        return new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
+            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .AddBody("Keep actions observable, local-first, and approval-aware.")
+            .Build();
     }
 
     private void TrackSession(string sessionId, IAgent agent)

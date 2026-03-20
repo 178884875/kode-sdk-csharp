@@ -1,3 +1,4 @@
+using System.Linq;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -36,6 +37,7 @@ public sealed class ChannelSessionServiceIntegrationTests
 
         fixture.ModelProvider.LastRequest.Should().NotBeNull();
         var prompt = fixture.ModelProvider.LastRequest!.SystemPrompt;
+        prompt.Should().Contain("Id: ChannelDirectMessage");
         prompt.Should().Contain("ThreadType: DirectMessage");
         prompt.Should().Contain("SessionKind: ChannelDirectMessage");
         prompt.Should().Contain("### File: workspace/AGENTS.md");
@@ -45,8 +47,15 @@ public sealed class ChannelSessionServiceIntegrationTests
         prompt.Should().Contain("### File: workspace/channels/binding-dm-001/SUMMARY.md");
         prompt.Should().Contain("User anchor: prefers concise replies.");
         prompt.Should().Contain("Thread anchor: customer asked about deployment.");
+        prompt.Should().Contain("bounded delegate inside a private conversation");
         prompt.Should().NotContain("Memory anchor: do not leak this.");
         prompt.Should().NotContain("### File: workspace/MEMORY.md");
+
+        var promptReport = await SessionPromptReportStore.TryReadAsync(handle.SessionDirectory);
+        promptReport.Should().NotBeNull();
+        promptReport!.ProfileId.Should().Be("ChannelDirectMessage");
+        promptReport.LoadedContextFiles.Should().Contain("workspace/USER.md");
+        promptReport.LoadedContextFiles.Should().Contain("workspace/channels/binding-dm-001/SUMMARY.md");
     }
 
     [Fact]
@@ -75,6 +84,7 @@ public sealed class ChannelSessionServiceIntegrationTests
 
         fixture.ModelProvider.LastRequest.Should().NotBeNull();
         var prompt = fixture.ModelProvider.LastRequest!.SystemPrompt;
+        prompt.Should().Contain("Id: ChannelGroup");
         prompt.Should().Contain("ThreadType: Group");
         prompt.Should().Contain("SessionKind: ChannelGroup");
         prompt.Should().Contain("### File: workspace/AGENTS.md");
@@ -85,6 +95,49 @@ public sealed class ChannelSessionServiceIntegrationTests
         prompt.Should().NotContain("### File: workspace/MEMORY.md");
         prompt.Should().NotContain("User anchor: prefers concise replies.");
         prompt.Should().NotContain("Memory anchor: do not leak this.");
+        prompt.Should().Contain("prefer observing over replying unless Koda is explicitly mentioned");
+    }
+
+    [Fact]
+    public async Task Run_inbound_turn_includes_group_guardrails_in_user_prompt()
+    {
+        using var fixture = new ChannelRuntimeFixture();
+        await fixture.PrepareWorkspaceContextAsync();
+        fixture.ModelProvider.ResponseText =
+            """{"action":"no_reply","replyText":null,"reason":"Group thread did not explicitly ask Koda to respond.","confidence":0.22}""";
+        await using var service = fixture.CreateService();
+
+        var binding = CreateBinding(
+            bindingId: "binding-group-turn-001",
+            sessionId: "channel-group-binding-group-turn-001",
+            threadType: ChannelThreadType.Group);
+        var policy = CreatePolicy(ChannelThreadType.Group);
+        var envelope = new ChannelEventEnvelope(
+            EventType: ChannelEventType.MessageReceived,
+            ConnectorKind: ChannelConnectorKind.Telegram,
+            AccountId: "telegram-main",
+            ExternalThreadId: binding.ExternalThreadId,
+            ThreadType: ChannelThreadType.Group,
+            OccurredAt: DateTimeOffset.UtcNow,
+            Sender: new ChannelIdentity("user-001", "alice", "Alice"),
+            Recipient: new ChannelIdentity("koda", "koda_bot", "Koda"),
+            Text: "What do we do next?",
+            EventId: "event-group-turn-001",
+            ExternalMessageId: "message-group-turn-001");
+
+        var result = await service.RunInboundTurnAsync(binding, policy, envelope, hasExplicitMention: false);
+
+        result.Proposal.ProposesReply.Should().BeFalse();
+        fixture.ModelProvider.LastRequest.Should().NotBeNull();
+
+        var requestText = string.Join(
+            "\n",
+            fixture.ModelProvider.LastRequest!.Messages
+                .SelectMany(message => message.Content.OfType<TextContent>())
+                .Select(content => content.Text));
+        requestText.Should().Contain("HasExplicitMention: False");
+        requestText.Should().Contain("This is a group thread without an explicit mention of Koda.");
+        requestText.Should().Contain("Prefer action \"no_reply\"");
     }
 
     [Fact]
@@ -280,6 +333,7 @@ public sealed class ChannelSessionServiceIntegrationTests
         public string ProviderName => "capturing";
 
         public ModelRequest? LastRequest { get; private set; }
+        public string ResponseText { get; set; } = "channel-ok";
 
         public async IAsyncEnumerable<StreamChunk> StreamAsync(
             ModelRequest request,
@@ -292,7 +346,7 @@ public sealed class ChannelSessionServiceIntegrationTests
             yield return new StreamChunk
             {
                 Type = StreamChunkType.TextDelta,
-                TextDelta = "channel-ok",
+                TextDelta = ResponseText,
             };
             yield return new StreamChunk
             {
@@ -315,7 +369,7 @@ public sealed class ChannelSessionServiceIntegrationTests
                 [
                     new TextContent
                     {
-                        Text = "channel-ok",
+                        Text = ResponseText,
                     },
                 ],
                 StopReason = ModelStopReason.EndTurn,

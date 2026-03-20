@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import {
   fetchAutomationRuns,
   fetchAutomations,
+  fetchSessionDetail,
   updateAutomationDefinition,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
@@ -10,6 +11,7 @@ import type {
   AutomationDefinitionSource,
   AutomationRunRecord,
   AutomationSchedule,
+  SessionDetail,
 } from "../types/contracts";
 
 type EnabledFilter = "all" | "enabled";
@@ -134,6 +136,31 @@ export function AutomationsDesk() {
       recentRuns: "最近运行",
       loadingRuns: "正在加载最近运行...",
       emptyRuns: "这个自动化还没有最近运行记录。",
+      promptDiagnostics: "最近运行提示诊断",
+      loadingPromptDiagnostics: "正在加载最近一次运行的提示诊断...",
+      emptyPromptDiagnostics: "最近运行没有可用的提示诊断。",
+      loadPromptDiagnosticsError: "加载最近运行的提示诊断失败。",
+      latestRunSession: "最近运行会话",
+      promptProfile: "提示词档案",
+      promptSize: "提示词大小",
+      promptBudget: "提示词预算",
+      promptGeneratedAt: "生成时间",
+      loadedContextFiles: "已加载上下文",
+      noLoadedContextFiles: "最近运行未记录已加载上下文。",
+      truncationState: "截断状态",
+      truncationOn: "已截断",
+      truncationOff: "未截断",
+      truncatedContextFiles: "被截断的文件",
+      truncationNotes: "截断说明",
+      memoryBoundary: "记忆边界",
+      memoryBoundaryDefault:
+        "本轮默认不读取长期记忆；只有基线协议文件和显式输入路径会进入自动化提示词。",
+      memoryBoundaryWithMemory:
+        "本轮提示词显式加载了 MEMORY.md；这属于主动纳入的上下文，而不是默认记忆回忆。",
+      promptSizeValue: (count: number) => `${count.toLocaleString()} 字符`,
+      promptBudgetValue: (count: number, budget: number, remaining: number | null | undefined) =>
+        `${count.toLocaleString()} / ${budget.toLocaleString()}${remaining === null || remaining === undefined ? "" : `（剩余 ${remaining.toLocaleString()}）`}`,
+      promptBudgetUnavailable: "未配置字符预算",
       emptyDetail: "选择一个自动化以查看提示词摘要、运行记录与开关状态。",
       sourceLabels: {
         Manual: "手动",
@@ -218,6 +245,31 @@ export function AutomationsDesk() {
       recentRuns: "Recent runs",
       loadingRuns: "Loading recent runs...",
       emptyRuns: "No recent runs found for this automation.",
+      promptDiagnostics: "Latest run prompt diagnostics",
+      loadingPromptDiagnostics: "Loading prompt diagnostics for the latest run...",
+      emptyPromptDiagnostics: "No prompt diagnostics are available for the latest run.",
+      loadPromptDiagnosticsError: "Failed to load latest-run prompt diagnostics.",
+      latestRunSession: "Latest run session",
+      promptProfile: "Prompt profile",
+      promptSize: "Prompt size",
+      promptBudget: "Prompt budget",
+      promptGeneratedAt: "Generated at",
+      loadedContextFiles: "Loaded context files",
+      noLoadedContextFiles: "No loaded context files were recorded for the latest run.",
+      truncationState: "Truncation",
+      truncationOn: "Truncated",
+      truncationOff: "Not truncated",
+      truncatedContextFiles: "Truncated files",
+      truncationNotes: "Truncation notes",
+      memoryBoundary: "Memory boundary",
+      memoryBoundaryDefault:
+        "Long-term memory stays out by default; only baseline operating files and explicit input paths enter automation prompts.",
+      memoryBoundaryWithMemory:
+        "This run explicitly loaded MEMORY.md, so long-term memory was included intentionally rather than recalled by default.",
+      promptSizeValue: (count: number) => `${count.toLocaleString()} chars`,
+      promptBudgetValue: (count: number, budget: number, remaining: number | null | undefined) =>
+        `${count.toLocaleString()} / ${budget.toLocaleString()}${remaining === null || remaining === undefined ? "" : ` (${remaining.toLocaleString()} remaining)`}`,
+      promptBudgetUnavailable: "No character budget configured",
       emptyDetail: "Select an automation to inspect prompt summary, runs, and toggle state.",
       sourceLabels: {
         Manual: "Manual",
@@ -265,16 +317,20 @@ export function AutomationsDesk() {
   const [automations, setAutomations] = useState<AutomationDefinition[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<AutomationRunRecord[]>([]);
+  const [latestRunSessionDetail, setLatestRunSessionDetail] = useState<SessionDetail | null>(null);
   const [enabledFilter, setEnabledFilter] = useState<EnabledFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingRuns, setIsLoadingRuns] = useState(false);
+  const [isLoadingPromptDiagnostics, setIsLoadingPromptDiagnostics] = useState(false);
   const [pendingToggleIds, setPendingToggleIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
+  const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
 
   const listRequestIdRef = useRef(0);
   const runsRequestIdRef = useRef(0);
+  const promptDiagnosticsRequestIdRef = useRef(0);
 
   const selectedAutomation = useMemo(
     () => automations.find((item) => item.id === selectedAutomationId) ?? null,
@@ -338,11 +394,70 @@ export function AutomationsDesk() {
     return `${started} -> ${completed}`;
   }
 
+  function formatPromptSize(characterCount: number): string {
+    return text.promptSizeValue(characterCount);
+  }
+
+  function formatPromptBudget(detail: SessionDetail): string {
+    const report = detail.promptReport;
+    if (!report) {
+      return text.promptBudgetUnavailable;
+    }
+
+    if (report.characterBudget === null || report.characterBudget === undefined) {
+      return text.promptBudgetUnavailable;
+    }
+
+    return text.promptBudgetValue(
+      report.characterCount,
+      report.characterBudget,
+      report.remainingCharacterBudget,
+    );
+  }
+
+  async function loadPromptDiagnostics(sessionId: string | null) {
+    const requestId = ++promptDiagnosticsRequestIdRef.current;
+
+    if (!sessionId) {
+      setLatestRunSessionDetail(null);
+      setPromptDiagnosticsError(null);
+      setIsLoadingPromptDiagnostics(false);
+      return;
+    }
+
+    setIsLoadingPromptDiagnostics(true);
+    setPromptDiagnosticsError(null);
+
+    try {
+      const detail = await fetchSessionDetail(sessionId);
+      if (promptDiagnosticsRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setLatestRunSessionDetail(detail);
+    } catch (nextError) {
+      if (promptDiagnosticsRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setLatestRunSessionDetail(null);
+      setPromptDiagnosticsError(
+        nextError instanceof Error ? nextError.message : text.loadPromptDiagnosticsError,
+      );
+    } finally {
+      if (promptDiagnosticsRequestIdRef.current === requestId) {
+        setIsLoadingPromptDiagnostics(false);
+      }
+    }
+  }
+
   async function loadAutomationRuns(automationId: string | null) {
     const requestId = ++runsRequestIdRef.current;
 
     if (!automationId) {
       setRecentRuns([]);
+      setLatestRunSessionDetail(null);
+      setPromptDiagnosticsError(null);
       setIsLoadingRuns(false);
       return;
     }
@@ -356,12 +471,16 @@ export function AutomationsDesk() {
       }
 
       setRecentRuns(payload.items);
+      const latestRunSessionId = payload.items.find((run) => run.sessionId?.trim())?.sessionId ?? null;
+      await loadPromptDiagnostics(latestRunSessionId);
     } catch (nextError) {
       if (runsRequestIdRef.current !== requestId) {
         return;
       }
 
       setRecentRuns([]);
+      setLatestRunSessionDetail(null);
+      setPromptDiagnosticsError(null);
       setError(nextError instanceof Error ? nextError.message : text.loadRunsError);
     } finally {
       if (runsRequestIdRef.current === requestId) {
@@ -451,6 +570,11 @@ export function AutomationsDesk() {
       });
     }
   }
+
+  const latestPromptReport = latestRunSessionDetail?.promptReport ?? null;
+  const latestPromptHasMemory = latestPromptReport?.loadedContextFiles.some((path) =>
+    path.endsWith("/MEMORY.md") || path === "workspace/MEMORY.md",
+  ) ?? false;
 
   return (
     <section className="bootstrap-panel" data-testid="automations-desk">
@@ -671,6 +795,88 @@ export function AutomationsDesk() {
                     ))}
                   </ul>
                 ) : null}
+              </div>
+
+              <div
+                className="metric-item"
+                data-testid="automation-prompt-diagnostics"
+                style={detailMetricStyle}
+              >
+                <span className="metric-label">{text.promptDiagnostics}</span>
+                {isLoadingPromptDiagnostics ? (
+                  <p className="section-copy">{text.loadingPromptDiagnostics}</p>
+                ) : promptDiagnosticsError ? (
+                  <span className="metric-value">{promptDiagnosticsError}</span>
+                ) : latestPromptReport ? (
+                  <>
+                    <span className="metric-label">{text.latestRunSession}</span>
+                    <span className="metric-value metric-value--path" data-testid="automation-prompt-session-id">
+                      {latestRunSessionDetail?.sessionId ?? text.unavailable}
+                    </span>
+                    <span className="metric-label">{text.promptProfile}</span>
+                    <span className="metric-value">{latestPromptReport.profileId}</span>
+                    <span className="metric-label">{text.promptSize}</span>
+                    <span className="metric-value">{formatPromptSize(latestPromptReport.characterCount)}</span>
+                    <span className="metric-label">{text.promptBudget}</span>
+                    <span className="metric-value">{formatPromptBudget(latestRunSessionDetail!)}</span>
+                    <span className="metric-label">{text.promptGeneratedAt}</span>
+                    <span className="metric-value">
+                      {formatDateTime(latestPromptReport.generatedAt, text.unavailable)}
+                    </span>
+                    <span className="metric-label">{text.memoryBoundary}</span>
+                    <span className="metric-value">
+                      {latestPromptHasMemory
+                        ? text.memoryBoundaryWithMemory
+                        : text.memoryBoundaryDefault}
+                    </span>
+                    <span className="metric-label">{text.truncationState}</span>
+                    <span className="metric-value">
+                      {latestPromptReport.wasTruncated ? text.truncationOn : text.truncationOff}
+                    </span>
+                    <span className="metric-label">{text.loadedContextFiles}</span>
+                    {latestPromptReport.loadedContextFiles.length > 0 ? (
+                      <ul style={listWithBulletsStyle}>
+                        {latestPromptReport.loadedContextFiles.map((path) => (
+                          <li key={path} className="metric-value metric-value--path">
+                            {path}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <span className="metric-value">{text.noLoadedContextFiles}</span>
+                    )}
+                    {latestPromptReport.wasTruncated ? (
+                      <>
+                        <span className="metric-label">{text.truncatedContextFiles}</span>
+                        {(latestPromptReport.truncatedContextFiles?.length ?? 0) > 0 ? (
+                          <ul style={listWithBulletsStyle}>
+                            {latestPromptReport.truncatedContextFiles!.map((path) => (
+                              <li key={path} className="metric-value metric-value--path">
+                                {path}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="metric-value">{text.emptyPromptDiagnostics}</span>
+                        )}
+                        <span className="metric-label">{text.truncationNotes}</span>
+                        {(latestPromptReport.truncationNotes?.length ?? 0) > 0 ? (
+                          <ul style={listWithBulletsStyle}>
+                            {latestPromptReport.truncationNotes!.map((note) => (
+                              <li key={note} className="metric-value">
+                                {note}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <span className="metric-value">{text.emptyPromptDiagnostics}</span>
+                        )}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <span className="metric-value">{text.emptyPromptDiagnostics}</span>
+                )}
               </div>
             </>
           ) : (

@@ -53,7 +53,8 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
                 Id: "telegram-main",
                 ConnectorKind: ChannelConnectorKind.Telegram,
                 DisplayName: "Telegram Bot",
-                CredentialReference: "inline:telegram-token-acceptance"));
+                CredentialReference: "inline:telegram-token-acceptance",
+                InboundEnabled: false));
         createAccountResponse.StatusCode.Should().Be(HttpStatusCode.Created);
         var account = await createAccountResponse.Content.ReadFromJsonAsync<ChannelAccount>();
         account.Should().NotBeNull();

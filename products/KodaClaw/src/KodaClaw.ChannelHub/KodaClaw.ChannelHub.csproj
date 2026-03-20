@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />

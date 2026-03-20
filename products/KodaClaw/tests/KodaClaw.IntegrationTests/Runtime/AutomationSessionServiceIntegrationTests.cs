@@ -1,3 +1,4 @@
+using System.Linq;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -54,10 +55,17 @@ public sealed class AutomationSessionServiceIntegrationTests
         var request = fixture.ModelProvider.LastRequest;
         request.Should().NotBeNull();
         request!.SystemPrompt.Should().Contain("Summarize today's priorities from heartbeat and notes.");
+        request.SystemPrompt.Should().Contain("Id: Automation");
         request.SystemPrompt.Should().Contain("Heartbeat anchor: review QA and send noon digest.");
         request.SystemPrompt.Should().Contain("Daily note anchor: collect incident digests.");
         request.SystemPrompt.Should().Contain("### File: workspace/HEARTBEAT.md");
         request.SystemPrompt.Should().Contain("### File: workspace/tasks/daily-note.md");
+
+        var promptReport = await SessionPromptReportStore.TryReadAsync(handle.SessionDirectory);
+        promptReport.Should().NotBeNull();
+        promptReport!.ProfileId.Should().Be("Automation");
+        promptReport.LoadedContextFiles.Should().Contain("workspace/HEARTBEAT.md");
+        promptReport.LoadedContextFiles.Should().Contain("workspace/tasks/daily-note.md");
     }
 
     [Fact]
@@ -101,6 +109,74 @@ public sealed class AutomationSessionServiceIntegrationTests
         Directory.Exists(handle.SessionDirectory).Should().BeTrue();
         handle.SessionId.Should().Contain("auto-");
         handle.AutomationId.Should().Be("automation-identity-check");
+    }
+
+    [Fact]
+    public async Task Start_automation_session_records_truncation_evidence_when_prompt_budget_is_exceeded()
+    {
+        using var fixture = new AutomationRuntimeFixture();
+        await fixture.PrepareWorkspaceContextAsync();
+        await fixture.WriteLargeInputAsync(
+            "tasks/oversized-note.md",
+            string.Join(Environment.NewLine, Enumerable.Repeat("oversized-context-line", 200)));
+        await using var service = fixture.CreateService(new AutomationSessionOptions
+        {
+            Model = "automation-capture-model",
+            MaxIterations = 4,
+            MaxPromptCharacters = 420,
+        });
+
+        var definition = CreateDefinition(
+            id: "auto-oversized-budget",
+            title: "Oversized Budget",
+            prompt: "Inspect a very large note and summarize only if budget allows.",
+            inputPaths:
+            [
+                "tasks/oversized-note.md",
+            ]);
+
+        var handle = await service.StartAutomationSessionAsync(definition);
+        var promptReport = await SessionPromptReportStore.TryReadAsync(handle.SessionDirectory);
+
+        promptReport.Should().NotBeNull();
+        promptReport!.WasTruncated.Should().BeTrue();
+        promptReport.CharacterBudget.Should().Be(420);
+        promptReport.RemainingCharacterBudget.Should().BeGreaterThanOrEqualTo(0);
+        promptReport.TruncatedContextFiles.Should().Contain("workspace/tasks/oversized-note.md");
+        promptReport.TruncationNotes.Should().Contain(note => note.Contains("oversized-note.md", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Start_automation_session_keeps_long_term_memory_out_unless_explicitly_loaded()
+    {
+        using var fixture = new AutomationRuntimeFixture();
+        await fixture.PrepareWorkspaceContextAsync();
+        await fixture.WriteLargeInputAsync(
+            KodaClawWorkspaceLayout.MemoryFile,
+            """
+            # Memory
+
+            - Private memory anchor: do not load automatically.
+            """);
+        await using var service = fixture.CreateService();
+
+        var definition = CreateDefinition(
+            id: "auto-memory-boundary",
+            title: "Memory Boundary",
+            prompt: "Summarize only the explicitly provided operating context.");
+
+        var handle = await service.StartAutomationSessionAsync(definition);
+        var runResult = await handle.Agent.RunAsync("run");
+
+        runResult.Success.Should().BeTrue();
+        fixture.ModelProvider.LastRequest.Should().NotBeNull();
+        fixture.ModelProvider.LastRequest!.SystemPrompt.Should().Contain(
+            "Do not infer or recall workspace/MEMORY.md unless it was explicitly loaded as an automation input.");
+        fixture.ModelProvider.LastRequest.SystemPrompt.Should().NotContain("### File: workspace/MEMORY.md");
+
+        var promptReport = await SessionPromptReportStore.TryReadAsync(handle.SessionDirectory);
+        promptReport.Should().NotBeNull();
+        promptReport!.LoadedContextFiles.Should().NotContain("workspace/MEMORY.md");
     }
 
     private sealed class AutomationRuntimeFixture : IDisposable
@@ -152,7 +228,17 @@ public sealed class AutomationSessionServiceIntegrationTests
                 """);
         }
 
-        public AutomationSessionService CreateService()
+        public async Task WriteLargeInputAsync(string relativePath, string content)
+        {
+            var inputPath = Path.Combine(
+                RootPath,
+                KodaClawWorkspaceLayout.WorkspaceDirectory,
+                relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(inputPath)!);
+            await File.WriteAllTextAsync(inputPath, content);
+        }
+
+        public AutomationSessionService CreateService(AutomationSessionOptions? options = null)
         {
             var dependencyFactory = new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
@@ -162,7 +248,7 @@ public sealed class AutomationSessionServiceIntegrationTests
             return new AutomationSessionService(
                 Workspace,
                 dependencyFactory,
-                new AutomationSessionOptions
+                options ?? new AutomationSessionOptions
                 {
                     Model = "automation-capture-model",
                     MaxIterations = 4,

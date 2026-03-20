@@ -79,6 +79,18 @@ describe("ChannelsDesk", () => {
           lastMessagePreview: "hello from telegram",
           pendingApprovalId: "approval-001",
           hasPendingDraft: true,
+          lastTurnOutcome: {
+            kind: "DraftCreated",
+            summary: "A draft reply is waiting for review.",
+            occurredAt: "2026-03-19T08:30:30Z",
+            replyText: "Thanks, I have a draft reply ready.",
+            deliveryMode: "DraftApproval",
+            approvalId: "approval-001",
+            draftId: "draft-001",
+            sourceEventId: "event-001",
+            reasonCode: "draft_created",
+            hasExplicitMention: false,
+          },
         },
       ],
     };
@@ -143,6 +155,19 @@ describe("ChannelsDesk", () => {
       },
       pendingApprovalId: "approval-001",
       hasPendingDraft: true,
+      policyEvidence: ["pending_approval"],
+      lastTurnOutcome: {
+        kind: "DraftCreated",
+        summary: "A draft reply is waiting for review.",
+        occurredAt: "2026-03-19T08:30:30Z",
+        replyText: "Thanks, I have a draft reply ready.",
+        deliveryMode: "DraftApproval",
+        approvalId: "approval-001",
+        draftId: "draft-001",
+        sourceEventId: "event-001",
+        reasonCode: "draft_created",
+        hasExplicitMention: false,
+      },
     };
 
     const audit = [
@@ -201,6 +226,11 @@ describe("ChannelsDesk", () => {
     expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("草稿审批");
     expect(screen.getByTestId("channel-thread-audit")).toHaveTextContent("message.received");
     expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("approval-001");
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("已生成草稿");
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("已生成草稿，等待人工复核");
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("未显式提及");
+    expect(screen.getByTestId("channel-thread-policy-evidence")).toHaveTextContent("线程上仍有一个待审批回复，尚未决策");
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("Thanks, I have a draft reply ready.");
 
     const user = userEvent.setup();
     await user.selectOptions(screen.getByTestId("channels-connector-filter"), "Telegram");
@@ -217,5 +247,157 @@ describe("ChannelsDesk", () => {
     await waitFor(() => {
       expect(screen.getByTestId("channels-error")).toHaveTextContent("channels unavailable");
     });
+  });
+
+  it("renders blocked group diagnostics when no reply was allowed", async () => {
+    const connectors = [
+      {
+        kind: "GenericWebhook",
+        displayName: "Generic Webhook",
+        implemented: true,
+        supportsInbound: true,
+        supportsOutbound: true,
+        productOwned: true,
+      },
+    ];
+
+    const accounts = [
+      {
+        id: "webhook-group",
+        connectorKind: "GenericWebhook",
+        displayName: "Ops Webhook",
+        state: "Connected",
+        createdAt: "2026-03-19T08:00:00Z",
+        updatedAt: "2026-03-19T08:30:00Z",
+        inboundEnabled: true,
+      },
+    ];
+
+    const threads = {
+      items: [
+        {
+          bindingId: "binding-group-001",
+          connectorKind: "GenericWebhook",
+          accountId: "webhook-group",
+          externalThreadId: "group-thread-001",
+          threadType: "Group",
+          sessionId: "channel-group-001",
+          sessionKind: "ChannelGroup",
+          displayTitle: "Ops Bridge",
+          deliveryMode: "RequireApproval",
+          accountState: "Connected",
+          updatedAt: "2026-03-19T08:30:00Z",
+          lastInboundAt: "2026-03-19T08:29:00Z",
+          lastOutboundAt: null,
+          lastMessagePreview: "What should we do next?",
+          pendingApprovalId: null,
+          hasPendingDraft: false,
+          lastTurnOutcome: {
+            kind: "NoAction",
+            summary: "Reply blocked by channel policy: There is a plausible answer.",
+            occurredAt: "2026-03-19T08:30:30Z",
+            deliveryMode: "RequireApproval",
+            sourceEventId: "event-group-001",
+            reasonCode: "policy_blocked_requires_mention",
+            hasExplicitMention: false,
+          },
+        },
+      ],
+    };
+
+    const detail = {
+      account: accounts[0],
+      binding: {
+        id: "binding-group-001",
+        connectorKind: "GenericWebhook",
+        accountId: "webhook-group",
+        externalThreadId: "group-thread-001",
+        threadType: "Group",
+        sessionId: "channel-group-001",
+        sessionKind: "ChannelGroup",
+        channelIdentity: {
+          id: "group-001",
+          username: "ops_bridge",
+          displayName: "Ops Bridge",
+          isBot: false,
+        },
+        policyId: "policy-default-group",
+        deliveryRuleId: "delivery-default-group",
+        createdAt: "2026-03-19T08:00:00Z",
+        updatedAt: "2026-03-19T08:30:00Z",
+      },
+      policy: {
+        id: "policy-default-group",
+        threadType: "Group",
+        updatedAt: "2026-03-19T08:30:00Z",
+        loadAgents: true,
+        loadIdentity: true,
+        loadSoul: true,
+        loadUserProfile: false,
+        loadLongTermMemory: false,
+        loadRecentThreadSummary: true,
+        allowDirectReply: true,
+        requireExplicitMention: true,
+        workspaceMuted: false,
+        connectorMuted: false,
+        threadMuted: false,
+        notes: null,
+      },
+      deliveryRule: {
+        id: "delivery-default-group",
+        mode: "RequireApproval",
+        updatedAt: "2026-03-19T08:30:00Z",
+        allowProactiveSend: false,
+        muteDuringQuietHours: true,
+      },
+      recentAudit: [],
+      session: null,
+      pendingApprovalId: null,
+      hasPendingDraft: false,
+      policyEvidence: [
+        "group_mention_required",
+        "blocked_without_mention",
+        "last_no_action|2026-03-19T08:30:30Z",
+      ],
+      lastTurnOutcome: threads.items[0].lastTurnOutcome,
+    };
+
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.endsWith("/api/channels/connectors")) {
+        return jsonResponse(connectors);
+      }
+      if (url.includes("/api/channels/accounts")) {
+        return jsonResponse(accounts);
+      }
+      if (url.includes("/api/channels/threads?")) {
+        return jsonResponse(threads);
+      }
+      if (url.endsWith("/api/channels/threads/binding-group-001")) {
+        return jsonResponse(detail);
+      }
+      if (url.includes("/api/channels/threads/binding-group-001/audit")) {
+        return jsonResponse([]);
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    renderWithI18n(<ChannelsDesk />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("无动作");
+    });
+
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("群组未显式提及 Koda，按策略阻止回复");
+    expect(screen.getByTestId("channel-thread-detail")).toHaveTextContent("未显式提及");
+    expect(screen.getByTestId("channel-thread-policy-evidence")).toHaveTextContent("群组线程当前启用了显式提及保护");
+    expect(screen.getByTestId("channel-thread-policy-evidence")).toHaveTextContent("最近一轮未出现对 Koda 的显式提及，因此回复被阻止");
   });
 });

@@ -120,6 +120,51 @@ describe("SessionsDiagnosticsDesk", () => {
       toolCallCount: 2,
       lastSfpIndex: 12,
       pendingApprovalCallIds: ["call-001"],
+      promptReport: {
+        profileId: "Main",
+        systemPrompt: "You are KodaClaw main assistant.\n\nPrompt Profile\nId: Main",
+        characterCount: 58,
+        loadedContextFiles: ["workspace/IDENTITY.md", "workspace/SOUL.md"],
+        generatedAt: "2026-03-18T10:00:30.0000000+00:00",
+        characterBudget: 16000,
+        remainingCharacterBudget: 15942,
+        wasTruncated: false,
+        truncatedContextFiles: [],
+        truncationNotes: [],
+      },
+      promptReportDelta: {
+        previousGeneratedAt: "2026-03-18T09:59:30.0000000+00:00",
+        characterCountDelta: 12,
+        truncationStateChanged: false,
+        addedContextFiles: ["workspace/SOUL.md"],
+        removedContextFiles: [],
+      },
+      recentPromptReports: [
+        {
+          profileId: "Main",
+          systemPrompt: "You are KodaClaw main assistant.\n\nPrompt Profile\nId: Main",
+          characterCount: 58,
+          loadedContextFiles: ["workspace/IDENTITY.md", "workspace/SOUL.md"],
+          generatedAt: "2026-03-18T10:00:30.0000000+00:00",
+          characterBudget: 16000,
+          remainingCharacterBudget: 15942,
+          wasTruncated: false,
+          truncatedContextFiles: [],
+          truncationNotes: [],
+        },
+        {
+          profileId: "Main",
+          systemPrompt: "You are KodaClaw main assistant.\n\nPrompt Profile\nId: Main",
+          characterCount: 46,
+          loadedContextFiles: ["workspace/IDENTITY.md"],
+          generatedAt: "2026-03-18T09:59:30.0000000+00:00",
+          characterBudget: 16000,
+          remainingCharacterBudget: 15954,
+          wasTruncated: false,
+          truncatedContextFiles: [],
+          truncationNotes: [],
+        },
+      ],
     });
 
     vi.mocked(fetchDiagnosticsTimeline).mockResolvedValue({
@@ -145,6 +190,17 @@ describe("SessionsDiagnosticsDesk", () => {
     await waitFor(() => {
       expect(screen.getByTestId("session-detail")).toHaveTextContent("main-001");
     });
+    expect(screen.getByTestId("session-detail")).toHaveTextContent("3 / 3 / 2");
+    expect(screen.getByTestId("session-detail")).toHaveTextContent("12");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("Main");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("58 字符");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("58 / 16000 字符，剩余 15942");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("未裁剪");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("+12 字符");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("workspace/SOUL.md");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("最近版本");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("workspace/IDENTITY.md");
+    expect(screen.getByTestId("session-prompt-report")).toHaveTextContent("You are KodaClaw main assistant.");
     await waitFor(() => {
       expect(screen.getByTestId("diagnostics-timeline")).toHaveTextContent(
         "Fetched session detail.",
@@ -239,6 +295,84 @@ describe("SessionsDiagnosticsDesk", () => {
     expect(fetchDiagnosticsTimeline).toHaveBeenCalledWith(
       { sessionId: "auto-002", limit: 60 },
     );
+  });
+
+  it("consumes a focus request and opens the requested session detail", async () => {
+    const onFocusRequestConsumed = vi.fn();
+    vi.mocked(fetchSessions).mockResolvedValue({
+      sessions: [
+        {
+          sessionId: "main-001",
+          sessionKind: "Main",
+          status: {
+            isActiveMainSession: true,
+            breakpointState: null,
+            messageCount: 2,
+            pendingApprovalCount: 0,
+          },
+          createdAt: null,
+          lastEventAt: null,
+        },
+        {
+          sessionId: "channel-002",
+          sessionKind: "ChannelDirectMessage",
+          status: {
+            isActiveMainSession: false,
+            breakpointState: null,
+            messageCount: 5,
+            pendingApprovalCount: 1,
+          },
+          createdAt: null,
+          lastEventAt: null,
+        },
+      ],
+    });
+
+    vi.mocked(fetchSessionDetail).mockImplementation(async (id: string) => ({
+      sessionId: id,
+      sessionKind: id === "main-001" ? "Main" : "ChannelDirectMessage",
+      status: {
+        isActiveMainSession: id === "main-001",
+        breakpointState: null,
+        messageCount: id === "main-001" ? 2 : 5,
+        pendingApprovalCount: id === "main-001" ? 0 : 1,
+      },
+      createdAt: null,
+      lastEventAt: null,
+      userMessageCount: 0,
+      assistantMessageCount: 0,
+      toolCallCount: 0,
+      lastSfpIndex: 0,
+      pendingApprovalCallIds: [],
+    }));
+
+    vi.mocked(fetchDiagnosticsTimeline).mockImplementation(async (query) => ({
+      events: [
+        {
+          id: `evt-${query?.sessionId ?? "none"}`,
+          source: "gateway.diagnostics",
+          eventType: "timeline.loaded",
+          level: "info",
+          message: `timeline-${query?.sessionId ?? "none"}`,
+          timestamp: "2026-03-18T10:01:20.0000000+00:00",
+          sessionId: query?.sessionId ?? null,
+          correlationId: null,
+        },
+      ],
+    }));
+
+    renderWithI18n(
+      <SessionsDiagnosticsDesk
+        focusRequest={{ sessionId: "channel-002", requestId: 1 }}
+        onFocusRequestConsumed={onFocusRequestConsumed}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("session-detail")).toHaveTextContent("channel-002");
+    });
+    expect(screen.getByTestId("diagnostics-timeline")).toHaveTextContent("timeline-channel-002");
+    expect(onFocusRequestConsumed).toHaveBeenCalledTimes(1);
   });
 
   it("renders error state when session list request fails", async () => {

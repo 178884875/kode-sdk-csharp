@@ -154,7 +154,7 @@ public sealed class Iteration4AcceptanceIntegrationTests
     {
         var response = await client.PostAsJsonAsync(
             "/api/system/bootstrap-complete",
-            new BootstrapCompletionRequest("# identity", "# user", ArchiveBootstrapFile: true));
+            new BootstrapCompletionRequest("# identity", "# soul", "# user", ArchiveBootstrapFile: true));
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 

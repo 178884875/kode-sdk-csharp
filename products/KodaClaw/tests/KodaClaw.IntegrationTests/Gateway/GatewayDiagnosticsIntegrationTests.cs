@@ -206,7 +206,7 @@ public sealed class GatewayDiagnosticsIntegrationTests
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/system/bootstrap-complete")
         {
-            Content = JsonContent.Create(new BootstrapCompletionRequest("# identity", "# user"))
+            Content = JsonContent.Create(new BootstrapCompletionRequest("# identity", "# soul", "# user"))
         };
         request.Headers.Add("X-KodaClaw-Correlation-Id", "corr-bootstrap-001");
 

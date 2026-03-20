@@ -2,6 +2,7 @@ using KodaClaw.Automation;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Gateway.Channels;
 using KodaClaw.Gateway;
 using KodaClaw.Gateway.Plugins;
 using KodaClaw.ModelHub;
@@ -45,11 +46,13 @@ public static partial class GatewayApp
         builder.Services.AddSingleton<SandboxRiskOverviewService>();
         builder.Services.AddSingleton<UpdateStateService>();
         builder.Services.AddSingleton<DiagnosticBundleService>();
+        builder.Services.AddSingleton<ChannelInboundGatewayService>();
 
         if (IsStartupRepairEnabled(builder.Configuration))
         {
             builder.Services.AddHostedService<StartupRepairHostedService>();
         }
+        builder.Services.AddHostedService<ChannelConnectorHostedService>();
 
         builder.Services.AddKodaClawAutomation();
         builder.Services.AddKodaClawChannelHub();

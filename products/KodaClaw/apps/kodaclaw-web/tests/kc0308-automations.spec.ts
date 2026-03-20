@@ -76,6 +76,83 @@ test("KC-0308 automations desk: list/filter/detail/toggle workflow", async ({ pa
     ],
   };
 
+  const sessionDetailById: Record<string, unknown> = {
+    "session-auto-a": {
+      sessionId: "session-auto-a",
+      sessionKind: "Automation",
+      status: {
+        isActiveMainSession: false,
+        breakpointState: "Ready",
+        messageCount: 4,
+        pendingApprovalCount: 0,
+      },
+      createdAt: "2026-03-18T09:30:00.000Z",
+      lastEventAt: "2026-03-18T09:31:00.000Z",
+      userMessageCount: 1,
+      assistantMessageCount: 2,
+      toolCallCount: 1,
+      lastSfpIndex: 3,
+      pendingApprovalCallIds: [],
+      promptReport: {
+        profileId: "Automation",
+        systemPrompt: "Automation prompt",
+        characterCount: 340,
+        loadedContextFiles: ["workspace/IDENTITY.md", "workspace/inbox"],
+        generatedAt: "2026-03-18T09:30:00.000Z",
+        characterBudget: 1200,
+        remainingCharacterBudget: 860,
+        wasTruncated: false,
+        truncatedContextFiles: [],
+        truncationNotes: [],
+      },
+      promptReportDelta: {
+        previousGeneratedAt: "2026-03-18T08:30:00.000Z",
+        characterCountDelta: 18,
+        truncationStateChanged: false,
+        addedContextFiles: ["workspace/inbox"],
+        removedContextFiles: [],
+      },
+      recentPromptReports: [],
+    },
+    "session-auto-b": {
+      sessionId: "session-auto-b",
+      sessionKind: "Automation",
+      status: {
+        isActiveMainSession: false,
+        breakpointState: "Ready",
+        messageCount: 5,
+        pendingApprovalCount: 0,
+      },
+      createdAt: "2026-03-18T11:15:00.000Z",
+      lastEventAt: "2026-03-18T11:17:00.000Z",
+      userMessageCount: 1,
+      assistantMessageCount: 3,
+      toolCallCount: 1,
+      lastSfpIndex: 4,
+      pendingApprovalCallIds: [],
+      promptReport: {
+        profileId: "Automation",
+        systemPrompt: "Automation prompt",
+        characterCount: 360,
+        loadedContextFiles: ["workspace/IDENTITY.md", "workspace/HEARTBEAT.md"],
+        generatedAt: "2026-03-18T11:15:00.000Z",
+        characterBudget: 1200,
+        remainingCharacterBudget: 840,
+        wasTruncated: false,
+        truncatedContextFiles: [],
+        truncationNotes: [],
+      },
+      promptReportDelta: {
+        previousGeneratedAt: "2026-03-18T10:15:00.000Z",
+        characterCountDelta: 12,
+        truncationStateChanged: false,
+        addedContextFiles: ["workspace/HEARTBEAT.md"],
+        removedContextFiles: [],
+      },
+      recentPromptReports: [],
+    },
+  };
+
   let updatePayload: Record<string, unknown> | null = null;
 
   await context.route("**/api/system/health", async (route) => {
@@ -137,6 +214,22 @@ test("KC-0308 automations desk: list/filter/detail/toggle workflow", async ({ pa
     });
   });
 
+  await context.route("**/api/sessions/*", async (route) => {
+    const sessionId = route.request().url().split("/api/sessions/")[1]?.split("?")[0] ?? "";
+    const payload = sessionDetailById[sessionId];
+
+    if (!payload) {
+      await route.fulfill({ status: 404 });
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(payload),
+    });
+  });
+
   await context.route("**/api/automations/*", async (route) => {
     if (route.request().method() !== "PATCH") {
       await route.fulfill({ status: 405 });
@@ -188,6 +281,8 @@ test("KC-0308 automations desk: list/filter/detail/toggle workflow", async ({ pa
   await expect(page.getByTestId("automation-detail")).toContainText("Weekly heartbeat check");
   await expect(page.getByTestId("automation-detail-input-paths")).toContainText("/workspace/HEARTBEAT.md");
   await expect(page.getByTestId("automation-runs")).toContainText("Drift exceeded threshold.");
+  await expect(page.getByTestId("automation-prompt-diagnostics")).toContainText("Automation");
+  await expect(page.getByTestId("automation-prompt-diagnostics")).toContainText("workspace/HEARTBEAT.md");
 
   await page.getByTestId("automation-toggle-auto-b").click();
   await expect.poll(() => updatePayload).not.toBeNull();
