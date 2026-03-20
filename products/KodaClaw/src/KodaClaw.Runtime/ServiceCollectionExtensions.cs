@@ -89,6 +89,8 @@ public static class ServiceCollectionExtensions
             var inboxRepository = sp.GetRequiredService<KodaClaw.Contracts.IInboxRepository>();
             toolRegistry.Register("inbox_create",
                 _ => new InboxCreateTool(inboxRepository));
+            toolRegistry.Register("inbox_read",
+                _ => new InboxReadTool(inboxRepository));
 
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {

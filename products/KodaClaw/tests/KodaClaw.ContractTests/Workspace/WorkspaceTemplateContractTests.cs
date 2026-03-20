@@ -104,6 +104,50 @@ public sealed class WorkspaceTemplateContractTests
             because: "AGENTS.md must guide the Agent to proactively notify the user via Inbox");
     }
 
+    [Fact]
+    public void Agents_template_contains_inbox_read_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("inbox_read",
+            because: "AGENTS.md must guide the Agent to read Inbox before summarizing or acting on pending items");
+    }
+
+    [Fact]
+    public void Agents_template_contains_identity_target_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("target=identity",
+            because: "AGENTS.md must guide the Agent to update Koda's identity via workspace_protocol_update");
+    }
+
+    [Fact]
+    public void Agents_template_contains_user_target_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("target=user",
+            because: "AGENTS.md must guide the Agent to update user profile via workspace_protocol_update");
+    }
+
+    // ── Bootstrap: write-back instruction ────────────────────────────────────
+
+    [Fact]
+    public void Bootstrap_template_instructs_write_back_after_discovery()
+    {
+        var bootstrap = DefaultWorkspaceTemplates.Bootstrap();
+        bootstrap.Should().Contain("workspace_protocol_update",
+            because: "Bootstrap guide must instruct Koda to persist what was learned using workspace_protocol_update");
+    }
+
+    [Fact]
+    public void Bootstrap_template_covers_identity_soul_user_targets()
+    {
+        var bootstrap = DefaultWorkspaceTemplates.Bootstrap();
+        bootstrap.Should().Contain("target=identity");
+        bootstrap.Should().Contain("target=soul");
+        bootstrap.Should().Contain("target=user",
+            because: "Bootstrap must instruct writing all three core workspace files after the discovery conversation");
+    }
+
     // ── Soul: approval-first principle ───────────────────────────────────────
 
     [Fact]

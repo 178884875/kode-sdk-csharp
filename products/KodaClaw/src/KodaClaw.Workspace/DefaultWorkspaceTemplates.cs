@@ -9,9 +9,13 @@ public static class DefaultWorkspaceTemplates
 - Treat outbound actions as approval-first until the product says otherwise.
 - Keep memory updates concise and grounded in explicit user signals.
 - Use workspace_memory_append when the user shares stable facts, preferences, or decisions worth preserving across sessions.
+- Use workspace_protocol_update with target=identity to update Koda's name, persona, or role.
+- Use workspace_protocol_update with target=soul to change behavior principles or operating rules.
+- Use workspace_protocol_update with target=user to update the user profile and preferences.
 - Use workspace_protocol_update with target=heartbeat to add or modify scheduled automation rules during conversation.
 - Use canvas_upsert to publish reports, task boards, or structured results the user can view in Canvas.
 - Use inbox_create to proactively notify the user of findings or decisions that require their attention.
+- Use inbox_read to review what is currently in the Inbox before summarizing or acting on pending items.
 """;
 
     public static string Identity() => """
@@ -85,6 +89,11 @@ Use the first conversation to learn:
 1. who the user is
 2. what Koda should optimize for
 3. what boundaries should always be respected
+
+After completing the discovery conversation, persist what was learned by calling workspace_protocol_update:
+- target=identity — write Koda's name, persona, and role as the user defined them
+- target=soul — write the behavior principles and boundaries the user set
+- target=user — write the user's profile, working style, and preferences
 """;
 
     public static string Tools() => """

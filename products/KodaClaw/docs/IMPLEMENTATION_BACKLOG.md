@@ -316,3 +316,22 @@
   - Scope：新增 `InboxCreateTool.cs`；注册到 `DefaultTools` + `ServiceCollectionExtensions`；更新 AGENTS.md 模板加三条工具引导。
   - Modules：`KodaClaw.Runtime`，`KodaClaw.Workspace`（templates）。
   - Verification：`dotnet test tests/KodaClaw.UnitTests --filter InboxCreate` ✅，`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate` ✅。
+
+## 迭代 13：Inbox 读取、Bootstrap 写回、Inbox 未读徽标
+
+- 范围冻结：闭合 Iter 12 输出链路的最后缺口：Agent 可读取 Inbox（解锁 Daily Inbox Digest 自动化）；Bootstrap 对话写回身份文件（首次上手闭环）；GlobalRail 展示 Inbox 未读计数徽标。详见 `docs/ITERATION_13_FREEZE.md`。
+- `KC-1301`：`Completed`（2026-03-20）。
+  - User Outcome：Agent（主会话 + 自动化 session）可调用 `inbox_read` 读取 Inbox 内容，Daily Inbox Digest 摘要任务从此有实际数据可处理，不再空转。
+  - Scope：新增 `InboxReadTool.cs`，注册为 `inbox_read`，加入 `DefaultTools` + `ServiceCollectionExtensions`；依赖已有 `IInboxRepository.ListAsync()`。
+  - Modules：`KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter InboxRead` ✅，`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate` ✅。
+- `KC-1302`：`Completed`（2026-03-20）。
+  - User Outcome：Bootstrap 对话结束后，Koda 调用 `workspace_protocol_update` 将收集到的用户信息写入 IDENTITY.md/SOUL.md/USER.md，下次启动即可感知用户偏好与 Koda 人格。
+  - Scope：更新 `DefaultWorkspaceTemplates.Bootstrap()` 补写回指令；更新 `DefaultWorkspaceTemplates.Agents()` 补 identity/soul/user/inbox_read 使用说明；对应 L3 contract 测试（6 条新增）。
+  - Modules：`KodaClaw.Workspace`（templates）。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate` ✅。
+- `KC-1303`：`Completed`（2026-03-20）。
+  - User Outcome：GlobalRail 的 Inbox 导航项旁显示未读计数徽标，Agent 推送 `inbox_create` 后用户无需主动打开 Inbox 才能发现新通知。
+  - Scope：新增 `useInboxUnreadCount` hook（30s 轮询，`status=Open&limit=50`），GlobalRail Inbox 项渲染徽标；`position: relative` 补到按钮，`.v2-global-rail__badge` 样式新增。无需后端改动（直接用 items.length）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck` ✅，`npm test` 47/47 ✅。

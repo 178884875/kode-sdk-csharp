@@ -1,4 +1,5 @@
 import { MainDesk, ShellMode } from "../shell-shared/types";
+import { useInboxUnreadCount } from "../hooks/useInboxUnreadCount";
 
 type GlobalRailProps = {
   mode: ShellMode;
@@ -21,7 +22,15 @@ const DESK_GLYPHS: Record<MainDesk, string> = {
   canvas: "CV",
 };
 
+function formatBadge(count: number): string {
+  if (count <= 0) return "";
+  return count > 99 ? "99+" : String(count);
+}
+
 export function GlobalRail({ mode, desks, activeDesk, onDeskChange }: GlobalRailProps) {
+  const inboxCount = useInboxUnreadCount(mode === "main");
+  const inboxBadge = formatBadge(inboxCount);
+
   return (
     <aside className="v2-global-rail" data-testid="v2-global-rail">
       <div className="v2-global-rail__brand">
@@ -36,6 +45,7 @@ export function GlobalRail({ mode, desks, activeDesk, onDeskChange }: GlobalRail
         <nav className="v2-global-rail__nav" aria-label="Desk navigation">
           {desks.map((desk) => {
             const isActive = desk.id === activeDesk;
+            const badge = desk.id === "inbox" ? inboxBadge : "";
             return (
               <button
                 key={desk.id}
@@ -47,6 +57,15 @@ export function GlobalRail({ mode, desks, activeDesk, onDeskChange }: GlobalRail
               >
                 <span className="v2-global-rail__glyph" aria-hidden="true">{DESK_GLYPHS[desk.id]}</span>
                 <span className="v2-global-rail__label">{desk.label}</span>
+                {badge ? (
+                  <span
+                    className="v2-global-rail__badge"
+                    data-testid={`inbox-badge`}
+                    aria-label={`${inboxCount} unread inbox items`}
+                  >
+                    {badge}
+                  </span>
+                ) : null}
               </button>
             );
           })}

@@ -29,6 +29,7 @@ public sealed class MainSessionOptions
         "workspace_protocol_update",
         "canvas_upsert",
         "inbox_create",
+        "inbox_read",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =
