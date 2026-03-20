@@ -142,12 +142,55 @@ public sealed class WorkspaceProtocolUpdateToolTests : IDisposable
     {
         var result = await ExecuteAsync(new WorkspaceProtocolUpdateArgs
         {
-            Target = "heartbeat",
+            Target = "unknown_file",
             Content = "anything",
         });
 
         result.Success.Should().BeFalse();
-        result.Error.Should().Contain("heartbeat");
+        result.Error.Should().Contain("unknown_file");
+    }
+
+    [Fact]
+    public async Task Execute_heartbeat_target_writes_to_heartbeat_md()
+    {
+        var wsDir = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+        Directory.CreateDirectory(wsDir);
+        await File.WriteAllTextAsync(
+            Path.Combine(wsDir, KodaClawWorkspaceLayout.HeartbeatFile),
+            "# Heartbeat Automations\n\n");
+
+        var result = await ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Section = "Daily Morning Digest",
+            Content = "- schedule: daily 09:00\n- prompt: Review inbox\n- enabled: true",
+        });
+
+        result.Success.Should().BeTrue();
+        var contents = await File.ReadAllTextAsync(
+            Path.Combine(wsDir, KodaClawWorkspaceLayout.HeartbeatFile));
+        contents.Should().Contain("## Daily Morning Digest");
+        contents.Should().Contain("- schedule: daily 09:00");
+        contents.Should().Contain("- enabled: true");
+    }
+
+    [Fact]
+    public async Task Execute_heartbeat_target_creates_file_from_default_when_missing()
+    {
+        Directory.CreateDirectory(Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory));
+
+        var result = await ExecuteAsync(new WorkspaceProtocolUpdateArgs
+        {
+            Target = "heartbeat",
+            Section = "Hourly Check",
+            Content = "- schedule: hourly 1h\n- prompt: Check tasks\n- enabled: false",
+        });
+
+        result.Success.Should().BeTrue();
+        var path = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.HeartbeatFile);
+        File.Exists(path).Should().BeTrue();
+        var contents = await File.ReadAllTextAsync(path);
+        contents.Should().Contain("## Hourly Check");
     }
 
     [Fact]

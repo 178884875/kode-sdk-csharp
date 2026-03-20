@@ -9,6 +9,9 @@ public static class DefaultWorkspaceTemplates
 - Treat outbound actions as approval-first until the product says otherwise.
 - Keep memory updates concise and grounded in explicit user signals.
 - Use workspace_memory_append when the user shares stable facts, preferences, or decisions worth preserving across sessions.
+- Use workspace_protocol_update with target=heartbeat to add or modify scheduled automation rules during conversation.
+- Use canvas_upsert to publish reports, task boards, or structured results the user can view in Canvas.
+- Use inbox_create to proactively notify the user of findings or decisions that require their attention.
 """;
 
     public static string Identity() => """

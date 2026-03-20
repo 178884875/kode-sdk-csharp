@@ -294,3 +294,25 @@
 - 关键不变量：同步时保留 `LastRunAt / NextRunAt / LastRunStatus / LastError`，避免修改 HEARTBEAT.md 后意外重置调度状态；文件不存在时保守不清除已有定义；编译失败时保留现有定义并返回 `CompilationFailed=true`。
 - `KC-1101`：`Completed`。新增 `src/KodaClaw.Workspace/HeartbeatSyncService.cs`，包含 `IHeartbeatSyncService` 接口与 `HeartbeatSyncResult` record；同步算法：读文件 → `HeartbeatAutomationCompiler.Compile()` → `IAutomationDefinitionRepository.ListAsync(Source=Heartbeat)` → upsert 保留调度状态 → delete 已删除条目；已通过 `HeartbeatSyncServiceTests`（5/5 PASS，L1 单元）+ `HeartbeatSyncIntegrationTests`（3/3 PASS，L2 真实 SQLite）+ `dotnet test KodaClaw.sln -m:1` 验证。
 - `KC-1102`：`Completed`。新增 `src/KodaClaw.Workspace/HeartbeatFileWatcherHostedService.cs`，`BackgroundService` 在启动时立即执行一次 `SyncAsync()`，随后 `FileSystemWatcher` 监听 `workspace/HEARTBEAT.md` 的 `Changed/Created` 事件，通过 `BoundedChannel(1, DropOldest)` + 500ms debounce 防抖后触发下次同步；目录不存在时安全退出；`ServiceCollectionExtensions.cs` 注册两个新服务，`KodaClaw.Workspace.csproj` 添加 `Microsoft.Extensions.Hosting.Abstractions` / `Logging.Abstractions` 包引用；已通过 L0 编译 + 同上测试套件验证。
+
+## 迭代 12：Agent 主动性输出三件套
+
+- 范围冻结：补齐 Agent 主动输出的三条断链：写入自动化规则（HEARTBEAT.md）、发布 Canvas 内容、推送 Inbox 通知。详见 `docs/ITERATION_12_FREEZE.md`。
+- 架构冻结：三个工具均放在 `KodaClaw.Runtime`；`workspace_protocol_update` TargetFileMap 加入 `heartbeat`；`canvas_upsert` 写文件到 `workspace/canvas/{id}/index.{ext}` + upsert `ICanvasArtifactRepository`；`inbox_create` 写入 `IInboxRepository`（Kind=Information，Source=agent）；同步更新 `DefaultWorkspaceTemplates` AGENTS.md 引导。
+- 关键约束：`canvas_upsert` 路径模型与 `GatewayApp.CanvasFiles.TryResolveCanvasFilePath` 对齐，EntryPath 形如 `workspace/canvas/{id}/index.{ext}`；`ICanvasArtifactRepository` / `IInboxRepository` 均由先于 Runtime 注册的模块提供，DI 无顺序冲突。
+- `KC-1201`：`Completed`（2026-03-20）。
+  - User Outcome：Agent 对话中理解"每天帮我做 X"后，可通过 `workspace_protocol_update(target=heartbeat)` 在 HEARTBEAT.md 中添加/修改 automation section，触发热更链路后自动调度。
+  - Scope：`WorkspaceProtocolUpdateTool.TargetFileMap` 加 `heartbeat` entry；更新工具 Description；补充 L1 单元测试 + L3 contract 测试。
+  - Modules：`KodaClaw.Runtime`，`KodaClaw.Workspace`（templates）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter WorkspaceProtocol` ✅，`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate` ✅。
+- `KC-1202`：`Completed`（2026-03-20）。
+  - User Outcome：Agent 对话中可调用 `canvas_upsert` 把报告、任务看板、HTML 内容发布到 Canvas，用户在 Canvas 面板中可见。
+  - Scope：新增 `CanvasUpsertTool.cs`；注册到 `DefaultTools` + `ServiceCollectionExtensions`；写文件 + upsert SQLite。
+  - Modules：`KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter CanvasUpsert` ✅，`dotnet test tests/KodaClaw.IntegrationTests --filter CanvasUpsert` ✅。
+  - 实现备注：`AssetDirectory` 不含末尾 `/`（否则 `CanvasArtifactValidation` 路径段校验失败）。
+- `KC-1203`：`Completed`（2026-03-20）。
+  - User Outcome：Agent 对话中可调用 `inbox_create` 主动推送关键结论或待跟进事项到 Inbox，用户在 Inbox 面板中可见。
+  - Scope：新增 `InboxCreateTool.cs`；注册到 `DefaultTools` + `ServiceCollectionExtensions`；更新 AGENTS.md 模板加三条工具引导。
+  - Modules：`KodaClaw.Runtime`，`KodaClaw.Workspace`（templates）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter InboxCreate` ✅，`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate` ✅。

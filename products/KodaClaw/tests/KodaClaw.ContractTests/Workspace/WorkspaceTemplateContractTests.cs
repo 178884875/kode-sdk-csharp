@@ -80,6 +80,30 @@ public sealed class WorkspaceTemplateContractTests
             because: "AGENTS.md must guide the Agent when to record memories during a session");
     }
 
+    [Fact]
+    public void Agents_template_contains_heartbeat_target_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("target=heartbeat",
+            because: "AGENTS.md must guide the Agent to use workspace_protocol_update with target=heartbeat for automation rules");
+    }
+
+    [Fact]
+    public void Agents_template_contains_canvas_upsert_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("canvas_upsert",
+            because: "AGENTS.md must guide the Agent to publish results to Canvas");
+    }
+
+    [Fact]
+    public void Agents_template_contains_inbox_create_guidance()
+    {
+        var agents = DefaultWorkspaceTemplates.Agents();
+        agents.Should().Contain("inbox_create",
+            because: "AGENTS.md must guide the Agent to proactively notify the user via Inbox");
+    }
+
     // ── Soul: approval-first principle ───────────────────────────────────────
 
     [Fact]

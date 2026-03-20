@@ -82,6 +82,14 @@ public static class ServiceCollectionExtensions
             toolRegistry.Register("workspace_protocol_update",
                 _ => new WorkspaceProtocolUpdateTool(workspaceService));
 
+            var canvasRepository = sp.GetRequiredService<KodaClaw.Contracts.ICanvasArtifactRepository>();
+            toolRegistry.Register("canvas_upsert",
+                _ => new CanvasUpsertTool(workspaceService, canvasRepository));
+
+            var inboxRepository = sp.GetRequiredService<KodaClaw.Contracts.IInboxRepository>();
+            toolRegistry.Register("inbox_create",
+                _ => new InboxCreateTool(inboxRepository));
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
                 ModelProvider = sp.GetRequiredService<IModelProvider>(),
