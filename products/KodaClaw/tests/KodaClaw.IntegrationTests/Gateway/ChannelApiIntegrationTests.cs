@@ -157,11 +157,10 @@ public sealed class ChannelApiIntegrationTests
     }
 
     [Fact]
-    public async Task Generic_webhook_with_runtime_should_create_dm_draft_outcome()
+    public async Task Generic_webhook_with_runtime_should_deliver_dm_turn_in_full_agent_mode()
     {
         using var workspace = new TempWorkspaceRoot();
-        var modelProvider = new StubChannelTurnModelProvider(
-            """{"action":"propose_reply","replyText":"Thanks, I have a draft reply ready.","reason":"User asked for a direct response.","confidence":0.93}""");
+        var modelProvider = new StubChannelTurnModelProvider("I will use channel_send to reply for you.");
         await using var hosted = await StartGatewayAsync(workspace.Path, modelProvider, enableRuntime: true);
         hosted.Client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", GatewayToken);
@@ -203,36 +202,27 @@ public sealed class ChannelApiIntegrationTests
         var detail = await webhookResponse.Content.ReadFromJsonAsync<ChannelThreadDetail>();
         detail.Should().NotBeNull();
         detail!.Binding.ThreadType.Should().Be(ChannelThreadType.DirectMessage);
-        detail.PendingApprovalId.Should().NotBeNullOrWhiteSpace();
-        detail.HasPendingDraft.Should().BeTrue();
-        detail.PolicyEvidence.Should().Contain("pending_approval");
+        detail.PendingApprovalId.Should().BeNull();
+        detail.HasPendingDraft.Should().BeFalse();
         detail.LastTurnOutcome.Should().NotBeNull();
-        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.DraftCreated);
-        detail.LastTurnOutcome.ReplyText.Should().Be("Thanks, I have a draft reply ready.");
-        detail.LastTurnOutcome!.ReasonCode.Should().Be("draft_created");
+        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        detail.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
         detail.LastTurnOutcome.HasExplicitMention.Should().BeFalse();
-
-        detail.RecentAudit.Select(item => item.EventType).Should().Contain(new[]
-        {
-            "message.received",
-            "turn.draft_created",
-        });
 
         var threadsResponse = await hosted.Client.GetFromJsonAsync<ChannelsQueryResponse>(
             "/api/channels/threads?connectorKind=GenericWebhook&accountId=webhook-dm-runtime");
         threadsResponse.Should().NotBeNull();
         threadsResponse!.Items.Should().ContainSingle();
         threadsResponse.Items[0].LastTurnOutcome.Should().NotBeNull();
-        threadsResponse.Items[0].LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.DraftCreated);
-        threadsResponse.Items[0].LastTurnOutcome!.ReasonCode.Should().Be("draft_created");
+        threadsResponse.Items[0].LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        threadsResponse.Items[0].LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
     }
 
     [Fact]
-    public async Task Generic_webhook_with_runtime_should_block_group_reply_without_explicit_mention()
+    public async Task Generic_webhook_with_runtime_should_deliver_group_turn_in_full_agent_mode()
     {
         using var workspace = new TempWorkspaceRoot();
-        var modelProvider = new StubChannelTurnModelProvider(
-            """{"action":"propose_reply","replyText":"I can help with that.","reason":"There is a plausible answer.","confidence":0.84}""");
+        var modelProvider = new StubChannelTurnModelProvider("Checking situation before replying.");
         await using var hosted = await StartGatewayAsync(workspace.Path, modelProvider, enableRuntime: true);
         hosted.Client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", GatewayToken);
@@ -276,20 +266,10 @@ public sealed class ChannelApiIntegrationTests
         detail!.Binding.ThreadType.Should().Be(ChannelThreadType.Group);
         detail.PendingApprovalId.Should().BeNull();
         detail.HasPendingDraft.Should().BeFalse();
-        detail.PolicyEvidence.Should().Contain("group_mention_required");
-        detail.PolicyEvidence.Should().Contain("blocked_without_mention");
-        detail.PolicyEvidence.Should().Contain(item => item.StartsWith("last_no_action|"));
         detail.LastTurnOutcome.Should().NotBeNull();
-        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.NoAction);
-        detail.LastTurnOutcome.Summary.Should().Contain("Reply blocked by channel policy");
-        detail.LastTurnOutcome!.ReasonCode.Should().Be("policy_blocked_requires_mention");
+        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        detail.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
         detail.LastTurnOutcome.HasExplicitMention.Should().BeFalse();
-
-        detail.RecentAudit.Select(item => item.EventType).Should().Contain(new[]
-        {
-            "message.received",
-            "turn.no_action",
-        });
     }
 
     [Fact]
@@ -300,8 +280,7 @@ public sealed class ChannelApiIntegrationTests
         [
             [CreateDirectMessageUpdate(1001, 11, "Please reply on my behalf.")],
         ]);
-        var modelProvider = new StubChannelTurnModelProvider(
-            """{"action":"propose_reply","replyText":"I drafted a concise reply for approval.","reason":"DM explicitly asked for a response.","confidence":0.91}""");
+        var modelProvider = new StubChannelTurnModelProvider("I will use channel_send to reply.");
 
         await using var hosted = await StartGatewayAsync(
             workspace.Path,
@@ -343,37 +322,28 @@ public sealed class ChannelApiIntegrationTests
             detail = await hosted.Client.GetFromJsonAsync<ChannelThreadDetail>(
                 $"/api/channels/threads/{thread.BindingId}");
             return thread.LastTurnOutcome is not null
-                && detail?.PendingApprovalId is not null
-                && detail.LastTurnOutcome is not null;
+                && detail?.LastTurnOutcome is not null;
         }, "Timed out waiting for telegram polling to create a thread outcome.");
 
         thread.Should().NotBeNull();
         thread!.LastTurnOutcome.Should().NotBeNull();
-        thread.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.DraftCreated);
-        thread.LastTurnOutcome!.ReasonCode.Should().Be("draft_created");
+        thread.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        thread.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
 
         detail.Should().NotBeNull();
         detail!.Binding.SessionKind.Should().Be(SessionKind.ChannelDirectMessage);
-        detail.PendingApprovalId.Should().NotBeNullOrWhiteSpace();
-        detail.HasPendingDraft.Should().BeTrue();
+        detail.PendingApprovalId.Should().BeNull();
+        detail.HasPendingDraft.Should().BeFalse();
         detail.LastTurnOutcome.Should().NotBeNull();
-        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.DraftCreated);
-        detail.LastTurnOutcome.ReplyText.Should().Be("I drafted a concise reply for approval.");
-        detail.LastTurnOutcome!.ReasonCode.Should().Be("draft_created");
-        detail.RecentAudit.Select(item => item.EventType).Should().Contain(new[]
-        {
-            "message.received",
-            "turn.draft_created",
-        });
-        detail.PolicyEvidence.Should().Contain("pending_approval");
+        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        detail.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
     }
 
     [Fact]
-    public async Task Rejecting_pending_channel_delivery_should_surface_policy_evidence_in_thread_detail()
+    public async Task Full_agent_mode_dm_turn_should_always_deliver_without_pending_approval()
     {
         using var workspace = new TempWorkspaceRoot();
-        var modelProvider = new StubChannelTurnModelProvider(
-            """{"action":"propose_reply","replyText":"I drafted a reply for review.","reason":"DM asked for a reply.","confidence":0.89}""");
+        var modelProvider = new StubChannelTurnModelProvider("I will use channel_send to deliver the reply.");
         await using var hosted = await StartGatewayAsync(workspace.Path, modelProvider, enableRuntime: true);
         hosted.Client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", GatewayToken);
@@ -381,28 +351,28 @@ public sealed class ChannelApiIntegrationTests
         var createAccountResponse = await hosted.Client.PostAsJsonAsync(
             "/api/channels/accounts",
             new UpsertChannelAccountRequest(
-                Id: "webhook-dm-reject",
+                Id: "webhook-dm-full-agent",
                 ConnectorKind: ChannelConnectorKind.GenericWebhook,
-                DisplayName: "Webhook DM Reject",
+                DisplayName: "Webhook DM Full Agent",
                 ConfigurationJson: """{"sharedSecret":"hook-secret","defaultThreadType":"DirectMessage","defaultDeliveryMode":"DraftApproval"}"""));
         createAccountResponse.StatusCode.Should().Be(HttpStatusCode.Created);
 
         using var webhookRequest = new HttpRequestMessage(
             HttpMethod.Post,
-            "/api/channels/webhook/webhook-dm-reject/events")
+            "/api/channels/webhook/webhook-dm-full-agent/events")
         {
             Content = JsonContent.Create(new
             {
                 eventType = "message.received",
-                eventId = "event-runtime-dm-reject-001",
-                externalThreadId = "dm-thread-reject-001",
+                eventId = "event-runtime-dm-full-agent-001",
+                externalThreadId = "dm-thread-full-agent-001",
                 threadType = "directMessage",
                 occurredAt = "2026-03-20T05:00:00Z",
-                messageId = "message-runtime-dm-reject-001",
+                messageId = "message-runtime-dm-full-agent-001",
                 text = "Please respond for me.",
                 sender = new
                 {
-                    id = "sender-dm-reject-001",
+                    id = "sender-dm-full-agent-001",
                     displayName = "Alice",
                 },
             }),
@@ -414,22 +384,13 @@ public sealed class ChannelApiIntegrationTests
         webhookResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         var detail = await webhookResponse.Content.ReadFromJsonAsync<ChannelThreadDetail>();
         detail.Should().NotBeNull();
-        detail!.PendingApprovalId.Should().NotBeNullOrWhiteSpace();
 
-        var rejectResponse = await hosted.Client.PostAsJsonAsync(
-            $"/api/approvals/{detail.PendingApprovalId}/reject",
-            new ApprovalDecisionRequest("reject test delivery"));
-        rejectResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-
-        var detailAfterReject = await hosted.Client.GetFromJsonAsync<ChannelThreadDetail>(
-            $"/api/channels/threads/{detail.Binding.Id}");
-        detailAfterReject.Should().NotBeNull();
-        detailAfterReject!.PendingApprovalId.Should().BeNull();
-        detailAfterReject.HasPendingDraft.Should().BeFalse();
-        detailAfterReject.LastTurnOutcome.Should().NotBeNull();
-        detailAfterReject.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.NoAction);
-        detailAfterReject.LastTurnOutcome.ReasonCode.Should().Be("approval_rejected");
-        detailAfterReject.PolicyEvidence.Should().Contain(item => item.StartsWith("approval_rejected|"));
+        // In Full Agent Mode, agent uses channel_send tool directly — no draft, no pending approval.
+        detail!.PendingApprovalId.Should().BeNull();
+        detail.HasPendingDraft.Should().BeFalse();
+        detail.LastTurnOutcome.Should().NotBeNull();
+        detail.LastTurnOutcome!.Kind.Should().Be(ChannelTurnOutcomeKind.Delivered);
+        detail.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
     }
 
     private static Task<HostedGateway> StartGatewayAsync(

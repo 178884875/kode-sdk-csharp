@@ -2,12 +2,14 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
+  fetchModelPresets,
   fetchModels,
   fetchSandboxRiskOverview,
   fetchSettings,
   runUpdateCheck,
   saveSettings,
   setDefaultModelEndpoint,
+  testModelConnection,
   updateModelEndpoint,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
@@ -16,7 +18,9 @@ import type {
   ChannelRiskItem,
   CreateModelEndpointRequest,
   KodaClawSettings,
+  ModelConnectionTestResponse,
   ModelEndpoint,
+  ModelPreset,
   ModelProviderKind,
   PluginRiskItem,
   SandboxExecutionProfile,
@@ -530,6 +534,13 @@ export function ModelsSettingsDesk() {
   const updatesStageRef = useRef<HTMLElement | null>(null);
   const riskStageRef = useRef<HTMLElement | null>(null);
 
+  // Preset selector state
+  const [presets, setPresets] = useState<ModelPreset[]>([]);
+  const [selectedPresetProvider, setSelectedPresetProvider] = useState<string>('');
+  const [selectedPresetForFill, setSelectedPresetForFill] = useState<ModelPreset | null>(null);
+  const [testResult, setTestResult] = useState<ModelConnectionTestResponse | null>(null);
+  const [testingConnection, setTestingConnection] = useState(false);
+
   const selectedModel = useMemo(
     () => models.find((item) => item.id === selectedModelId) ?? null,
     [models, selectedModelId],
@@ -654,6 +665,10 @@ export function ModelsSettingsDesk() {
   useEffect(() => {
     void refreshDesk();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    fetchModelPresets().then(setPresets).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1047,6 +1062,53 @@ export function ModelsSettingsDesk() {
             </div>
 
             <form className="bootstrap-form" onSubmit={handleCreateModel}>
+            <div className="bootstrap-form__field">
+              <span className="bootstrap-form__label">从预设选择（可选）</span>
+              <select
+                data-testid="preset-provider-select"
+                className="bootstrap-form__textarea control-plane-select"
+                value={selectedPresetProvider}
+                onChange={e => {
+                  setSelectedPresetProvider(e.target.value);
+                  setSelectedPresetForFill(null);
+                }}
+              >
+                <option value="">选择 Provider（可选）</option>
+                {['Anthropic', 'OpenAI', 'OpenAICompatible', 'AnthropicCompatible'].map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              {selectedPresetProvider && (
+                <select
+                  data-testid="preset-model-select"
+                  className="bootstrap-form__textarea control-plane-select"
+                  value={selectedPresetForFill?.presetId ?? ''}
+                  style={{ marginTop: 6 }}
+                  onChange={e => {
+                    const preset = presets.find(p => p.presetId === e.target.value);
+                    if (preset) {
+                      setSelectedPresetForFill(preset);
+                      setModelDraft(current => ({
+                        ...current,
+                        displayName: current.displayName || preset.displayName,
+                        modelId: preset.modelId,
+                        baseUrl: preset.baseUrl ?? '',
+                      }));
+                      setTestResult(null);
+                    }
+                  }}
+                >
+                  <option value="">选择预设模型</option>
+                  {presets
+                    .filter(p => p.provider === selectedPresetProvider)
+                    .map(p => (
+                      <option key={p.presetId} value={p.presetId}>
+                        {p.displayName} ({p.tier})
+                      </option>
+                    ))}
+                </select>
+              )}
+            </div>
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.displayName}</span>
               <input
@@ -1107,6 +1169,39 @@ export function ModelsSettingsDesk() {
                 }
               />
             </label>
+            <div className="bootstrap-form__field">
+              <button
+                type="button"
+                className="secondary-button"
+                data-testid="test-connection-btn"
+                onClick={() => {
+                  setTestingConnection(true);
+                  setTestResult(null);
+                  testModelConnection({
+                    presetId: selectedPresetForFill?.presetId,
+                    modelId: modelDraft.modelId || undefined,
+                    apiKey: '',
+                    baseUrl: modelDraft.baseUrl || undefined,
+                  })
+                    .then(result => { setTestResult(result); })
+                    .catch(() => { setTestResult({ ok: false, latencyMs: 0, error: 'network_error' }); })
+                    .finally(() => { setTestingConnection(false); });
+                }}
+                disabled={testingConnection || !modelDraft.modelId}
+              >
+                {testingConnection ? '测试中...' : '测试连接'}
+              </button>
+              {testResult && (
+                <p
+                  className={`bootstrap-panel__feedback ${testResult.ok ? 'bootstrap-panel__feedback--success' : 'bootstrap-panel__feedback--error'}`}
+                  data-testid="connection-result"
+                >
+                  {testResult.ok
+                    ? `连接成功（${testResult.latencyMs}ms）`
+                    : `连接失败：${testResult.error ?? 'unknown'}`}
+                </p>
+              )}
+            </div>
             <label className="bootstrap-form__toggle">
               <input
                 type="checkbox"

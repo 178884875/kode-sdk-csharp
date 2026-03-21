@@ -10,7 +10,8 @@ public static partial class GatewayApp
         string? ApiKeyEnvironmentVariable,
         string? ApiKeySecretRef,
         bool Enabled,
-        bool SupportsToolCalling);
+        bool SupportsToolCalling,
+        int ContextWindowSize = 128_000);
 
     private static bool TryValidateModelEndpointRequest(
         CreateModelEndpointRequest request,
@@ -26,6 +27,7 @@ public static partial class GatewayApp
             request.ApiKeySecretRef,
             request.Enabled,
             request.SupportsToolCalling,
+            request.ContextWindowSize,
             out validated,
             out error);
     }
@@ -44,6 +46,7 @@ public static partial class GatewayApp
             request.ApiKeySecretRef,
             request.Enabled,
             request.SupportsToolCalling,
+            request.ContextWindowSize,
             out validated,
             out error);
     }
@@ -57,6 +60,7 @@ public static partial class GatewayApp
         string? apiKeySecretRef,
         bool enabled,
         bool supportsToolCalling,
+        int contextWindowSize,
         out ValidatedModelEndpointRequest validated,
         out ErrorResponse? error)
     {
@@ -115,7 +119,8 @@ public static partial class GatewayApp
             ApiKeyEnvironmentVariable: normalizedApiKeyVariable,
             ApiKeySecretRef: normalizedApiKeySecretRef,
             Enabled: enabled,
-            SupportsToolCalling: supportsToolCalling);
+            SupportsToolCalling: supportsToolCalling,
+            ContextWindowSize: contextWindowSize);
         return true;
     }
 

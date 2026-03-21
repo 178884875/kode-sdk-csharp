@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -7,9 +8,103 @@ public static partial class GatewayApp
 {
     private static void MapModelEndpoints(WebApplication app)
     {
+        var presets = app.MapGroup("/api/models/presets");
+
+        presets.MapGet(string.Empty, (
+            HttpContext context,
+            IConfiguration configuration,
+            ModelPresetService modelPresetService,
+            IDiagnosticsService diagnosticsService) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model presets endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var allPresets = modelPresetService.GetAll();
+            return Results.Ok(allPresets);
+        });
+
+        presets.MapGet("/{presetId}", (
+            HttpContext context,
+            string presetId,
+            IConfiguration configuration,
+            ModelPresetService modelPresetService,
+            IDiagnosticsService diagnosticsService) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model preset detail endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var preset = modelPresetService.GetById(presetId);
+            if (preset is null)
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_preset.not_found",
+                    Message: "Model preset was not found."));
+
+            return Results.Ok(preset);
+        });
+
         var models = app.MapGroup("/api/models");
 
-        models.MapGet(string.Empty, async (
+        models.MapPost("/test-connection", async (
+            HttpContext context,
+            ModelConnectionTestRequest request,
+            IConfiguration configuration,
+            ModelConnectionTestService modelConnectionTestService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to model test-connection endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var result = await modelConnectionTestService.TestAsync(request, cancellationToken);
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.models",
+                eventType: "gateway.models.connection_tested",
+                level: result.Ok ? "info" : "warning",
+                message: result.Ok ? "Model connection test succeeded." : $"Model connection test failed: {result.Error}",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["ok"] = result.Ok.ToString(),
+                    ["latencyMs"] = result.LatencyMs.ToString(),
+                    ["modelId"] = result.ModelId,
+                    ["error"] = result.Error,
+                });
+
+            return Results.Ok(result);
+        });
+
+
+        var modelsGroup = app.MapGroup("/api/models");
+
+        modelsGroup.MapGet(string.Empty, async (
             HttpContext context,
             IConfiguration configuration,
             IModelRegistryRepository modelRegistryRepository,
@@ -44,7 +139,7 @@ public static partial class GatewayApp
             return Results.Ok(new ModelsQueryResponse(endpoints));
         });
 
-        models.MapGet("/{id}", async (
+        modelsGroup.MapGet("/{id}", async (
             HttpContext context,
             string id,
             IConfiguration configuration,
@@ -100,7 +195,7 @@ public static partial class GatewayApp
             return Results.Ok(endpoint);
         });
 
-        models.MapPost(string.Empty, async (
+        modelsGroup.MapPost(string.Empty, async (
             HttpContext context,
             CreateModelEndpointRequest request,
             IConfiguration configuration,
@@ -145,7 +240,8 @@ public static partial class GatewayApp
                 SupportsToolCalling: validatedRequest.SupportsToolCalling,
                 IsDefault: false,
                 CreatedAt: now,
-                UpdatedAt: now);
+                UpdatedAt: now,
+                ContextWindowSize: validatedRequest.ContextWindowSize);
 
             await modelRegistryRepository.AddAsync(endpoint, cancellationToken);
             RecordDiagnosticEvent(
@@ -164,7 +260,7 @@ public static partial class GatewayApp
             return Results.Created($"/api/models/{endpoint.Id}", endpoint);
         });
 
-        models.MapPut("/{id}", async (
+        modelsGroup.MapPut("/{id}", async (
             HttpContext context,
             string id,
             UpdateModelEndpointRequest request,
@@ -237,6 +333,7 @@ public static partial class GatewayApp
                 ApiKeySecretRef = validatedRequest.ApiKeySecretRef,
                 Enabled = validatedRequest.Enabled,
                 SupportsToolCalling = validatedRequest.SupportsToolCalling,
+                ContextWindowSize = validatedRequest.ContextWindowSize,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
 
@@ -266,7 +363,7 @@ public static partial class GatewayApp
             return Results.Ok(reloaded);
         });
 
-        models.MapDelete("/{id}", async (
+        modelsGroup.MapDelete("/{id}", async (
             HttpContext context,
             string id,
             IConfiguration configuration,
@@ -320,7 +417,7 @@ public static partial class GatewayApp
             return Results.NoContent();
         });
 
-        models.MapPost("/{id}/default", async (
+        modelsGroup.MapPost("/{id}/default", async (
             HttpContext context,
             string id,
             IConfiguration configuration,

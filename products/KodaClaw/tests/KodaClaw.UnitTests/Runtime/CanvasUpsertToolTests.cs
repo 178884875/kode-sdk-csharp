@@ -199,5 +199,6 @@ public sealed class CanvasUpsertToolTests : IDisposable
             => Task.CompletedTask;
         public string GetSessionDirectory(string sessionId)
             => Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
+        public IReadOnlyList<string> GetSkillsPaths() => [];
     }
 }

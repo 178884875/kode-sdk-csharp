@@ -41,11 +41,11 @@ public sealed class WorkspaceTemplateContractTests
     }
 
     [Fact]
-    public void Heartbeat_nightly_consolidation_is_disabled_by_default()
+    public void Heartbeat_nightly_consolidation_is_enabled_by_default()
     {
         var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
-        consolidationSection.Should().Contain("enabled: false",
-            because: "nightly consolidation must be opt-in to avoid unexpected LLM calls for unconfigured users");
+        consolidationSection.Should().Contain("enabled: true",
+            because: "nightly consolidation is a core part of the memory pipeline and must be on by default");
     }
 
     [Fact]
@@ -54,6 +54,22 @@ public sealed class WorkspaceTemplateContractTests
         var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
         consolidationSection.Should().Contain("MEMORY.md");
         consolidationSection.Should().Contain("memory/YYYY-MM-DD.md");
+    }
+
+    [Fact]
+    public void Heartbeat_nightly_consolidation_instructs_daily_log_cleanup()
+    {
+        var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
+        consolidationSection.Should().Contain("fs_rm",
+            because: "nightly consolidation must delete the daily log file after merging to prevent accumulation");
+    }
+
+    [Fact]
+    public void Heartbeat_nightly_consolidation_specifies_retention_rule()
+    {
+        var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
+        consolidationSection.Should().Contain("90 days",
+            because: "nightly consolidation must enforce a retention window to bound MEMORY.md growth");
     }
 
     // ── Heartbeat: Weekday Memory Hygiene ────────────────────────────────────

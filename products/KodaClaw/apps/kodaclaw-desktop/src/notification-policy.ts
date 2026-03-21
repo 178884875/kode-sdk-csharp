@@ -14,6 +14,7 @@ export type NotificationApproval = {
   summary: string;
   updatedAt: string;
   status?: string | null;
+  kind?: string | null;
   inboxItemId?: string | null;
 };
 
@@ -35,6 +36,8 @@ export type DesktopNotificationCandidate = {
   updatedAt: string;
   target: DesktopLaunchTarget;
   signature: string;
+  approvalId?: string | null;
+  isChannelDelivery?: boolean;
 };
 
 function parseLocalMinutes(value: string | null | undefined): number | null {
@@ -89,6 +92,8 @@ function buildApprovalCandidate(approval: NotificationApproval): DesktopNotifica
     updatedAt: approval.updatedAt,
     target,
     signature: `approval:${approval.id}:${approval.updatedAt}`,
+    approvalId: approval.id,
+    isChannelDelivery: approval.kind === "ChannelDelivery",
   };
 }
 

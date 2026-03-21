@@ -481,6 +481,28 @@
   justify-items: end;
 }
 
+.v2-new-session-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.v2-new-session-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.9);
+}
+
 .v2-stage-head__metrics {
   display: grid;
   gap: 12px;
@@ -684,4 +706,45 @@
   .v2-stage-surface--chat .timeline__body {
     min-height: 200px;
   }
+}
+
+/* ── Canvas Markdown Render Surface ────────────────────────────────────────── */
+
+.canvas-markdown-view {
+  padding: 16px 20px;
+  overflow-y: auto;
+  max-height: 480px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.canvas-markdown-view h1,
+.canvas-markdown-view h2,
+.canvas-markdown-view h3 {
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.canvas-markdown-view ul,
+.canvas-markdown-view ol {
+  padding-left: 1.5em;
+}
+
+.canvas-markdown-view code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.canvas-markdown-view pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.canvas-markdown-view pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
 }

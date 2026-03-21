@@ -6,5 +6,5 @@ public sealed record ChannelTurnExecutionResult(
     ChannelSessionHandle Session,
     AgentRunResult RunResult,
     string RawResponse,
-    ChannelReplyProposal Proposal,
+    ChannelReplyProposal? Proposal,
     bool HasExplicitMention);

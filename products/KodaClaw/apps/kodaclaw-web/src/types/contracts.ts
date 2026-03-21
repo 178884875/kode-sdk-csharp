@@ -515,6 +515,11 @@ export interface SessionsQueryResponse {
   sessions: SessionSummary[];
 }
 
+export interface RotateSessionResponse {
+  ok: boolean;
+  previousSessionId?: string | null;
+}
+
 export interface DiagnosticEvent {
   id: string;
   source: string;
@@ -879,6 +884,39 @@ export interface ChannelThreadDetail {
   lastTurnOutcome?: ChannelTurnOutcome | null;
 }
 
+export interface TriggerAutomationResponse {
+  ok: boolean;
+  runId: string;
+}
+
+export interface TestTelegramTokenRequest {
+  botToken: string;
+}
+
+export interface TestTelegramTokenResponse {
+  ok: boolean;
+  botName?: string | null;
+  botUsername?: string | null;
+  error?: string | null;
+}
+
+export interface CreateChannelAccountRequest {
+  id: string;
+  connectorKind: ChannelConnectorKind;
+  displayName: string;
+  externalAccountId?: string | null;
+  credentialReference?: string | null;
+  description?: string | null;
+  configurationJson?: string | null;
+  inboundEnabled?: boolean;
+}
+
+export interface PatchChannelAccountRequest {
+  displayName?: string | null;
+  deliveryMode?: DeliveryMode | null;
+  enabled?: boolean | null;
+}
+
 export interface CreateModelEndpointRequest {
   displayName: string;
   provider: ModelProviderKind;
@@ -990,4 +1028,59 @@ export interface SandboxRiskOverviewResponse {
   pluginRisk: PluginRiskOverview;
   channelRisk: ChannelRiskOverview;
   operatorWarnings: string[];
+}
+
+// ===== Iter 23：引导程序基础数据层 =====
+
+export interface ModelPreset {
+  presetId: string;
+  displayName: string;
+  provider: string;
+  modelId: string;
+  baseUrl?: string;
+  contextWindowSize: number;
+  tier: 'Recommended' | 'Advanced' | 'Fast' | 'Reasoning' | 'Local';
+  description: string;
+  costHint?: string;
+  requiresBaseUrl: boolean;
+}
+
+export interface ModelConnectionTestRequest {
+  presetId?: string;
+  modelId?: string;
+  baseUrl?: string;
+  apiKey: string;
+}
+
+export interface ModelConnectionTestResponse {
+  ok: boolean;
+  latencyMs: number;
+  modelId?: string;
+  error?: string;
+}
+
+export interface PersonaPreset {
+  presetId: string;
+  displayName: string;
+  tagLine: string;
+  description: string;
+  tags: string[];
+  soulMarkdown: string;
+  identityMarkdown: string;
+}
+
+export interface OnboardingState {
+  isCompleted: boolean;
+  currentStepId?: string;
+  completedSteps: string[];
+  selectedLanguage?: string;
+  selectedPresetId?: string;
+  selectedPersonaPresetId?: string;
+  channelStepSkipped: boolean;
+  startedAt: string;
+  completedAt?: string;
+}
+
+export interface ApplyPersonaRequest {
+  presetId: string;
 }

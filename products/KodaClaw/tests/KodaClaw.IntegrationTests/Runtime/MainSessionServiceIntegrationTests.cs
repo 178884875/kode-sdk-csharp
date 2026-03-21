@@ -437,6 +437,8 @@ public sealed class MainSessionServiceIntegrationTests
         {
             return Path.Combine(RootPath, "sessions", sessionId);
         }
+
+        public IReadOnlyList<string> GetSkillsPaths() => [];
     }
 
     private sealed class StubModelProvider : IModelProvider

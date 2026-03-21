@@ -158,5 +158,6 @@ public sealed class WorkspaceMemoryAppendToolTests : IDisposable
 
         public string GetSessionDirectory(string sessionId)
             => Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
+        public IReadOnlyList<string> GetSkillsPaths() => [];
     }
 }

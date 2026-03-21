@@ -109,6 +109,8 @@ const capturedNotifications: Array<{
   title: string;
   target: DesktopLaunchTarget;
 }> = [];
+// Maps a notification instance to its approvalId for action button handling.
+const pendingApprovalNotifications = new Map<Notification, string>();
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
@@ -363,19 +365,64 @@ function showDesktopNotification(candidate: DesktopNotificationCandidate): void 
     return;
   }
 
+  // On macOS, Notification supports action buttons via the `actions` option.
+  // We only add quick-approve/reject actions for ChannelDelivery approvals.
+  const isChannelDelivery = candidate.isChannelDelivery === true && Boolean(candidate.approvalId);
   const notification = new Notification({
     title: candidate.title,
     body: candidate.body,
+    ...(isChannelDelivery && process.platform === "darwin"
+      ? {
+          actions: [
+            { type: "button", text: "✓ 发送" },
+            { type: "button", text: "✗ 不发送" },
+          ],
+        }
+      : {}),
   });
 
+  if (isChannelDelivery && candidate.approvalId) {
+    pendingApprovalNotifications.set(notification, candidate.approvalId);
+  }
+
   notification.on("click", () => {
+    pendingApprovalNotifications.delete(notification);
     void dispatchLaunchTarget({
       ...candidate.target,
       reason: candidate.target.reason ?? "notification",
     });
   });
 
+  notification.on("close", () => {
+    pendingApprovalNotifications.delete(notification);
+  });
+
   notification.show();
+}
+
+async function handleApprovalNotificationAction(notification: Notification, actionText: string): Promise<void> {
+  const approvalId = pendingApprovalNotifications.get(notification);
+  if (!approvalId) {
+    return;
+  }
+
+  pendingApprovalNotifications.delete(notification);
+
+  const gatewayUrl = runtimeConfig.gatewayUrl;
+  if (!gatewayUrl) {
+    return;
+  }
+
+  try {
+    const endpoint = actionText === "✓ 发送" ? "approve" : "reject";
+    await fetch(`${gatewayUrl.replace(/\/$/, "")}/api/approvals/${approvalId}/${endpoint}`, {
+      method: "POST",
+      headers: buildGatewayHeaders(true),
+      body: JSON.stringify({}),
+    });
+  } catch (err) {
+    console.error("[desktop] Failed to handle approval notification action.", err);
+  }
 }
 
 async function pollNotificationsOnce(): Promise<void> {
@@ -941,6 +988,17 @@ app.on("will-quit", () => {
 
 app.whenReady().then(async () => {
   registerDesktopBridge();
+
+  // Handle quick approve/reject actions triggered from macOS notification banners.
+  // Note: "notification-action" is a valid Electron app event on macOS but is not
+  // included in the Electron 31 TypeScript overloads, hence the cast below.
+  (app as NodeJS.EventEmitter).on(
+    "notification-action",
+    (_event: unknown, notification: Notification, action: { text: string }) => {
+      void handleApprovalNotificationAction(notification, action.text);
+    },
+  );
+
   await initializeGatewayRuntime();
   await createMainWindow();
   ensureTray();

@@ -243,5 +243,6 @@ public sealed class WorkspaceProtocolUpdateToolTests : IDisposable
             => Task.CompletedTask;
         public string GetSessionDirectory(string sessionId)
             => Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
+        public IReadOnlyList<string> GetSkillsPaths() => [];
     }
 }

@@ -20,4 +20,10 @@ public sealed class AutomationSessionOptions
         Mode = "auto",
         RequireApprovalTools = [],
     };
+
+    public double ContextCompressionTriggerRatio { get; init; } = 0.75;
+
+    public double ContextCompressionTargetRatio { get; init; } = 0.40;
+
+    public int DefaultContextWindowSize { get; init; } = 128_000;
 }

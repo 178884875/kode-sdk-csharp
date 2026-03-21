@@ -13,4 +13,6 @@ public interface IWorkspaceService
     Task SaveAppConfigAsync(WorkspaceAppConfig appConfig, CancellationToken cancellationToken = default);
 
     string GetSessionDirectory(string sessionId);
+
+    IReadOnlyList<string> GetSkillsPaths();
 }

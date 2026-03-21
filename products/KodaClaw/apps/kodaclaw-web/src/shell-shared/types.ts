@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type ShellMode = "bootstrap" | "main";
-export type MainDesk = "chat" | "inbox" | "sessions" | "models" | "automations" | "channels" | "plugins" | "canvas";
+export type MainDesk = "chat" | "inbox" | "sessions" | "models" | "automations" | "channels" | "plugins" | "canvas" | "skills";
 
 export type DeskMeta = {
   id: MainDesk;
@@ -25,6 +25,7 @@ export type ShellLayoutProps = {
   desks: DeskMeta[];
   onMainDeskChange: (desk: MainDesk) => void;
   onOpenSessionDetail: (sessionId: string) => void;
+  onRotateSession?: () => void;
   railEyebrow: string;
   railTitle: string;
   railCopy: string;

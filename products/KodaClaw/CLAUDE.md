@@ -239,6 +239,14 @@ ACCEPTANCE_PACK 验收矩阵
 | Web V2 conversation-first 重构 | `shell-v2/`, `App.tsx` | KC-W2-004/005/006 In Progress |
 
 **已知产品缺口**（实现存在但功能不完整）：
-- Canvas Desk UI：`canvas_upsert` 工具已通（Iter 12），但 Web 前端尚无 Canvas artifact 渲染面板，用户无法直接查看 Agent 发布的内容
-- Automations Desk：`automationsEnabled` 开关（Iter 14）可通过 API 设置，但前端无可见的启用/禁用 toggle 及运行历史面板
-- Plugins / Channels 的 onboarding UX：入口存在但缺少首次上手引导
+- Automations Desk：`automationsEnabled` 开关（Iter 14）可通过 API 设置，但前端无可见的启用/禁用 toggle（Iter 22 已加"立即执行"按钮，toggle 留待后续）
+
+**近期完成**（Iter 22-24，2026-03-21）：
+- Canvas Desk UI：`react-markdown` 渲染面板已完成（KC-2207）
+- Channel session 时效策略 + SUMMARY.md 语义压缩（KC-2201/KC-2206）
+- ChannelsDesk 30s 自动刷新 + 账号管理向导（KC-2202/KC-2203）
+- Automation 手动触发按钮（KC-2205）
+- 桌面 ChannelDelivery 审批快捷操作（KC-2204）
+- 模型预设库 + API Key 连通性测试（KC-2301/KC-2302）
+- Persona 模板库 6 套 + Onboarding 状态持久化（KC-2303/KC-2304）
+- 首次使用引导程序全流程（KC-2401~KC-2407）

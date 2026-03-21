@@ -4,6 +4,7 @@ import {
   fetchAutomations,
   fetchSessionDetail,
   fetchSettings,
+  triggerAutomation,
   updateAutomationDefinition,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
@@ -203,6 +204,9 @@ export function AutomationsDesk() {
       loadRunsError: "加载自动化运行记录失败。",
       loadAutomationsError: "加载自动化列表失败。",
       updateAutomationError: "更新自动化状态失败。",
+      triggerNow: "立即执行",
+      triggering: "执行中...",
+      triggerError: "触发自动化失败。",
       engineDisabledBanner: "自动化引擎当前已关闭。前往设置页启用「启用自动化引擎」后，所有已开启的自动化才会按计划执行。",
     },
     en: {
@@ -313,6 +317,9 @@ export function AutomationsDesk() {
       loadRunsError: "Failed to load automation runs.",
       loadAutomationsError: "Failed to load automations.",
       updateAutomationError: "Failed to update automation state.",
+      triggerNow: "Run now",
+      triggering: "Running...",
+      triggerError: "Failed to trigger automation.",
       engineDisabledBanner: "The automations engine is currently disabled. Go to Settings and enable \"Automations engine enabled\" so scheduled automations can run.",
     },
   });
@@ -328,6 +335,7 @@ export function AutomationsDesk() {
   const [isLoadingRuns, setIsLoadingRuns] = useState(false);
   const [isLoadingPromptDiagnostics, setIsLoadingPromptDiagnostics] = useState(false);
   const [pendingToggleIds, setPendingToggleIds] = useState<Record<string, boolean>>({});
+  const [pendingTriggerIds, setPendingTriggerIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
   const [automationsEngineEnabled, setAutomationsEngineEnabled] = useState<boolean | null>(null);
@@ -581,6 +589,27 @@ export function AutomationsDesk() {
     }
   }
 
+  async function handleTriggerAutomation(automationId: string) {
+    setPendingTriggerIds((current) => ({ ...current, [automationId]: true }));
+    setError(null);
+
+    try {
+      await triggerAutomation(automationId);
+      // Refresh runs list after a short delay to allow the scheduler to pick up the queued run.
+      setTimeout(() => {
+        void loadAutomationRuns(automationId);
+      }, 1500);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : text.triggerError);
+    } finally {
+      setPendingTriggerIds((current) => {
+        const next = { ...current };
+        delete next[automationId];
+        return next;
+      });
+    }
+  }
+
   const latestPromptReport = latestRunSessionDetail?.promptReport ?? null;
   const latestPromptHasMemory = latestPromptReport?.loadedContextFiles.some((path) =>
     path.endsWith("/MEMORY.md") || path === "workspace/MEMORY.md",
@@ -704,16 +733,31 @@ export function AutomationsDesk() {
                       {resolveRunStatusLabel(automation.lastRunStatus)}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    data-testid={`automation-select-${automation.id}`}
-                    aria-pressed={isSelected}
-                    onClick={() => handleSelectAutomation(automation.id)}
-                    disabled={isLoadingList || isRefreshing}
-                  >
-                    {isSelected ? text.inspecting : text.inspectDetail}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      data-testid={`automation-select-${automation.id}`}
+                      aria-pressed={isSelected}
+                      onClick={() => handleSelectAutomation(automation.id)}
+                      disabled={isLoadingList || isRefreshing}
+                    >
+                      {isSelected ? text.inspecting : text.inspectDetail}
+                    </button>
+                    {automation.enabled ? (
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        data-testid={`automation-trigger-${automation.id}`}
+                        onClick={() => {
+                          void handleTriggerAutomation(automation.id);
+                        }}
+                        disabled={pendingTriggerIds[automation.id] ?? false}
+                      >
+                        {pendingTriggerIds[automation.id] ? text.triggering : text.triggerNow}
+                      </button>
+                    ) : null}
+                  </div>
                 </article>
               );
             })}

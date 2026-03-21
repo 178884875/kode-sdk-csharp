@@ -8,4 +8,5 @@ public sealed record UpdateModelEndpointRequest(
     string? ApiKeyEnvironmentVariable = null,
     string? ApiKeySecretRef = null,
     bool Enabled = true,
-    bool SupportsToolCalling = true);
+    bool SupportsToolCalling = true,
+    int ContextWindowSize = 128_000);

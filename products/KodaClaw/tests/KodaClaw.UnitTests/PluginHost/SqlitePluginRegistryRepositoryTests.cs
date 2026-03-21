@@ -353,6 +353,8 @@ public sealed class SqlitePluginRegistryRepositoryTests
             return Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         }
 
+        public IReadOnlyList<string> GetSkillsPaths() => [];
+
         private WorkspaceSnapshot CreateSnapshot(bool initialized)
         {
             return new WorkspaceSnapshot(

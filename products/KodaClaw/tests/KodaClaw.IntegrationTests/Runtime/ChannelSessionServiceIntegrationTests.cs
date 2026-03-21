@@ -103,8 +103,6 @@ public sealed class ChannelSessionServiceIntegrationTests
     {
         using var fixture = new ChannelRuntimeFixture();
         await fixture.PrepareWorkspaceContextAsync();
-        fixture.ModelProvider.ResponseText =
-            """{"action":"no_reply","replyText":null,"reason":"Group thread did not explicitly ask Koda to respond.","confidence":0.22}""";
         await using var service = fixture.CreateService();
 
         var binding = CreateBinding(
@@ -127,7 +125,7 @@ public sealed class ChannelSessionServiceIntegrationTests
 
         var result = await service.RunInboundTurnAsync(binding, policy, envelope, hasExplicitMention: false);
 
-        result.Proposal.ProposesReply.Should().BeFalse();
+        result.Proposal.Should().BeNull();
         fixture.ModelProvider.LastRequest.Should().NotBeNull();
 
         var requestText = string.Join(
@@ -137,7 +135,7 @@ public sealed class ChannelSessionServiceIntegrationTests
                 .Select(content => content.Text));
         requestText.Should().Contain("HasExplicitMention: False");
         requestText.Should().Contain("This is a group thread without an explicit mention of Koda.");
-        requestText.Should().Contain("Prefer action \"no_reply\"");
+        requestText.Should().Contain("Full Agent Mode");
     }
 
     [Fact]

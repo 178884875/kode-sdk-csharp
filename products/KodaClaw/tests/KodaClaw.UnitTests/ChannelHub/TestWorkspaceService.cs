@@ -38,6 +38,16 @@ internal sealed class TestWorkspaceService : IWorkspaceService
         return Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
     }
 
+    public IReadOnlyList<string> GetSkillsPaths()
+    {
+        return
+        [
+            Path.Combine(AppContext.BaseDirectory, "skills"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", "skills"),
+            Path.Combine(RootPath, KodaClawWorkspaceLayout.WorkspaceSkillsDirectory),
+        ];
+    }
+
     private WorkspaceSnapshot CreateSnapshot(bool initialized)
     {
         return new WorkspaceSnapshot(

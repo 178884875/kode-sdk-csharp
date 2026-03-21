@@ -1,6 +1,8 @@
 using System.Text;
 using KodaClaw.Contracts;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Context;
+using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
@@ -209,6 +211,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         string systemPrompt,
         string model)
     {
+        var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
         {
             Model = model,
@@ -220,6 +223,17 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             {
                 WorkingDirectory = sessionDirectory,
                 EnforceBoundary = true,
+                AllowPaths = skillsPaths,
+            },
+            Skills = new SkillsConfig
+            {
+                Paths = skillsPaths,
+                ValidateOnLoad = false,
+            },
+            Context = new ContextManagerOptions
+            {
+                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
             },
         };
     }

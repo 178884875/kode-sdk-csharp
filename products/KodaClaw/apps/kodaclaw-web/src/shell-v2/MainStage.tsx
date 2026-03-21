@@ -30,6 +30,7 @@ type MainStageProps = Pick<
   | "healthStatus"
   | "workspaceRootPath"
   | "workbench"
+  | "onRotateSession"
 >;
 
 export function MainStage({
@@ -41,6 +42,7 @@ export function MainStage({
   healthStatus,
   workspaceRootPath,
   workbench,
+  onRotateSession,
 }: MainStageProps) {
   const text = useLocaleText({
     zh: {
@@ -52,6 +54,8 @@ export function MainStage({
       health: "健康态",
       workspace: "工作区",
       workspaceWaiting: "等待 bootstrap-state",
+      newSession: "新对话",
+      newSessionConfirm: "开启新对话将结束当前会话（历史记录保留）。确认继续？",
       healthLabels: {
         healthy: "健康",
         warning: "降级",
@@ -68,6 +72,8 @@ export function MainStage({
       health: "Health",
       workspace: "Workspace",
       workspaceWaiting: "Waiting for bootstrap-state",
+      newSession: "New chat",
+      newSessionConfirm: "Starting a new chat ends the current session (history is preserved). Continue?",
       healthLabels: {
         healthy: "Healthy",
         warning: "Degraded",
@@ -91,6 +97,20 @@ export function MainStage({
               <p className="section-copy v2-chat-stage-head__summary">{activeDeskMeta.summary}</p>
             </div>
             <div className="v2-stage-head__controls">
+              {onRotateSession && (
+                <button
+                  type="button"
+                  className="v2-new-session-btn"
+                  data-testid="new-session-btn"
+                  onClick={() => {
+                    if (window.confirm(text.newSessionConfirm)) {
+                      onRotateSession();
+                    }
+                  }}
+                >
+                  {text.newSession}
+                </button>
+              )}
               <LocaleToggle />
               <ModeBadge mode={mode} />
             </div>

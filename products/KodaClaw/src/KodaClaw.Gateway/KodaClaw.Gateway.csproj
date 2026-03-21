@@ -17,4 +17,11 @@
   <PropertyGroup>
     <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
+  <ItemGroup>
+    <Content Include="skills/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/model-presets.json" />
+    <EmbeddedResource Include="Resources/persona-presets.json" />
+  </ItemGroup>
 </Project>

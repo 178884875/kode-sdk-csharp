@@ -477,6 +477,8 @@ internal sealed class TestWorkspaceService : IWorkspaceService
     {
         return Path.Combine(_snapshot.RootPath, "sessions", sessionId);
     }
+
+    public IReadOnlyList<string> GetSkillsPaths() => [];
 }
 
 internal sealed class FakeSecretStore : ISecretStore

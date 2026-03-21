@@ -403,3 +403,246 @@
   - Scope：后端：`thread_bindings` 加 `delivery_mode_override` 列 + `PATCH /api/channels/threads/{id}/settings` 端点；前端：Channels Desk 线程详情加模式选择器。
   - Modules：`src/KodaClaw.ChannelHub`、`src/KodaClaw.Gateway`、`apps/kodaclaw-web`。
   - Verification：`dotnet test KodaClaw.sln -m:1` 全量通过（206 + 191 + 84 = 481 tests）。
+
+## 迭代 18：Channel Full Agent Mode + 主动推送
+
+- 范围冻结：Channel session（DM + Group）从 JSON-only 协议切换到 Full Agent 模式（可调用工具、可分步回复），并新增 `channel_send` / `channel_list` 工具实现跨 session 主动推送。详见 `docs/ITERATION_18_FREEZE.md`。
+
+- `KC-1801`：`Completed 2026-03-21`。
+  - User Outcome：任意 session（DM/Group/Automation/Main）中 Agent 均可调用 `channel_send` 向已绑定渠道发消息，始终 AutoSend，无需走 DraftApproval 审批流。
+  - Scope：新增 `src/KodaClaw.Runtime/ChannelSendTool.cs`，Args: `bindingId`(required), `text`(required)；调用 `ChannelDeliveryDispatchService.SendNotificationAsync`（best-effort，已有服务）；注册到全局 tool registry（`ServiceCollectionExtensions.cs`）；加入 `ChannelSessionOptions.Tools` 和 `AutomationSessionOptions.Tools`；`DefaultWorkspaceTemplates.Agents()` 加使用引导。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelSend`（L1 x4）；`dotnet build KodaClaw.sln`。
+
+- `KC-1802`：`Completed 2026-03-21`。
+  - User Outcome：Automation/Main session 的 Agent 可调用 `channel_list` 获取所有已绑定渠道的 `bindingId`，从而配合 `channel_send` 实现定向推送（如任务完成后发到用户的 Telegram DM）。
+  - Scope：新增 `src/KodaClaw.Runtime/ChannelListTool.cs`，Args: `connectorKind?`(optional filter)；调用 `IThreadBindingRepository.QueryAsync`；返回 `[{ bindingId, displayTitle, connectorKind, threadType, lastInboundAt }]`；注册到 `AutomationSessionOptions.Tools` 和 `MainSessionOptions.DefaultTools`；`DefaultWorkspaceTemplates.Agents()` 加使用引导。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelList`（L1 x3）；`dotnet build KodaClaw.sln`。
+
+- `KC-1803`：`Completed 2026-03-21`。
+  - User Outcome：从 Telegram DM 或 Group 发消息后，Koda 能调用工具（fs_read、bash_run 等）多步推进并通过 `channel_send` 分步回复；体验与主会话等同。
+  - Scope：（1）`ChannelSessionService.BuildInboundTurnPrompt` 去除 JSON 约束，改为"自由执行 + 用 channel_send 回复"引导语；（2）`ChannelSessionService.RunInboundTurnAsync` 去除 `ParseProposal(JSON)` 调用，直接以 RunAsync 成功/失败决定 outcome；（3）`ChannelTurnOrchestrator.ProcessInboundAsync` 去除 proposal 解析 → Dispatch 路径（仍保留审批响应检测和 RequireExplicitMention 前置门），改为 run → 记录 `Delivered`/`NoAction` outcome；（4）更新 system prompt：Group 仍保留 RequireExplicitMention 引导，系统提示中明确注入 BindingId 供 agent 调用 channel_send 使用。
+  - Modules：`src/KodaClaw.Runtime`、`src/KodaClaw.ChannelHub`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter ChannelFullAgent`（L2 x4）；`dotnet test KodaClaw.sln -m:1`；L5 Dogfood：Telegram DM 发"帮我列出工作目录" → Koda 调用 fs_list 并回复。
+
+## 迭代 19：Skills 系统集成
+
+- 范围冻结：接入 SDK 已完整实现的 Skills 系统，建立三层加载路径（内置 / workspace / 全局），打通 Agent 自安装 skill 的完整闭环，并提供 Web SkillsDesk 可视化入口。详见 `docs/ITERATION_19_FREEZE.md`。
+
+- `KC-1901`：`Completed 2026-03-21`。
+  - User Outcome：KodaClaw 开箱即有一个内置 skill（`koda-workspace`，KodaClaw workspace 协议完整指南），Agent 可直接 skill_list 发现并激活；用户将 SKILL.md 写入 `workspace/skills/` 即完成"安装"，下次 session 自动发现。
+  - Scope：（1）在项目根新建 `skills/koda-workspace/SKILL.md`（frontmatter: name/description/license + Markdown body 覆盖 workspace 协议要点）；（2）`.csproj` 将 `skills/**` 设为 Content CopyToOutputDirectory；（3）`WorkspaceService.InitializeAsync()` 创建 `workspace/skills/` 目录；（4）新增 `IWorkspaceService.GetSkillsPaths()` 返回三层路径列表（`[AppDir/skills, ~/.agents/skills, workspaceRoot/workspace/skills]`，不存在的路径自动跳过）；（5）`DefaultWorkspaceTemplates.Agents()` 补充 skills 自安装引导（skill_list/skill_activate/skill_resource + fs_write 创建流程）。
+  - Modules：`src/KodaClaw.Workspace`、`src/KodaClaw.Runtime`、`skills/`（新目录）。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter Skills`（L3 x3，验证内置 skill 格式、路径约定、AGENTS.md 引导存在）；`dotnet build KodaClaw.sln`。
+
+- `KC-1902`：`Completed 2026-03-21`。
+  - User Outcome：主会话、Channel session（DM/Group）、Automation session 中，`skill_list` 真正返回已发现的 skills，`skill_activate` 成功注入领域知识到 session context；三个工具不再静默无效。
+  - Scope：`MainSessionService.CreateAgentConfig()`、`ChannelSessionService.CreateAgentConfig()`、`AutomationSessionService.CreateAgentConfig()` 均加入 `Skills = new SkillsConfig { Paths = _workspaceService.GetSkillsPaths(), ValidateOnLoad = true }`；`IWorkspaceService` 注入三类 session service。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter SkillsIntegration`（L2 x4：main session skill_list 返回 koda-workspace；skill_activate 执行不报错；channel session skills 可用；automation session skills 可用）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-1903`：`Completed 2026-03-21`。
+  - User Outcome：Web SkillsDesk 列出三层可用 skills，标注来源（built-in / workspace / global），用户可浏览 name/description/path，了解当前可激活哪些 skill。
+  - Scope：（1）Gateway `GET /api/skills`：扫描三层路径，聚合并返回 `[{ name, description, source, path, hasResources }]`（source 枚举：BuiltIn/Workspace/Global）；（2）新增 `SkillsDesk.tsx` 组件：列表 + 来源标签，无激活入口（激活由 Agent 在对话中完成）；（3）GlobalRail 添加 skills 导航入口。
+  - Modules：`src/KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter SkillsApiIntegration`（L2 x2）；`npm run typecheck`；`npm run test`（SkillsDeskSpec）；`dotnet test KodaClaw.sln -m:1`。
+
+## Bug Fixes（迭代间补录）
+
+- `KC-BUG-001`：`Completed 2026-03-21`。
+  - 症状：`skill_list` 始终返回 0 个 skills，三层路径均无法被发现。
+  - 根因：`LocalSandbox.EnforceBoundary = true` + `WorkingDirectory = sessionDirectory` 会对 sessionDirectory 外的所有路径抛 `UnauthorizedAccessException`；`SkillsLoader` 的 `DiscoverAsync` 静默吞掉该异常，导致 0 discoveries。
+  - 修复：`MainSessionService`、`ChannelSessionService`、`AutomationSessionService` 的 `CreateAgentConfig` 和 resume 路径 `AgentConfigOverrides` 均加入 `SandboxOptions.AllowPaths = skillsPaths`。
+  - 受影响模块：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test KodaClaw.sln -m:1`（494 tests 全通过）。
+
+- `KC-BUG-002`：`Completed 2026-03-21`。
+  - 症状：`workspace/channels/{id}/SUMMARY.md` 每行内容全部相同（`Agent turn completed; reply delivered via channel_send.`），对下一个 session 无上下文参考价值。
+  - 根因：Iteration 18 切换到 Full Agent Mode 后，`ChannelTurnOrchestrator` 无法感知 Agent 内部调用 `channel_send` 发出的文本，退化为硬编码字符串。
+  - 修复：新增 `IChannelSendCapture`（singleton，ConcurrentDictionary 按 bindingId 队列）；`ChannelSendService.SendAsync` 成功后调用 `capture.Record`；`ChannelTurnOrchestrator` 在 turn 完成后调用 `GetAndClear` 并构建 `user: "..." → koda: "..."` 格式的对话摘要。
+  - 受影响模块：`src/KodaClaw.ChannelHub`。
+  - Verification：`dotnet test KodaClaw.sln -m:1`（494 tests 全通过）。
+
+## 迭代 20：Memory Pipeline & Session Continuity
+
+- 范围冻结：打通记忆流水线的四处断点——启用 SDK ContextManager 防止主会话 token 超限、nightly consolidation 改为默认开启、SUMMARY.md 滚动窗口防止 channel 记忆膨胀、主会话加载昨天的 daily memory 消除跨日期缺口。详见 `docs/ITERATION_20_FREEZE.md`。
+
+- `KC-2001`：`Completed 2026-03-21`。
+  - User Outcome：主会话连续使用 200+ 轮后，SDK 自动压缩旧对话历史，会话继续正常工作，不因 context 爆满崩溃或行为退化。
+  - Scope：`MainSessionOptions` 新增 `CompressionModel`（默认 `claude-haiku-4-5-20251001`）、`ContextMaxTokens`（默认 80_000）、`ContextCompressToTokens`（默认 50_000）；`MainSessionService.CreateAgentConfig` 加入 `Context = new ContextManagerOptions { ... }`；resume 路径 `AgentConfigOverrides` 同步加 Context 字段。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter MainSessionOptions`（L1）；`dotnet build KodaClaw.sln`。
+
+- `KC-2002`：`Completed 2026-03-21`。
+  - User Outcome：新创建 workspace 的 HEARTBEAT.md 中，`Nightly Memory Consolidation` 默认 `enabled: true`，多天使用后 MEMORY.md 自动积累已学到的事实，无需用户手动启用。
+  - Scope：`DefaultWorkspaceTemplates.Heartbeat()` 中 `Nightly Memory Consolidation` 的 `enabled: false` → `enabled: true`；同步更新 contract test golden 文件。
+  - Modules：`src/KodaClaw.Workspace`、`tests/KodaClaw.ContractTests`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate`（L3）；`dotnet build KodaClaw.sln`。
+
+- `KC-2003`：`Completed 2026-03-21`。
+  - User Outcome：无论 channel 聊了多久，SUMMARY.md 始终保持最近 30 轮对话（60 行）；注入到 system prompt 时不会因文件过大而截断最新内容。
+  - Scope：`ChannelThreadSummaryWriter.WriteAsync` 写入后读取文件行数，若超过 60 行则删除头部多余行（保留尾部 60 行）；并发安全（单文件写入已是顺序调用，无并发问题）。
+  - Modules：`src/KodaClaw.ChannelHub`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelThreadSummaryWriter`（L1，含截断边界 x3）；`dotnet build KodaClaw.sln`。
+
+- `KC-2004`：`Completed 2026-03-21`。
+  - User Outcome：跨天对话或间隔一天后重新使用时，昨天写入的 `memory/YYYY-MM-DD.md` 内容仍会出现在主会话 system prompt 中，不会出现记忆断层。
+  - Scope：`MainSessionService.BuildSystemPromptAsync` 在加载 `memory/{今天}.md` 后，额外尝试加载 `memory/{昨天}.md`（文件不存在时静默跳过）；两个文件都受 `seenPaths` 去重保护。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter MainSessionBuildSystemPrompt`（L1，今天 + 昨天均存在 x1，只有昨天 x1，都不存在 x1）；`dotnet build KodaClaw.sln`。
+
+- `KC-BUG-003`：`Completed 2026-03-21`。
+  - 症状：`ChannelSessionService` 和 `AutomationSessionService` 创建的 Agent 没有 Context 压缩保护，channel 长跑会话或 automation 任务的 token 会无限累积，最终触达模型硬性上限。
+  - 根因：Iteration 20 补齐 `MainSessionService` 时遗漏了另外两个 session 类型，也未在对应 Options 类中添加压缩配置字段。
+  - Scope：`ChannelSessionOptions` / `AutomationSessionOptions` 新增 `CompressionModel`、`ContextMaxTokens`、`ContextCompressToTokens` 字段（与 Iter 20 保持一致的默认值）；`ChannelSessionService.CreateAgentConfig` / resume `AgentConfigOverrides`、`AutomationSessionService.CreateAgentConfig` 均补加 `Context = new ContextManagerOptions { ... }`。
+  - 受影响模块：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.UnitTests -m:1`（L1，210/210）。
+
+## 迭代 21：Context Intelligence & Session Lifecycle
+
+范围冻结：见 `docs/ITERATION_21_FREEZE.md`（2026-03-21）。
+
+- `KC-2101`：`Completed 2026-03-21`。
+  - User Outcome：使用任何 provider（Anthropic / OpenAI）和任何模型，上下文压缩都能可靠工作；不同 context window 大小的模型触发阈值自动适配；用户无需配置任何压缩相关参数。
+  - Scope：删除三个 Options 类中的 `CompressionModel` / `ContextMaxTokens` / `ContextCompressToTokens`；新增 `ContextCompressionTriggerRatio`（默认 0.75）/ `ContextCompressionTargetRatio`（默认 0.40）；`ModelEndpointConfig` 加 `ContextWindowSize`（默认 128_000）；三个 SessionService 的 `CreateAgentConfig` 从 ModelHub 读 window size 后按比例计算阈值，不设 `CompressionModel`（SDK 用主模型）。
+  - Modules：`src/KodaClaw.Runtime`、`src/KodaClaw.ModelHub`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter SessionOptions`（L1）；`dotnet test tests/KodaClaw.IntegrationTests --filter ContextManager`（L2）；`dotnet build KodaClaw.sln`。
+
+- `KC-2102`：`Completed 2026-03-21`。
+  - User Outcome：Nightly Memory Consolidation 执行后，已整合的 `memory/YYYY-MM-DD.md` 日记文件被自动删除；`workspace/memory/` 目录只保留最近 7 天的文件，磁盘占用可预期。
+  - Scope：`DefaultWorkspaceTemplates.Heartbeat()` 的 Nightly Consolidation section 补充 `fs_rm` 清理指令和 7 天保留说明。
+  - Modules：`src/KodaClaw.Workspace`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate`（L3）；`dotnet build KodaClaw.sln`。
+
+- `KC-2103`：`Completed 2026-03-21`。
+  - User Outcome：长期使用后 MEMORY.md 保持合理大小（目标 <200 行），不会撑爆 system prompt；旧的、已被覆盖的事实自动被淘汰。
+  - Scope：`DefaultWorkspaceTemplates.Heartbeat()` 的 Nightly Consolidation section 补充 90 天保留规则和大小约束描述。
+  - Modules：`src/KodaClaw.Workspace`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter WorkspaceTemplate`（L3）；`dotnet build KodaClaw.sln`。
+
+- `KC-2104`：`Completed 2026-03-21`。
+  - User Outcome：用户可在 Web UI 点击"新对话"按钮，清空当前 session 历史，开启全新对话；workspace 记忆文件（MEMORY.md 等）不受影响。
+  - Scope：`POST /api/sessions/rotate` Gateway 端点（删除当前 main session SDK store，不触动 workspace 文件）；V2 shell GlobalRail 或 Chat header 加"新对话"按钮（含确认弹窗，`data-testid="new-session-button"`）。
+  - Modules：`src/KodaClaw.Gateway`、`src/KodaClaw.Runtime`、`apps/kodaclaw-web`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter SessionRotate`（L2）；`npx playwright test --grep new-session`（L4）；`dotnet build KodaClaw.sln`。
+
+## 迭代 22：Channel-First 体验补全
+
+范围冻结：见 `docs/ITERATION_22_FREEZE.md`（2026-03-21）。
+
+- `KC-2201`：`Pending`。
+  - User Outcome：Telegram thread 超过 7 天未活动后，下一条消息开启全新 channel session，不再 resume 陈旧 SUMMARY.md，Koda 不会出现"记忆混乱"。
+  - Scope：`ChannelSessionOptions` 新增 `SessionTimeoutDays`（默认 7）；`ChannelSessionService.EnsureChannelSessionAsync` 在 resume 前检查 `ThreadBinding.LastMessageAt`，超期则清除 `ActiveSessionId` 走新建路径；0 = 永不过期。
+  - Modules：`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelSessionTimeout`（L1 x4）；`dotnet test tests/KodaClaw.IntegrationTests --filter ChannelSessionTimeout`（L2 x2）；`dotnet build KodaClaw.sln`。
+
+- `KC-2202`：`Pending`。
+  - User Outcome：ChannelsDesk 每 30 秒自动刷新，有 pending channel delivery approval 时 GlobalRail Channels 导航项显示角标，用户无需手动 F5 才能发现新 thread。
+  - Scope：`ChannelsDesk.tsx` 加 30s 轮询（`useInterval`）；GlobalRail Channels 项读取 pending approval count，>0 时渲染 `.v2-global-rail__badge`；加 `data-testid="channels-refresh-indicator"`。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck`；`npm test -- src/__tests__/channels-desk.spec.tsx`；`npm run build`。
+
+- `KC-2203`：`Pending`。
+  - User Outcome：用户在 ChannelsDesk Web UI 中即可添加 Telegram bot（填入 bot token）、设置 delivery rule，无需改配置文件或重启 Gateway，connector 自动热启动。
+  - Scope：后端新增 `POST /api/channels/accounts`、`PATCH /api/channels/accounts/{id}`、`DELETE /api/channels/accounts/{id}`；`ChannelConnectorHostedService` 响应热重载信号（start/stop 单个 connector）；前端 ChannelsDesk 加 "Add Channel" 向导（选类型 → 填配置 → 设 delivery rule → 保存）和账号编辑入口；Telegram bot token 通过 Keychain 存储（SecretRef 模式）。
+  - Modules：`src/KodaClaw.ChannelHub`、`src/KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter ChannelAccountApi`（L2 x4）；`npm test -- src/__tests__/channels-desk.spec.tsx`；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-2204`：`Pending`。
+  - User Outcome：收到 ChannelDelivery approval 的 macOS 桌面通知时，通知上直接有"✓ 发送" / "✗ 不发送"按钮，点击后无需打开 Web 即完成审批。
+  - Scope：Desktop `main.ts` 对 `ApprovalKind.ChannelDelivery` 类型通知附加 macOS notification action buttons；监听 `notification-action` 事件后调用 `POST /api/approvals/{id}/approve|reject`（使用已有 Keychain token）；其他 ApprovalKind 保持原有跳 Web 行为不变。
+  - Modules：`apps/kodaclaw-desktop`。
+  - Verification：`cd apps/kodaclaw-desktop && npm run test`；`npm run smoke:wave3`；`npm run build`。
+
+- `KC-2205`：`Pending`。
+  - User Outcome：AutomationsDesk 每个 automation 条目旁有"▶ 立即执行"按钮，点击后立即触发一次执行，runs 列表自动刷新显示新记录，用户无需等待 cron 调度即可测试 automation。
+  - Scope：后端新增 `POST /api/automations/{id}/trigger`（创建 Queued run，`AutomationScheduler` 下次 tick 时执行，返回 `{ ok, runId }`）；前端 AutomationsDesk 加触发按钮（`data-testid="automation-trigger-{id}"`），enabled 状态可点击，点击后 optimistic UI + 刷新 runs 列表。
+  - Modules：`src/KodaClaw.Automation`、`src/KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter AutomationTrigger`（L2 x3）；`npm test -- src/__tests__/automations-desk.spec.tsx`；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-2206`：`Pending`。
+  - User Outcome：Telegram 长线程使用后，Koda 对早期对话内容不再"失忆"——超阈值时旧条目以 LLM 段落摘要保留，而非直接截断丢弃。
+  - Scope：`ChannelSessionOptions` 新增 `SummaryCompressionThreshold`（默认 80）、`SummaryCompressionTargetLines`（默认 40）；`ChannelThreadSummaryWriter.WriteAsync` 超阈值时调用 `IModelProvider.CompleteAsync` 生成段落摘要，替换头部条目为 `## Compressed History (timestamp)` 块 + 保留尾部 40 行；LLM 调用失败时回退到截断（不阻塞 turn）。
+  - Modules：`src/KodaClaw.ChannelHub`、`src/KodaClaw.Runtime`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter ChannelThreadSummaryWriter`（L1，含压缩路径 x3、失败回退 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-2207`：`Pending`。
+  - User Outcome：CanvasDesk 打开 `contentType=markdown` 的 artifact 时，内容以富文本 HTML 直接渲染（支持表格、任务列表、代码块），不依赖 iframe；HTML artifact 保持 sandbox iframe。
+  - Scope：前端 CanvasDesk detail panel 根据 `contentType` 分路：`markdown` → 调用 `/api/canvas/{id}/entry` 获取原文，用 `react-markdown` + `remark-gfm` 渲染，`data-testid="canvas-artifact-content"`；`html` → 保持现有 iframe；前端依赖新增 `react-markdown`、`remark-gfm`。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm test -- src/__tests__/canvas-desk.spec.tsx`；`npm run typecheck`；`npm run build`。
+
+## 迭代 23：引导程序基础数据层
+
+范围冻结：见 `docs/ITERATION_23_FREEZE.md`（2026-03-21）。
+
+- `KC-2301`：`Completed`（2026-03-21）。
+  - User Outcome：用户在添加模型时可从主流模型预设列表中直接选择，无需手动填写模型名称、context window 等参数；Models Settings Desk 体验大幅简化。
+  - Scope：内置静态预设列表（≥10 个，覆盖 Anthropic / OpenAI / DeepSeek / Google / Ollama），存为嵌入资源 `Resources/model-presets.json`；新增 `ModelPresetService`；Gateway `GET /api/models/presets`、`GET /api/models/presets/{presetId}`。
+  - Modules：`src/KodaClaw.Contracts`、`src/KodaClaw.Gateway`。
+  - Verification：`dotnet build KodaClaw.sln` ✓（0 警告 0 错误）；`npm run typecheck` ✓；`npm run test` ✓（50 tests）。
+
+- `KC-2302`：`Completed`（2026-03-21）。
+  - User Outcome：用户填写 API Key 后立刻点击"测试连接"，几秒内得到明确的成功/失败反馈，不需要等到第一次真实对话才发现配置错误。
+  - Scope：新增 `ModelConnectionTestService`（发送 max_tokens=1 的最小 API 调用）；Gateway `POST /api/models/test-connection`；API Key 不持久化，仅在请求生命周期内使用。
+  - Modules：`src/KodaClaw.Gateway`。
+  - Verification：`dotnet build KodaClaw.sln` ✓（0 警告 0 错误）；`npm run typecheck` ✓。
+
+- `KC-2303`：`Completed`（2026-03-21）。
+  - User Outcome：引导程序中用户可从 6 个内置 Persona 模板选择 Koda 的人格风格，不需要从空白开始描述；每个模板有清晰的标语、描述和 SOUL.md 预览。
+  - Scope：内置 6 个模板（极简执行者 / 深度分析师 / 创意伙伴 / 耐心向导 / 务实顾问 / 均衡默认），存为嵌入资源 `Resources/persona-presets.json`；新增 `PersonaPresetService`；Gateway `GET /api/workspace/persona-presets`、`GET /api/workspace/persona-presets/{presetId}`；`POST /api/onboarding/apply-persona` 写入 SOUL.md / IDENTITY.md。
+  - Modules：`src/KodaClaw.Contracts`、`src/KodaClaw.Gateway`。
+  - Verification：`dotnet build KodaClaw.sln` ✓（0 警告 0 错误）；`npm run typecheck` ✓；`npm run test` ✓（50 tests）。
+
+- `KC-2304`：`Completed`（2026-03-21）。
+  - User Outcome：用户在引导程序中途关闭窗口后，下次打开从中断步骤续接，不需要重头来过。
+  - Scope：`OnboardingState` 数据模型（currentStepId / completedSteps / selectedPresetId 等）；`OnboardingStateService` 读写 `config/onboarding.json`；`GET /api/onboarding/state`、`PUT /api/onboarding/state`、`POST /api/onboarding/complete`、`POST /api/onboarding/reset`。
+  - Modules：`src/KodaClaw.Contracts`、`src/KodaClaw.Workspace`、`src/KodaClaw.Gateway`。
+  - Verification：`dotnet build KodaClaw.sln` ✓（0 警告 0 错误）；`npm run typecheck` ✓；`npm run test` ✓（50 tests）。
+
+## 迭代 24：首次使用引导程序
+
+范围冻结：见 `docs/ITERATION_24_FREEZE.md`（2026-03-21）。前置依赖：Iter 22（Channel 账号绑定 API）+ Iter 23（全部四项）。
+
+- `KC-2401`：`Pending`。
+  - User Outcome：全新安装的 KodaClaw 启动后自动进入引导程序，已完成引导的用户直接进入主界面；引导程序可从 Settings 重新触发。
+  - Scope：`App.tsx` 启动时检查 `GET /api/onboarding/state`，`isCompleted=false` 时渲染全屏 `OnboardingShell`；右上角提供"跳过"入口；Settings 页加"重新引导"按钮（调用 `POST /api/onboarding/reset`）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`；`npm run typecheck`。
+
+- `KC-2402`：`Pending`。
+  - User Outcome：引导程序第一步选择界面语言，点击即选，立刻影响后续所有引导文案及 Koda 默认回复语言。
+  - Scope：全屏居中两张大卡片（中文 / English）；点击后写 `localStorage["kodaclaw.locale"]`，推进 onboarding 状态到 `model` 步骤。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（语言切换后 locale 正确）。
+
+- `KC-2403`：`Pending`。
+  - User Outcome：用户在引导中选择 Provider → 看到推荐模型 → 填入 API Key → 立刻测试连通 → 成功后配置自动保存，整个流程不超过 3 分钟。
+  - Scope：Provider 选择卡片（5 个）→ 模型列表（来自预设 API）→ API Key 输入框 + "如何获取 Key"展开说明 + "测试连接"按钮 → 连通性测试结果 → 成功后调用 `POST /api/models` 保存并设为 default；消费 KC-2301 / KC-2302。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（mock 连通性测试成功/失败分支）；`npx playwright test tests/kc2401-onboarding.spec.ts`（L4）。
+
+- `KC-2404`：`Pending`。
+  - User Outcome：用户选择一种 Koda 人格模板后，SOUL.md 立刻被写入对应内容，下一次主会话启动时 Koda 的行为风格即生效。
+  - Scope：6 张 Persona 卡片（来自预设 API）；选中后展开 SOUL.md 前 5 条准则预览；"使用这个风格"调用 `POST /api/onboarding/apply-persona`（写入 SOUL.md）；"让 Koda 自己来了解我"跳过（不写 SOUL.md，Bootstrap 对话决定）；消费 KC-2303。
+  - Modules：`apps/kodaclaw-web`、`src/KodaClaw.Gateway`（apply-persona 端点）。
+  - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（apply-persona 后 onboarding state 更新）。
+
+- `KC-2405`：`Pending`。
+  - User Outcome：在引导程序中完成 Telegram Bot 创建和绑定，包含 BotFather 步骤说明、token 验证和 Delivery Rule 选择，整个流程可在引导内完成，无需跳转其他页面。
+  - Scope：4 个子步骤内嵌向导（说明 → BotFather 步骤 → Token 输入 + 验证 → Delivery Rule 选择）；`POST /api/channels/test-telegram-token`（新增，验证 token 有效返回 bot 名称）；成功后调用 `POST /api/channels/accounts`（KC-2203）；步骤可整体跳过。
+  - Modules：`apps/kodaclaw-web`、`src/KodaClaw.Gateway`。
+  - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（跳过路径；mock token 验证成功路径）。
+
+- `KC-2406`：`Pending`。
+  - User Outcome：引导完成后看到配置摘要和 3 条具体行动建议，点击"开始使用"直接进入主对话界面，立刻可以和 Koda 交谈。
+  - Scope：完成页展示配置摘要（已选模型 / 人格 / 是否绑定 Telegram）+ 动态行动建议列表（根据已完成步骤生成）；"开始使用"调用 `POST /api/onboarding/complete` 后跳转到 `mainDesk="chat"`。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npx playwright test tests/kc2401-onboarding.spec.ts`（完整引导流程 E2E）。
+
+- `KC-2407`：`Pending`。
+  - User Outcome：在 Models Settings Desk 添加模型时，可从预设列表一键填充模型参数，不再需要手动查阅模型名称和 context window 大小。
+  - Scope：ModelsSettingsDesk 添加模型表单上方加"从预设选择"区域（Provider 下拉 → 模型列表）；选中后自动填充 modelId / baseUrl / contextWindowSize；保留手动修改能力；复用连通性测试按钮。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm test -- src/__tests__/models-settings-desk.spec.tsx`；`npx playwright test tests/kc0212-models-settings.spec.ts`。

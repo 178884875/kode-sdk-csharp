@@ -1,3 +1,4 @@
+using KodaClaw.Automation;
 using KodaClaw.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -271,6 +272,104 @@ public static partial class GatewayApp
                 });
 
             return Results.Ok(reloaded);
+        });
+
+        automations.MapPost("/{id}/trigger", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IAutomationDefinitionRepository definitionRepository,
+            IAutomationRunRepository runRepository,
+            IAutomationScheduler automationScheduler,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to automation trigger endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var definition = await definitionRepository.GetByIdAsync(id, cancellationToken);
+            if (definition is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.automations",
+                    eventType: "gateway.automations.not_found",
+                    level: "warning",
+                    message: "Automation trigger targeted a missing automation.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["automationId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "automation.not_found",
+                    Message: "Automation was not found."));
+            }
+
+            if (!definition.Enabled)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.automations",
+                    eventType: "gateway.automations.trigger_disabled",
+                    level: "warning",
+                    message: "Cannot trigger a disabled automation.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["automationId"] = id,
+                    });
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "automation.disabled",
+                    Message: "Automation is disabled and cannot be triggered manually."));
+            }
+
+            var runId = $"run-{Guid.NewGuid():N}";
+            var now = DateTimeOffset.UtcNow;
+            var recentRuns = await runRepository.ListAsync(
+                new AutomationRunQuery(AutomationId: id, Status: null, Limit: 1),
+                cancellationToken);
+            var attempt = recentRuns.Count == 0 ? 1 : recentRuns[0].Attempt + 1;
+
+            var queuedRun = new AutomationRunRecord(
+                RunId: runId,
+                AutomationId: id,
+                Status: AutomationRunStatus.Queued,
+                Trigger: "manual",
+                Attempt: attempt,
+                SessionId: null,
+                StartedAt: now,
+                CompletedAt: null,
+                Summary: null,
+                ErrorMessage: null);
+            await runRepository.AddAsync(queuedRun, cancellationToken);
+
+            // Trigger the scheduler to pick up and execute queued runs immediately.
+            _ = Task.Run(() => automationScheduler.RunOnceAsync(CancellationToken.None), CancellationToken.None);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.automations",
+                eventType: "gateway.automations.triggered",
+                level: "info",
+                message: "Automation triggered manually.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["automationId"] = id,
+                    ["runId"] = runId,
+                });
+
+            return Results.Ok(new TriggerAutomationResponse(Ok: true, RunId: runId));
         });
 
     }

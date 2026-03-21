@@ -197,6 +197,8 @@ public sealed class ModelRegistryRepositoryTests
             return Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         }
 
+        public IReadOnlyList<string> GetSkillsPaths() => [];
+
         private WorkspaceSnapshot CreateSnapshot(bool initialized)
         {
             return new WorkspaceSnapshot(

@@ -48,7 +48,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 supports_tool_calling,
                 is_default,
                 created_at,
-                updated_at
+                updated_at,
+                context_window_size
             )
             VALUES (
                 $id,
@@ -62,7 +63,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 $supportsToolCalling,
                 $isDefault,
                 $createdAt,
-                $updatedAt
+                $updatedAt,
+                $contextWindowSize
             );
             """;
         BindParameters(command, endpoint);
@@ -88,7 +90,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 supports_tool_calling,
                 is_default,
                 created_at,
-                updated_at
+                updated_at,
+                COALESCE(context_window_size, 128000)
             FROM {TableName}
             ORDER BY is_default DESC, created_at DESC;
             """;
@@ -130,6 +133,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 api_key_secret_ref = $apiKeySecretRef,
                 enabled = $enabled,
                 supports_tool_calling = $supportsToolCalling,
+                context_window_size = $contextWindowSize,
                 updated_at = $updatedAt
             WHERE id = $id;
             """;
@@ -244,6 +248,11 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 columnName: "api_key_secret_ref",
                 columnDefinition: "TEXT",
                 cancellationToken);
+            await EnsureColumnExistsAsync(
+                connection,
+                columnName: "context_window_size",
+                columnDefinition: "INTEGER NOT NULL DEFAULT 128000",
+                cancellationToken);
 
             _databasePath = databasePath;
             _initialized = true;
@@ -325,7 +334,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 supports_tool_calling,
                 is_default,
                 created_at,
-                updated_at
+                updated_at,
+                COALESCE(context_window_size, 128000)
             FROM {TableName}
             WHERE id = $id
             LIMIT 1;
@@ -355,6 +365,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
         command.Parameters.AddWithValue("$isDefault", endpoint.IsDefault ? 1 : 0);
         command.Parameters.AddWithValue("$createdAt", FormatTimestamp(endpoint.CreatedAt));
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(endpoint.UpdatedAt));
+        command.Parameters.AddWithValue("$contextWindowSize", endpoint.ContextWindowSize);
     }
 
     private static ModelEndpoint MapEndpoint(SqliteDataReader reader)
@@ -371,7 +382,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
             SupportsToolCalling: reader.GetInt64(8) != 0,
             IsDefault: reader.GetInt64(9) != 0,
             CreatedAt: ParseTimestamp(reader.GetString(10)),
-            UpdatedAt: ParseTimestamp(reader.GetString(11)));
+            UpdatedAt: ParseTimestamp(reader.GetString(11)),
+            ContextWindowSize: reader.IsDBNull(12) ? 128_000 : (int)reader.GetInt64(12));
     }
 
     private static void ValidateEndpoint(ModelEndpoint endpoint)

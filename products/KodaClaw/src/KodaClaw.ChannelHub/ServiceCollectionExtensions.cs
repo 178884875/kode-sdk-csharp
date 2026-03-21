@@ -22,6 +22,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ChannelDeliveryDispatchService>();
         services.TryAddSingleton<ChannelDeliveryApprovalService>();
         services.TryAddSingleton<IChannelThreadSummaryWriter, ChannelThreadSummaryWriter>();
+        services.TryAddSingleton<IChannelSendCapture, ChannelSendCapture>();
+        services.TryAddSingleton<IChannelSendService, ChannelSendService>();
         services.TryAddSingleton<ChannelTurnOrchestrator>();
         services.TryAddSingleton<ITelegramApiClient, HttpTelegramApiClient>();
         services.TryAddSingleton<TelegramConnector>();

@@ -94,6 +94,20 @@ public static class ServiceCollectionExtensions
             toolRegistry.Register("workspace_read",
                 _ => new WorkspaceReadTool(workspaceService));
 
+            var channelSendService = sp.GetService<IChannelSendService>();
+            if (channelSendService is not null)
+            {
+                toolRegistry.Register("channel_send",
+                    _ => new ChannelSendTool(channelSendService));
+            }
+
+            var bindingRepository = sp.GetService<IThreadBindingRepository>();
+            if (bindingRepository is not null)
+            {
+                toolRegistry.Register("channel_list",
+                    _ => new ChannelListTool(bindingRepository));
+            }
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
                 ModelProvider = sp.GetRequiredService<IModelProvider>(),

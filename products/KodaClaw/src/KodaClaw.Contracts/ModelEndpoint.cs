@@ -12,4 +12,5 @@ public sealed record ModelEndpoint(
     bool SupportsToolCalling,
     bool IsDefault,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    int ContextWindowSize = 128_000);

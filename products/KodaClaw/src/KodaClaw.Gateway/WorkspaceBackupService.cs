@@ -1580,5 +1580,7 @@ internal sealed class WorkspaceBackupService
         {
             return Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         }
+
+        public IReadOnlyList<string> GetSkillsPaths() => [];
     }
 }

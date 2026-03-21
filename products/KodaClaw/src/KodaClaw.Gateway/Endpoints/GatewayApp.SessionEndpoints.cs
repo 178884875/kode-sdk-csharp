@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Runtime;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -59,6 +60,42 @@ public static partial class GatewayApp
                         CreatedAt: session.CreatedAt,
                         LastEventAt: session.LastEventAt))
                     .ToArray()));
+        });
+
+        sessions.MapPost("/rotate", async (
+            HttpContext context,
+            IConfiguration configuration,
+            IMainSessionService mainSessionService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to session rotate endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var previousSessionId = await mainSessionService.RotateMainSessionAsync(cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.sessions",
+                eventType: "gateway.sessions.rotated",
+                level: "info",
+                message: "Main session rotated.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["previousSessionId"] = previousSessionId,
+                });
+
+            return Results.Ok(new RotateSessionResponse(Ok: true, PreviousSessionId: previousSessionId));
         });
 
         sessions.MapGet("/{id}", async (

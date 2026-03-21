@@ -20,6 +20,7 @@ const DESK_GLYPHS: Record<MainDesk, string> = {
   channels: "CN",
   plugins: "PL",
   canvas: "CV",
+  skills: "SK",
 };
 
 function formatBadge(count: number): string {

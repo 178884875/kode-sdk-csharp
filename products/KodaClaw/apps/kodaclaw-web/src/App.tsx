@@ -9,6 +9,7 @@ import { MessageTimeline } from "./components/MessageTimeline";
 import { ModelsSettingsDesk } from "./components/ModelsSettingsDesk";
 import { PluginsDesk } from "./components/PluginsDesk";
 import { SessionsDiagnosticsDesk } from "./components/SessionsDiagnosticsDesk";
+import { SkillsDesk } from "./components/SkillsDesk";
 import { SystemStatusCard } from "./components/SystemStatusCard";
 import { useLocaleText } from "./i18n/I18nProvider";
 import { useChatConsole } from "./hooks/useChatConsole";
@@ -20,13 +21,14 @@ import {
   type DesktopDeskId,
   type DesktopLaunchTarget,
 } from "./lib/config";
-import { completeBootstrap, generateBootstrapDraft } from "./lib/api";
+import { completeBootstrap, fetchOnboardingState, generateBootstrapDraft, rotateSession } from "./lib/api";
+import { OnboardingShell } from "./onboarding/OnboardingShell";
 import { LegacyShell } from "./shell-v1/LegacyShell";
 import { V2Shell } from "./shell-v2/V2Shell";
 import { persistShellVariant, readStoredShellVariant } from "./shell-shared/shell-variant";
 import { DeskMeta, MainDesk, StatusModel } from "./shell-shared/types";
 import type { ChatMessage } from "./types/chat";
-import type { BootstrapDraftMessage } from "./types/contracts";
+import type { BootstrapDraftMessage, OnboardingState } from "./types/contracts";
 
 const MAIN_DESK_STORAGE_KEY = "kodaclaw.mainDesk";
 
@@ -67,7 +69,8 @@ function isMainDesk(value: DesktopDeskId | string | null | undefined): value is 
     value === "automations" ||
     value === "channels" ||
     value === "plugins" ||
-    value === "canvas";
+    value === "canvas" ||
+    value === "skills";
 }
 
 function resolveMainDeskFromLaunchTarget(target: DesktopLaunchTarget | null): MainDesk | null {
@@ -87,6 +90,7 @@ function readStoredMainDesk(): MainDesk {
       stored === "channels" ||
       stored === "plugins" ||
       stored === "canvas" ||
+      stored === "skills" ||
       stored === "chat"
     ? stored
     : "chat";
@@ -219,6 +223,12 @@ export default function App() {
           eyebrow: "发布界面",
           summary: "维护默认入口、查看产物元数据，并随时验证可发布的展示面。",
         },
+        {
+          id: "skills",
+          label: "技能浏览",
+          eyebrow: "能力层",
+          summary: "浏览已发现的技能、了解来源与描述，并通过 skill_activate 在会话中激活。",
+        },
       ] as DeskMeta[],
       status: {
         unavailableTitle: "Gateway 快照不可用",
@@ -240,6 +250,8 @@ export default function App() {
         channelsBody: "在释放对外回复之前，先检查连接器健康、线程绑定与待审草稿。",
         canvasTitle: "画布档案台已激活",
         canvasBody: "持续验证默认入口、元数据与展示面，让发布内容保持可审视。",
+        skillsTitle: "技能浏览台已激活",
+        skillsBody: "查看已从三层路径发现的技能，并通过 skill_activate 或 fs_write 安装新技能。",
         mainTitle: "主控对话已激活",
         mainBody: "工作区已脱离引导阶段，现在可以接收常规 Koda 请求并返回流式结果。",
       },
@@ -353,6 +365,12 @@ export default function App() {
           eyebrow: "Published surfaces",
           summary: "Keep default entry points, metadata, and the inspectable publishing surface aligned from one desk.",
         },
+        {
+          id: "skills",
+          label: "Skills",
+          eyebrow: "Capability layer",
+          summary: "Browse discovered skills from all configured paths and activate them in chat with skill_activate.",
+        },
       ] as DeskMeta[],
       status: {
         unavailableTitle: "Gateway snapshot unavailable",
@@ -374,6 +392,8 @@ export default function App() {
         channelsBody: "Inspect connector health, thread bindings, and pending delivery approvals before you release outbound replies.",
         canvasTitle: "Canvas atelier is active",
         canvasBody: "Review published artifacts, verify the default entry, and keep the render surface inspectable.",
+        skillsTitle: "Skills browser is active",
+        skillsBody: "Inspect discovered skills from built-in, global, and workspace paths — activate them in chat or author new ones.",
         mainTitle: "Main chat mode is active",
         mainBody: "The workspace has left bootstrap and can accept regular Koda requests with SSE streaming.",
       },
@@ -411,7 +431,30 @@ export default function App() {
     },
   });
 
+  const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
+
   const { health, snapshot, isLoading, error, mode, refresh } = useGatewaySnapshot();
+
+  useEffect(() => {
+    // Only check onboarding once the gateway snapshot has resolved (not still loading).
+    // This ensures the fetch order is: health → bootstrap-state → onboarding/state,
+    // which keeps existing test mock chains working correctly.
+    if (isLoading) {
+      return;
+    }
+
+    fetchOnboardingState()
+      .then(state => {
+        if (!state.isCompleted) {
+          setOnboardingState(state);
+        }
+      })
+      .catch(() => {
+        // Fetch failed — skip onboarding (Gateway may not support it yet)
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
+
   const { draft, setDraft, isStreaming, messages, placeholder, sendMessage, appendSystemNote } =
     useChatConsole(mode, text.chat);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
@@ -567,6 +610,14 @@ export default function App() {
     setMainDesk("sessions");
   }, []);
 
+  const handleRotateSession = useCallback(async () => {
+    try {
+      await rotateSession();
+    } catch {
+      // ignore — Gateway will create a fresh session on the next chat turn
+    }
+  }, []);
+
   const handleBootstrapSubmit = useCallback(async () => {
     const nextIdentityMarkdown = identityMarkdown.trim();
     const nextSoulMarkdown = soulMarkdown.trim();
@@ -692,6 +743,8 @@ export default function App() {
         return { title: text.status.channelsTitle, body: text.status.channelsBody, level: "normal" as const };
       case "canvas":
         return { title: text.status.canvasTitle, body: text.status.canvasBody, level: "normal" as const };
+      case "skills":
+        return { title: text.status.skillsTitle, body: text.status.skillsBody, level: "normal" as const };
       case "chat":
       default:
         return { title: text.status.mainTitle, body: text.status.mainBody, level: "normal" as const };
@@ -775,6 +828,14 @@ export default function App() {
       return (
         <section className="shell-workbench desk-column desk-column--chat" data-testid="control-plane-view" data-kc-view="channels">
           <ChannelsDesk />
+        </section>
+      );
+    }
+
+    if (mainDesk === "skills") {
+      return (
+        <section className="shell-workbench desk-column desk-column--chat" data-testid="control-plane-view" data-kc-view="skills">
+          <SkillsDesk />
         </section>
       );
     }
@@ -882,6 +943,7 @@ export default function App() {
     desks: text.desks,
     onMainDeskChange: setMainDesk,
     onOpenSessionDetail: handleOpenSessionDetail,
+    onRotateSession: handleRotateSession,
     railEyebrow: text.railEyebrow,
     railTitle: text.railTitle,
     railCopy: text.railCopy,
@@ -902,6 +964,17 @@ export default function App() {
     workbench,
     contextPanel,
   };
+
+  if (onboardingState && !onboardingState.isCompleted) {
+    return (
+      <OnboardingShell
+        initialState={onboardingState}
+        onComplete={() => {
+          setOnboardingState(prev => prev ? { ...prev, isCompleted: true } : null);
+        }}
+      />
+    );
+  }
 
   return shellVariant === "v2" ? <V2Shell {...shellLayoutProps} /> : <LegacyShell {...shellLayoutProps} />;
 }

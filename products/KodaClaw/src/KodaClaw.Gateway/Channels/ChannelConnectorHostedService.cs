@@ -1,8 +1,9 @@
+using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.Gateway.Channels;
 
-internal sealed class ChannelConnectorHostedService : IHostedService
+internal sealed class ChannelConnectorHostedService : IHostedService, IChannelConnectorRegistry
 {
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly ChannelInboundGatewayService _channelInboundGatewayService;
@@ -81,6 +82,74 @@ internal sealed class ChannelConnectorHostedService : IHostedService
                     "Channel account '{AccountId}' failed to stop cleanly.",
                     account.Id);
             }
+        }
+    }
+
+    public async Task ReloadAccountAsync(string accountId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+
+        // Stop first (best-effort) then re-start.
+        try
+        {
+            await _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Channel account '{AccountId}' failed to stop before reload; continuing with start.",
+                accountId);
+        }
+
+        var account = await _channelAccountRepository.GetByIdAsync(accountId, cancellationToken);
+        if (account is null)
+        {
+            _logger.LogWarning("Channel account '{AccountId}' not found during reload.", accountId);
+            return;
+        }
+
+        if (!account.InboundEnabled || account.State != ChannelAccountState.Connected)
+        {
+            return;
+        }
+
+        try
+        {
+            await _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Channel account '{AccountId}' failed to start after reload.",
+                accountId);
+        }
+    }
+
+    public async Task StopAccountAsync(string accountId, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+
+        try
+        {
+            await _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Channel account '{AccountId}' failed to stop.",
+                accountId);
         }
     }
 }

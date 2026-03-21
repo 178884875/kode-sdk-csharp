@@ -26,6 +26,7 @@ public sealed class WorkspaceService : IWorkspaceService
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "canvas", "artifacts"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "channels"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "plugins"),
+        KodaClawWorkspaceLayout.WorkspaceSkillsDirectory,
     ];
 
     public WorkspaceService(KodaClawWorkspaceOptions options)
@@ -177,6 +178,17 @@ public sealed class WorkspaceService : IWorkspaceService
     {
         ValidateSessionId(sessionId);
         return GetAbsolutePath(KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
+    }
+
+    public IReadOnlyList<string> GetSkillsPaths()
+    {
+        // Priority order: Layer 1 (lowest, built-in) → Layer 3 (global shared) → Layer 2 (workspace-specific, highest)
+        return
+        [
+            Path.Combine(AppContext.BaseDirectory, "skills"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", "skills"),
+            Path.Combine(RootPath, KodaClawWorkspaceLayout.WorkspaceSkillsDirectory),
+        ];
     }
 
     private bool IsInitialized()

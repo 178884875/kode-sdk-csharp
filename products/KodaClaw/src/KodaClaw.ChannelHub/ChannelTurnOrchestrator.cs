@@ -21,6 +21,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
     private readonly IChannelThreadSummaryWriter? _summaryWriter;
+    private readonly IChannelSendCapture? _sendCapture;
 
     public ChannelTurnOrchestrator(
         ChannelEventIngestionService ingestionService,
@@ -34,7 +35,8 @@ public sealed class ChannelTurnOrchestrator
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null,
-        IChannelThreadSummaryWriter? summaryWriter = null)
+        IChannelThreadSummaryWriter? summaryWriter = null,
+        IChannelSendCapture? sendCapture = null)
     {
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
         _channelSessionService = channelSessionService ?? throw new ArgumentNullException(nameof(channelSessionService));
@@ -48,6 +50,7 @@ public sealed class ChannelTurnOrchestrator
         _diagnosticsService = diagnosticsService;
         _correlationContextAccessor = correlationContextAccessor;
         _summaryWriter = summaryWriter;
+        _sendCapture = sendCapture;
     }
 
     public async Task<ChannelTurnOrchestrationResult> ProcessInboundAsync(
@@ -121,130 +124,19 @@ public sealed class ChannelTurnOrchestrator
                 envelope,
                 hasExplicitMention,
                 cancellationToken);
-            var decision = _policyEngine.Evaluate(processing.Policy, hasExplicitMention);
 
-            if (!execution.Proposal.ProposesReply)
-            {
-                var noActionOutcome = CreateOutcome(
-                    ChannelTurnOutcomeKind.NoAction,
-                    execution.Proposal.Reason,
-                    processing,
-                    envelope,
-                    replyText: null,
-                    reasonCode: "model_no_reply",
-                    hasExplicitMention: hasExplicitMention);
-                await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", noActionOutcome, cancellationToken);
-                RecordDiagnosticEvent("channel.turn.no_action", "info", noActionOutcome.Summary, processing.Binding, noActionOutcome);
-                return new ChannelTurnOrchestrationResult(processing, noActionOutcome, ExecutedTurn: true, execution);
-            }
+            var sentTexts = _sendCapture?.GetAndClear(processing.Binding.Id) ?? [];
+            var summary = BuildConversationSummary(envelope.Text, sentTexts);
 
-            if (!decision.CanDirectReply)
-            {
-                var reasonCode = !hasExplicitMention && processing.Policy.RequireExplicitMention
-                    ? "policy_blocked_requires_mention"
-                    : "policy_blocked";
-                var blockedOutcome = CreateOutcome(
-                    ChannelTurnOutcomeKind.NoAction,
-                    $"Reply blocked by channel policy: {execution.Proposal.Reason}",
-                    processing,
-                    envelope,
-                    replyText: execution.Proposal.ReplyText,
-                    reasonCode: reasonCode,
-                    hasExplicitMention: hasExplicitMention);
-                await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", blockedOutcome, cancellationToken);
-                RecordDiagnosticEvent("channel.turn.no_action", "info", blockedOutcome.Summary, processing.Binding, blockedOutcome);
-                return new ChannelTurnOrchestrationResult(processing, blockedOutcome, ExecutedTurn: true, execution);
-            }
-
-            var draft = new ChannelOutboundDraft(
-                DraftId: $"draft-{Guid.NewGuid():N}",
-                BindingId: processing.Binding.Id,
-                ConnectorKind: processing.Binding.ConnectorKind,
-                AccountId: processing.Binding.AccountId,
-                ExternalThreadId: processing.Binding.ExternalThreadId,
-                MessageText: execution.Proposal.ReplyText!,
-                DeliveryMode: processing.DeliveryRule.Mode,
-                CreatedAt: DateTimeOffset.UtcNow,
-                SessionId: processing.Binding.SessionId,
-                CorrelationId: envelope.CorrelationId ?? _correlationContextAccessor?.CorrelationId,
-                MetadataJson: JsonSerializer.Serialize(execution.Proposal, JsonOptions));
-
-            var evaluation = await _deliveryGovernanceService.EvaluateAsync(
-                processing.Binding,
-                processing.DeliveryRule,
-                draft,
-                cancellationToken);
-
-            if (evaluation.Disposition == ChannelDeliveryDisposition.SendImmediately)
-            {
-                var intendedOutcome = CreateOutcome(
-                    ChannelTurnOutcomeKind.Delivered,
-                    BuildPreview(draft.MessageText),
-                    processing,
-                    envelope,
-                    replyText: draft.MessageText,
-                    draftId: draft.DraftId,
-                    reasonCode: "auto_send_ready",
-                    hasExplicitMention: hasExplicitMention);
-                var dispatch = await _deliveryDispatchService.DispatchAsync(
-                    account,
-                    processing.Binding,
-                    draft,
-                    intendedOutcome,
-                    cancellationToken);
-
-                RecordDiagnosticEvent(
-                    dispatch.Succeeded ? "channel.turn.delivered" : "channel.turn.failed",
-                    dispatch.Succeeded ? "info" : "error",
-                    dispatch.Outcome.Summary,
-                    processing.Binding,
-                    dispatch.Outcome);
-
-                await TryWriteThreadSummaryAsync(processing.Binding, dispatch.Outcome, cancellationToken);
-                return new ChannelTurnOrchestrationResult(processing, dispatch.Outcome, ExecutedTurn: true, execution);
-            }
-
-            // Send approval notification back to the channel thread (best-effort).
-            if (evaluation.ApprovalToken is not null)
-            {
-                try
-                {
-                    var notificationText = BuildApprovalNotificationText(draft, evaluation.ApprovalToken);
-                    await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, notificationText, cancellationToken);
-                }
-                catch { }
-            }
-
-            var outcomeKind = processing.DeliveryRule.Mode == DeliveryMode.DraftApproval
-                ? ChannelTurnOutcomeKind.DraftCreated
-                : ChannelTurnOutcomeKind.ApprovalRequested;
-            var auditEventType = outcomeKind == ChannelTurnOutcomeKind.DraftCreated
-                ? "turn.draft_created"
-                : "turn.approval_requested";
             var outcome = CreateOutcome(
-                outcomeKind,
-                BuildPreview(draft.MessageText),
-                processing,
-                envelope,
-                replyText: draft.MessageText,
-                approvalId: evaluation.ApprovalId,
-                inboxItemId: evaluation.InboxItemId,
-                draftId: draft.DraftId,
-                reasonCode: outcomeKind == ChannelTurnOutcomeKind.DraftCreated
-                    ? "draft_created"
-                    : "approval_requested",
+                ChannelTurnOutcomeKind.Delivered,
+                summary,
+                processing, envelope,
+                reasonCode: "full_agent_mode",
                 hasExplicitMention: hasExplicitMention);
 
-            await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, auditEventType, outcome, cancellationToken);
-            RecordDiagnosticEvent(
-                outcomeKind == ChannelTurnOutcomeKind.DraftCreated
-                    ? "channel.turn.draft_created"
-                    : "channel.turn.approval_requested",
-                "info",
-                outcome.Summary,
-                processing.Binding,
-                outcome);
-
+            await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.delivered", outcome, cancellationToken);
+            RecordDiagnosticEvent("channel.turn.delivered", "info", outcome.Summary, processing.Binding, outcome);
             await TryWriteThreadSummaryAsync(processing.Binding, outcome, cancellationToken);
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true, execution);
         }
@@ -433,6 +325,18 @@ public sealed class ChannelTurnOrchestrator
         {
             // Summary write is best-effort; never let it fail the turn pipeline.
         }
+    }
+
+    private static string BuildConversationSummary(string? inboundText, IReadOnlyList<string> sentTexts)
+    {
+        var user = BuildPreview(inboundText ?? "(no text)");
+        if (sentTexts.Count == 0)
+        {
+            return $"user: \"{user}\" → koda: (no reply sent)";
+        }
+
+        var koda = string.Join(" | ", sentTexts.Select(BuildPreview));
+        return $"user: \"{user}\" → koda: \"{koda}\"";
     }
 
     private static string BuildPreview(string text)

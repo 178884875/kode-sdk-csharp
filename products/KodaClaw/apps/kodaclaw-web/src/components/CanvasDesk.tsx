@@ -1,4 +1,6 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   buildCanvasEntryUrl,
   fetchCanvasArtifact,
@@ -470,12 +472,13 @@ export function CanvasDesk() {
 
             <div className="canvas-desk__preview-surface" style={previewSurfaceStyle}>
               {selectedArtifact?.contentText != null && selectedArtifact.kind !== "Html" ? (
-                <pre
-                  data-testid="canvas-content-text"
-                  style={{ whiteSpace: "pre-wrap", margin: 0, padding: 16 }}
+                <div
+                  data-testid="canvas-artifact-content"
+                  data-kind={selectedArtifact.kind}
+                  className={`canvas-markdown-view${selectedArtifact.kind === "TaskList" ? " canvas-tasklist-view" : ""}`}
                 >
-                  {selectedArtifact.contentText}
-                </pre>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArtifact.contentText}</ReactMarkdown>
+                </div>
               ) : selectedArtifact?.contentText != null && selectedArtifact.kind === "Html" ? (
                 <iframe
                   title={text.previewFrameTitle}

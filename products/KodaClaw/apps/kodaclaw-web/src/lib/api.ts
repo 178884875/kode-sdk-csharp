@@ -48,15 +48,27 @@ import {
   type PluginsQueryResponse,
   type PluginTrustState,
   type PluginType,
+  type RotateSessionResponse,
   type SessionDetail,
   type SessionsQueryResponse,
   type UpdateAutomationDefinitionRequest,
   type UpdateThreadSettingsRequest,
+  type TriggerAutomationResponse,
+  type TestTelegramTokenRequest,
+  type TestTelegramTokenResponse,
+  type CreateChannelAccountRequest,
+  type PatchChannelAccountRequest,
   type UpdateCheckRequest,
   type UpdateModelEndpointRequest,
   type UpdateStateResponse,
   type UpsertCanvasArtifactRequest,
   type InstallLocalPluginRequest,
+  type ModelPreset,
+  type ModelConnectionTestRequest,
+  type ModelConnectionTestResponse,
+  type PersonaPreset,
+  type OnboardingState,
+  type ApplyPersonaRequest,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
@@ -319,6 +331,17 @@ export async function updateAutomationDefinition(
   });
 }
 
+export async function triggerAutomation(
+  id: string,
+  signal?: AbortSignal,
+): Promise<TriggerAutomationResponse> {
+  return requestJson<TriggerAutomationResponse>(`/api/automations/${encodeURIComponent(id)}/trigger`, {
+    method: "POST",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
 export async function fetchPlugins(
   query?: {
     type?: PluginType;
@@ -490,6 +513,55 @@ export async function updateThreadSettings(
   });
 }
 
+export async function createChannelAccount(
+  request: CreateChannelAccountRequest,
+  signal?: AbortSignal,
+): Promise<ChannelAccount> {
+  return requestJson<ChannelAccount>("/api/channels/accounts", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(request),
+    signal,
+  });
+}
+
+export async function updateChannelAccount(
+  id: string,
+  request: PatchChannelAccountRequest,
+  signal?: AbortSignal,
+): Promise<ChannelAccount> {
+  return requestJson<ChannelAccount>(`/api/channels/accounts/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: buildHeaders(true),
+    body: JSON.stringify(request),
+    signal,
+  });
+}
+
+export async function deleteChannelAccount(
+  id: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  return requestVoid(`/api/channels/accounts/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function testTelegramToken(
+  botToken: string,
+  signal?: AbortSignal,
+): Promise<TestTelegramTokenResponse> {
+  const payload: TestTelegramTokenRequest = { botToken };
+  return requestJson<TestTelegramTokenResponse>("/api/channels/test-telegram-token", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
 export async function fetchApproval(id: string, signal?: AbortSignal): Promise<Approval> {
   return requestJson<Approval>(`/api/approvals/${id}`, {
     headers: buildHeaders(),
@@ -524,6 +596,14 @@ export async function fetchSessions(limit = 20, signal?: AbortSignal): Promise<S
 
 export async function fetchSessionDetail(id: string, signal?: AbortSignal): Promise<SessionDetail> {
   return requestJson<SessionDetail>(`/api/sessions/${id}`, {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function rotateSession(signal?: AbortSignal): Promise<RotateSessionResponse> {
+  return requestJson<RotateSessionResponse>("/api/sessions/rotate", {
+    method: "POST",
     headers: buildHeaders(),
     signal,
   });
@@ -803,6 +883,100 @@ function parseFrameText(frameText: string): ParsedSseFrame | null {
     eventName,
     data: dataParts.join("\n"),
   };
+}
+
+// ===== 模型预设 API =====
+
+export async function fetchModelPresets(signal?: AbortSignal): Promise<ModelPreset[]> {
+  return requestJson<ModelPreset[]>("/api/models/presets", {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function fetchModelPreset(presetId: string, signal?: AbortSignal): Promise<ModelPreset> {
+  return requestJson<ModelPreset>(`/api/models/presets/${encodeURIComponent(presetId)}`, {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function testModelConnection(
+  request: ModelConnectionTestRequest,
+  signal?: AbortSignal,
+): Promise<ModelConnectionTestResponse> {
+  return requestJson<ModelConnectionTestResponse>("/api/models/test-connection", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(request),
+    signal,
+  });
+}
+
+// ===== Persona 预设 API =====
+
+export async function fetchPersonaPresets(signal?: AbortSignal): Promise<PersonaPreset[]> {
+  return requestJson<PersonaPreset[]>("/api/workspace/persona-presets", {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function fetchPersonaPreset(presetId: string, signal?: AbortSignal): Promise<PersonaPreset> {
+  return requestJson<PersonaPreset>(`/api/workspace/persona-presets/${encodeURIComponent(presetId)}`, {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+// ===== Onboarding API =====
+
+export async function fetchOnboardingState(signal?: AbortSignal): Promise<OnboardingState> {
+  return requestJson<OnboardingState>("/api/onboarding/state", {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function updateOnboardingState(
+  state: Partial<OnboardingState>,
+  signal?: AbortSignal,
+): Promise<OnboardingState> {
+  return requestJson<OnboardingState>("/api/onboarding/state", {
+    method: "PUT",
+    headers: buildHeaders(true),
+    body: JSON.stringify(state),
+    signal,
+  });
+}
+
+export async function completeOnboarding(signal?: AbortSignal): Promise<OnboardingState> {
+  return requestJson<OnboardingState>("/api/onboarding/complete", {
+    method: "POST",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function resetOnboarding(signal?: AbortSignal): Promise<OnboardingState> {
+  return requestJson<OnboardingState>("/api/onboarding/reset", {
+    method: "POST",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function applyPersonaPreset(
+  presetId: string,
+  signal?: AbortSignal,
+): Promise<{ ok: boolean }> {
+  const payload: ApplyPersonaRequest = { presetId };
+  return requestJson<{ ok: boolean }>("/api/onboarding/apply-persona", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(payload),
+    signal,
+  });
 }
 
 function toChatStreamEvent(frame: ParsedSseFrame, request: ChatStreamRequest): ChatStreamEvent {

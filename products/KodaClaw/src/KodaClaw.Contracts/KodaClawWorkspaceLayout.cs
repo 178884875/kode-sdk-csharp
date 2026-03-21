@@ -35,4 +35,6 @@ public static class KodaClawWorkspaceLayout
     public const string BootstrapFile = "BOOTSTRAP.md";
     public const string ToolsFile = "TOOLS.md";
     public const string McpConfigFile = "mcp.json";
+
+    public const string WorkspaceSkillsDirectory = "workspace/skills";
 }

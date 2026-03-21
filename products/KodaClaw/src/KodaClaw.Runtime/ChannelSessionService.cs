@@ -1,7 +1,8 @@
 using KodaClaw.Contracts;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Context;
+using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
-using System.Text.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace KodaClaw.Runtime;
@@ -9,7 +10,6 @@ namespace KodaClaw.Runtime;
 public sealed class ChannelSessionService : IChannelSessionService, IAsyncDisposable
 {
     private const string ThreadSummaryFileName = "SUMMARY.md";
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly IWorkspaceService _workspaceService;
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
@@ -59,9 +59,17 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(binding.SessionId, sessionDirectory);
-        if (await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
+
+        // KC-2201: Session timeout policy — skip resume if the thread has been inactive
+        // for more than SessionTimeoutDays days. This avoids stale context from old sessions.
+        var isSessionTimedOut = _options.SessionTimeoutDays > 0
+            && binding.LastInboundAt.HasValue
+            && binding.LastInboundAt.Value < DateTimeOffset.UtcNow.AddDays(-_options.SessionTimeoutDays);
+
+        if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
             var configuredModel = ResolveConfiguredModel();
+            var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
                 var resumed = await AgentRuntime.ResumeFromStoreAsync(
@@ -74,6 +82,22 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         SystemPrompt = systemPrompt,
                         Tools = _options.Tools,
                         Permissions = _options.Permissions,
+                        SandboxOptions = new SandboxOptions
+                        {
+                            WorkingDirectory = sessionDirectory,
+                            EnforceBoundary = true,
+                            AllowPaths = skillsPaths,
+                        },
+                        Skills = new SkillsConfig
+                        {
+                            Paths = skillsPaths,
+                            ValidateOnLoad = false,
+                        },
+                        Context = new ContextManagerOptions
+                        {
+                            MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
+                            CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                        },
                     },
                     cancellationToken: cancellationToken);
 
@@ -132,16 +156,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var prompt = BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
         var runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
 
-        if (string.IsNullOrWhiteSpace(runResult.Response))
-        {
-            throw new InvalidOperationException("Channel turn did not return a structured response.");
-        }
-
         return new ChannelTurnExecutionResult(
             Session: handle,
             RunResult: runResult,
-            RawResponse: runResult.Response,
-            Proposal: ParseProposal(runResult.Response),
+            RawResponse: runResult.Response ?? string.Empty,
+            Proposal: null,
             HasExplicitMention: hasExplicitMention);
     }
 
@@ -251,6 +270,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         string systemPrompt,
         string model)
     {
+        var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
         {
             Model = model,
@@ -262,6 +282,17 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 WorkingDirectory = sessionDirectory,
                 EnforceBoundary = true,
+                AllowPaths = skillsPaths,
+            },
+            Skills = new SkillsConfig
+            {
+                Paths = skillsPaths,
+                ValidateOnLoad = false,
+            },
+            Context = new ContextManagerOptions
+            {
+                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
             },
         };
     }
@@ -337,38 +368,31 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var threadGuidance = binding.ThreadType switch
         {
             ChannelThreadType.DirectMessage => """
-- This is a direct message. If the sender is clearly asking for help or a response, you may propose a concise reply draft.
+- This is a direct message. Process the user's request using available tools, then use channel_send to reply.
 - Use the loaded user profile only when it is explicitly present in the session context.
 """,
             ChannelThreadType.Group when hasExplicitMention => """
 - This is a group thread and Koda was explicitly mentioned.
-- If a reply is useful, keep it brief, public-safe, and grounded only in the loaded context.
+- Process the request using available tools, then use channel_send if a reply is useful.
+- Keep the reply brief, public-safe, and grounded only in the loaded context.
 """,
             ChannelThreadType.Group => """
 - This is a group thread without an explicit mention of Koda.
-- Prefer action "no_reply" unless the message clearly requires Koda's intervention or a direct response on Koda's behalf.
+- Do not send a reply unless the message clearly requires Koda's intervention.
 """,
             _ => string.Empty,
         };
 
         return $$"""
-Process the inbound channel event and return JSON only.
+Process the inbound channel event below. You are in Full Agent Mode — you can use all available tools.
 
-Return this exact schema:
-{
-  "action": "no_reply | propose_reply",
-  "replyText": "string or null",
-  "reason": "short reason",
-  "confidence": 0.0
-}
-
-Rules:
-- If no outward response should be sent, return action "no_reply".
-- If a reply is justified, keep it concise and channel-safe.
-- Use only the loaded session context and the inbound event below.
-- Never invent facts, commitments, approvals, or deliveries that did not happen.
-- Never wrap the JSON in markdown fences.
 {{threadGuidance}}
+To send a reply, use the channel_send tool with:
+  bindingId: {{binding.Id}}
+  text: <your reply text>
+
+Use available tools (fs_read, fs_list, bash_run, etc.) before replying if needed to answer the request.
+Do not output the reply as plain text — always use channel_send to deliver it.
 
 Inbound Event:
 - BindingId: {{binding.Id}}
@@ -381,80 +405,6 @@ Inbound Event:
 - MessageText:
 {{messageText}}
 """;
-    }
-
-    private static ChannelReplyProposal ParseProposal(string rawResponse)
-    {
-        var json = ExtractJson(rawResponse);
-        var proposal = JsonSerializer.Deserialize<ChannelReplyProposal>(json, JsonOptions);
-        if (proposal is null)
-        {
-            throw new InvalidOperationException("Channel turn response could not be parsed.");
-        }
-
-        var action = proposal.Action?.Trim();
-        if (!string.Equals(action, "no_reply", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(action, "propose_reply", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("Channel turn response contained an unknown action.");
-        }
-
-        var reason = string.IsNullOrWhiteSpace(proposal.Reason)
-            ? "No reason supplied."
-            : proposal.Reason.Trim();
-        var confidence = Math.Clamp(proposal.Confidence, 0d, 1d);
-
-        if (string.Equals(action, "propose_reply", StringComparison.OrdinalIgnoreCase) &&
-            string.IsNullOrWhiteSpace(proposal.ReplyText))
-        {
-            throw new InvalidOperationException("Channel turn reply proposal is missing reply text.");
-        }
-
-        return proposal with
-        {
-            Action = action!,
-            ReplyText = string.IsNullOrWhiteSpace(proposal.ReplyText) ? null : proposal.ReplyText.Trim(),
-            Reason = reason,
-            Confidence = confidence,
-        };
-    }
-
-    private static string ExtractJson(string rawResponse)
-    {
-        var trimmed = rawResponse.Trim();
-        if (trimmed.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstLineBreak = trimmed.IndexOf('\n');
-            if (firstLineBreak >= 0)
-            {
-                trimmed = trimmed[(firstLineBreak + 1)..];
-            }
-
-            var closingFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
-            if (closingFence >= 0)
-            {
-                trimmed = trimmed[..closingFence].Trim();
-            }
-        }
-
-        try
-        {
-            JsonDocument.Parse(trimmed);
-            return trimmed;
-        }
-        catch (JsonException)
-        {
-            var start = trimmed.IndexOf('{');
-            var end = trimmed.LastIndexOf('}');
-            if (start < 0 || end <= start)
-            {
-                throw new InvalidOperationException("Channel turn response did not contain JSON.");
-            }
-
-            var candidate = trimmed[start..(end + 1)];
-            JsonDocument.Parse(candidate);
-            return candidate;
-        }
     }
 
     private static void ValidateBindingAndPolicy(ThreadBinding binding, ChannelPolicy policy)
@@ -518,7 +468,7 @@ Inbound Event:
         return $"Resume failed: {root.GetType().Name}: {root.Message}";
     }
 
-    private static IEqualityComparer<string> GetPathComparer()
+    private static StringComparer GetPathComparer()
     {
         return OperatingSystem.IsWindows()
             ? StringComparer.OrdinalIgnoreCase

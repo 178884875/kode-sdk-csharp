@@ -3,6 +3,8 @@ using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.PluginHost.Hosting;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Context;
+using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
@@ -80,6 +82,41 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         }
 
         return handle;
+    }
+
+    public async Task<string?> RotateMainSessionAsync(CancellationToken cancellationToken = default)
+    {
+        await _workspaceService.EnsureInitializedAsync(cancellationToken);
+
+        var appConfig = await _workspaceService.LoadAppConfigAsync(cancellationToken);
+        var previousSessionId = appConfig.ActiveMainSessionId;
+
+        if (!string.IsNullOrWhiteSpace(previousSessionId))
+        {
+            if (_sessionSubscriptions.TryGetValue(previousSessionId, out var subs))
+            {
+                subs.Dispose();
+                _sessionSubscriptions.Remove(previousSessionId);
+            }
+
+            if (_agents.TryGetValue(previousSessionId, out var agent))
+            {
+                _agents.Remove(previousSessionId);
+                await agent.DisposeAsync();
+            }
+        }
+
+        await _workspaceService.SaveAppConfigAsync(
+            appConfig with { ActiveMainSessionId = null },
+            cancellationToken);
+
+        RecordDiagnosticEvent(
+            eventType: "main_session.rotated",
+            level: "info",
+            message: "Main session rotated. Next EnsureMainSessionAsync will create a fresh session.",
+            sessionId: previousSessionId ?? string.Empty);
+
+        return string.IsNullOrWhiteSpace(previousSessionId) ? null : previousSessionId;
     }
 
     public Task<ApprovalDecisionDispatchResult> ApproveApprovalAsync(
@@ -344,6 +381,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         if (await dependencies.Store.ExistsAsync(sessionId, cancellationToken))
         {
             var configuredModel = ResolveConfiguredModel();
+            var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
                 var resumed = await AgentRuntime.ResumeFromStoreAsync(
@@ -356,6 +394,22 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         SystemPrompt = prompt.SystemPrompt,
                         Tools = _options.Tools,
                         Permissions = _options.Permissions,
+                        SandboxOptions = new SandboxOptions
+                        {
+                            WorkingDirectory = sessionDirectory,
+                            EnforceBoundary = true,
+                            AllowPaths = skillsPaths,
+                        },
+                        Skills = new SkillsConfig
+                        {
+                            Paths = skillsPaths,
+                            ValidateOnLoad = false,
+                        },
+                        Context = new ContextManagerOptions
+                        {
+                            MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
+                            CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                        },
                     },
                     cancellationToken: cancellationToken);
 
@@ -535,6 +589,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         string model,
         string systemPrompt)
     {
+        var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
         {
             Model = model,
@@ -546,6 +601,17 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             {
                 WorkingDirectory = sessionDirectory,
                 EnforceBoundary = true,
+                AllowPaths = skillsPaths,
+            },
+            Skills = new SkillsConfig
+            {
+                Paths = skillsPaths,
+                ValidateOnLoad = false,
+            },
+            Context = new ContextManagerOptions
+            {
+                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
             },
         };
     }
@@ -579,11 +645,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             await TryAddContextDocumentAsync(absolutePath, workspaceRoot, seenPaths, documents, cancellationToken);
         }
 
-        var dailyMemoryPath = Path.Combine(
-            workspaceDirectory,
-            "memory",
-            $"{DateTimeOffset.Now:yyyy-MM-dd}.md");
-        await TryAddContextDocumentAsync(dailyMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
+        var today = DateTimeOffset.Now.Date;
+        var todayMemoryPath = Path.Combine(workspaceDirectory, "memory", $"{today:yyyy-MM-dd}.md");
+        var yesterdayMemoryPath = Path.Combine(workspaceDirectory, "memory", $"{today.AddDays(-1):yyyy-MM-dd}.md");
+        await TryAddContextDocumentAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
+        await TryAddContextDocumentAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
 
         return new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)

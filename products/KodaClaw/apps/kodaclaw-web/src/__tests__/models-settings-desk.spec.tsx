@@ -8,18 +8,21 @@ import { renderWithI18n } from "./test-utils";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
+  fetchModelPresets,
   fetchModels,
   fetchSandboxRiskOverview,
   fetchSettings,
   runUpdateCheck,
   saveSettings,
   setDefaultModelEndpoint,
+  testModelConnection,
   updateModelEndpoint,
 } from "../lib/api";
 import type { KodaClawSettings, ModelEndpoint, SandboxRiskOverviewResponse, UpdateStateResponse } from "../types/contracts";
 
 vi.mock("../lib/api", () => ({
   fetchModels: vi.fn(),
+  fetchModelPresets: vi.fn(),
   fetchSettings: vi.fn(),
   fetchSandboxRiskOverview: vi.fn(),
   runUpdateCheck: vi.fn(),
@@ -28,9 +31,11 @@ vi.mock("../lib/api", () => ({
   deleteModelEndpoint: vi.fn(),
   setDefaultModelEndpoint: vi.fn(),
   saveSettings: vi.fn(),
+  testModelConnection: vi.fn(),
 }));
 
 const modelsApi = vi.mocked(fetchModels);
+const presetsApi = vi.mocked(fetchModelPresets);
 const settingsApi = vi.mocked(fetchSettings);
 const riskOverviewApi = vi.mocked(fetchSandboxRiskOverview);
 const updateCheckApi = vi.mocked(runUpdateCheck);
@@ -39,6 +44,7 @@ const updateApi = vi.mocked(updateModelEndpoint);
 const deleteApi = vi.mocked(deleteModelEndpoint);
 const setDefaultApi = vi.mocked(setDefaultModelEndpoint);
 const saveSettingsApi = vi.mocked(saveSettings);
+const testConnectionApi = vi.mocked(testModelConnection);
 
 const defaultModels: ModelEndpoint[] = [
   {
@@ -216,6 +222,7 @@ const defaultUpdateState: UpdateStateResponse = {
 describe("ModelsSettingsDesk", () => {
   beforeEach(() => {
     modelsApi.mockResolvedValue({ items: defaultModels });
+    presetsApi.mockResolvedValue([]);
     settingsApi.mockResolvedValue(defaultSettings);
     riskOverviewApi.mockResolvedValue(defaultRiskOverview);
     updateCheckApi.mockResolvedValue(defaultUpdateState);
@@ -232,6 +239,7 @@ describe("ModelsSettingsDesk", () => {
       theme: "Dark",
       updatedAt: "2026-03-18T12:00:00Z",
     });
+    testConnectionApi.mockResolvedValue({ ok: true, latencyMs: 42 });
   });
 
   afterEach(() => {

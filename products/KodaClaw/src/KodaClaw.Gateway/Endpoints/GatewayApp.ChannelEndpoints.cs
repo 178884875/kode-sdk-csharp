@@ -1,4 +1,6 @@
 using System.IO;
+using System.Net.Http;
+using System.Text.Json;
 using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
@@ -596,6 +598,235 @@ public static partial class GatewayApp
                 });
 
             return Results.Ok(detail);
+        });
+
+        channels.MapPatch("/accounts/{id}", async (
+            HttpContext context,
+            string id,
+            PatchChannelAccountRequest request,
+            IConfiguration configuration,
+            IChannelAccountRepository channelAccountRepository,
+            IChannelConnectorRegistry channelConnectorRegistry,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to patch channel account endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var existing = await channelAccountRepository.GetByIdAsync(id, cancellationToken);
+            if (existing is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.channels",
+                    eventType: "gateway.channels.account_not_found",
+                    level: "warning",
+                    message: "Patch channel account targeted a missing account.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["accountId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "channel.account_not_found",
+                    Message: "Channel account was not found."));
+            }
+
+            var enabledChanged = request.Enabled.HasValue && request.Enabled.Value != existing.InboundEnabled;
+            var updated = existing with
+            {
+                DisplayName = NormalizeOptionalString(request.DisplayName) ?? existing.DisplayName,
+                InboundEnabled = request.Enabled ?? existing.InboundEnabled,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+            await channelAccountRepository.UpsertAsync(updated, cancellationToken);
+
+            if (enabledChanged)
+            {
+                if (updated.InboundEnabled)
+                {
+                    _ = Task.Run(
+                        () => channelConnectorRegistry.ReloadAccountAsync(id, CancellationToken.None),
+                        CancellationToken.None);
+                }
+                else
+                {
+                    _ = Task.Run(
+                        () => channelConnectorRegistry.StopAccountAsync(id, CancellationToken.None),
+                        CancellationToken.None);
+                }
+            }
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.channels",
+                eventType: "gateway.channels.account_patched",
+                level: "info",
+                message: "Patched channel account.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["accountId"] = id,
+                    ["enabledChanged"] = enabledChanged.ToString(),
+                });
+
+            var reloaded = await channelAccountRepository.GetByIdAsync(id, cancellationToken) ?? updated;
+            return Results.Ok(reloaded);
+        });
+
+        channels.MapDelete("/accounts/{id}", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IChannelAccountRepository channelAccountRepository,
+            IChannelConnectorRegistry channelConnectorRegistry,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to delete channel account endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var existing = await channelAccountRepository.GetByIdAsync(id, cancellationToken);
+            if (existing is null)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "channel.account_not_found",
+                    Message: "Channel account was not found."));
+            }
+
+            // Stop the connector before deleting.
+            _ = Task.Run(
+                () => channelConnectorRegistry.StopAccountAsync(id, CancellationToken.None),
+                CancellationToken.None);
+
+            await channelAccountRepository.DeleteAsync(id, cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.channels",
+                eventType: "gateway.channels.account_deleted",
+                level: "info",
+                message: "Deleted channel account.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["accountId"] = id,
+                    ["connectorKind"] = existing.ConnectorKind.ToString(),
+                });
+
+            return Results.NoContent();
+        });
+
+        channels.MapPost("/test-telegram-token", async (
+            HttpContext context,
+            TestTelegramTokenRequest request,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            IHttpClientFactory httpClientFactory,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to test telegram token endpoint.");
+                return Results.Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(request.BotToken))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.telegram_bot_token_required",
+                    Message: "Bot token is required."));
+            }
+
+            var token = request.BotToken.Trim();
+            var url = $"https://api.telegram.org/bot{token}/getMe";
+
+            try
+            {
+                var httpClient = httpClientFactory.CreateClient();
+                using var response = await httpClient.GetAsync(url, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+                using var doc = JsonDocument.Parse(responseBody);
+                var root = doc.RootElement;
+
+                var ok = root.TryGetProperty("ok", out var okProp) && okProp.GetBoolean();
+                if (!ok)
+                {
+                    var errorDescription = root.TryGetProperty("description", out var desc)
+                        ? desc.GetString()
+                        : "Unknown Telegram error.";
+                    return Results.Ok(new TestTelegramTokenResponse(
+                        Ok: false,
+                        Error: errorDescription));
+                }
+
+                string? botName = null;
+                string? botUsername = null;
+                if (root.TryGetProperty("result", out var result))
+                {
+                    if (result.TryGetProperty("first_name", out var firstName))
+                    {
+                        botName = firstName.GetString();
+                    }
+
+                    if (result.TryGetProperty("username", out var username))
+                    {
+                        botUsername = username.GetString();
+                    }
+                }
+
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.channels",
+                    eventType: "gateway.channels.telegram_token_verified",
+                    level: "info",
+                    message: $"Telegram bot token verified for @{botUsername}.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["botUsername"] = botUsername,
+                    });
+
+                return Results.Ok(new TestTelegramTokenResponse(
+                    Ok: true,
+                    BotName: botName,
+                    BotUsername: botUsername));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return Results.Ok(new TestTelegramTokenResponse(
+                    Ok: false,
+                    Error: ex.Message));
+            }
         });
 
     }

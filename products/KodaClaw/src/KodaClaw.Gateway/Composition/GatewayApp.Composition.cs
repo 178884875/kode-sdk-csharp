@@ -40,6 +40,11 @@ public static partial class GatewayApp
                 ?? builder.Configuration["Workspace:RootPath"];
         });
         builder.Services.AddSingleton<GatewayAuthTokenAccessor>();
+        builder.Services.AddSingleton<ModelPresetService>();
+        builder.Services.AddSingleton<PersonaPresetService>();
+        builder.Services.AddSingleton<ModelConnectionTestService>();
+        builder.Services.AddSingleton<OnboardingStateService>();
+        builder.Services.AddHttpClient();
         builder.Services.AddSingleton<SecretMigrationReportService>();
         builder.Services.AddSingleton<WorkspaceBackupService>();
         builder.Services.AddSingleton<WorkspaceRepairService>();
@@ -52,7 +57,10 @@ public static partial class GatewayApp
         {
             builder.Services.AddHostedService<StartupRepairHostedService>();
         }
-        builder.Services.AddHostedService<ChannelConnectorHostedService>();
+        builder.Services.AddSingleton<ChannelConnectorHostedService>();
+        builder.Services.AddHostedService(provider => provider.GetRequiredService<ChannelConnectorHostedService>());
+        builder.Services.AddSingleton<IChannelConnectorRegistry>(
+            provider => provider.GetRequiredService<ChannelConnectorHostedService>());
 
         builder.Services.AddKodaClawAutomation(options => options.Enabled = true);
         builder.Services.AddKodaClawChannelHub();
@@ -105,10 +113,12 @@ public static partial class GatewayApp
         MapAutomationEndpoints(app);
         MapPluginEndpoints(app);
         MapCanvasEndpoints(app);
+        MapSkillsEndpoints(app);
         MapApprovalEndpoints(app);
         MapSessionEndpoints(app);
         MapInboxEndpoints(app);
         MapChannelEndpoints(app);
+        MapWorkspaceEndpoints(app);
         MapRootEndpoint(app);
     }
 

@@ -95,6 +95,113 @@ public sealed class ChannelThreadSummaryWriterTests : IDisposable
         line.Length.Should().BeLessThan(200);
     }
 
+    [Fact]
+    public async Task Write_should_keep_at_most_60_lines_when_file_exceeds_window()
+    {
+        var binding = BuildBinding("binding-window-1");
+        var filePath = Path.Combine(
+            _workspaceRoot, "workspace", "channels", "binding-window-1", "SUMMARY.md");
+
+        // Write 65 entries
+        for (var i = 0; i < 65; i++)
+        {
+            await _writer.WriteAsync(binding, BuildOutcome(ChannelTurnOutcomeKind.Delivered, $"msg-{i}"));
+        }
+
+        var lines = await File.ReadAllLinesAsync(filePath);
+        lines.Where(l => l.Length > 0).Should().HaveCount(60);
+    }
+
+    [Fact]
+    public async Task Write_should_retain_tail_when_trimming()
+    {
+        var binding = BuildBinding("binding-window-2");
+        var filePath = Path.Combine(
+            _workspaceRoot, "workspace", "channels", "binding-window-2", "SUMMARY.md");
+
+        for (var i = 0; i < 62; i++)
+        {
+            await _writer.WriteAsync(binding, BuildOutcome(ChannelTurnOutcomeKind.Delivered, $"entry-{i}"));
+        }
+
+        var content = await File.ReadAllTextAsync(filePath);
+        content.Should().Contain("entry-61", because: "most recent entry must be retained after trim");
+        content.Should().NotContain("entry-0", because: "oldest entry must be removed after trim");
+    }
+
+    [Fact]
+    public async Task Write_should_not_trim_when_exactly_at_window_limit()
+    {
+        var binding = BuildBinding("binding-window-3");
+        var filePath = Path.Combine(
+            _workspaceRoot, "workspace", "channels", "binding-window-3", "SUMMARY.md");
+
+        for (var i = 0; i < 60; i++)
+        {
+            await _writer.WriteAsync(binding, BuildOutcome(ChannelTurnOutcomeKind.Delivered, $"msg-{i}"));
+        }
+
+        var lines = await File.ReadAllLinesAsync(filePath);
+        lines.Where(l => l.Length > 0).Should().HaveCount(60);
+        (await File.ReadAllTextAsync(filePath)).Should().Contain("msg-0");
+    }
+
+    // -----------------------------------------------------------------------
+    // KC-2206: Compression threshold tests (no LLM provider → fallback truncation)
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    public async Task Write_should_truncate_to_target_lines_when_exceeds_compression_threshold_without_llm()
+    {
+        // Arrange: use custom options with low threshold so we can trigger without 80+ entries.
+        var options = new KodaClaw.Runtime.ChannelSessionOptions
+        {
+            SummaryCompressionThreshold = 10,
+            SummaryCompressionTargetLines = 5,
+        };
+        // No IModelProvider injected → LLM path is skipped, falls back to truncation.
+        var writer = new ChannelThreadSummaryWriter(_workspaceMock.Object, options: options);
+
+        var binding = BuildBinding("binding-compress-1");
+        var filePath = Path.Combine(
+            _workspaceRoot, "workspace", "channels", "binding-compress-1", "SUMMARY.md");
+
+        // Write exactly threshold+1 entries so one compression pass fires and the file ends at targetLines.
+        for (var i = 0; i < 11; i++)
+        {
+            await writer.WriteAsync(binding, BuildOutcome(ChannelTurnOutcomeKind.Delivered, $"compress-msg-{i}"));
+        }
+
+        var lines = await File.ReadAllLinesAsync(filePath);
+        lines.Where(l => l.Length > 0).Should().HaveCount(5,
+            because: "when threshold is exceeded and no LLM provider is set, writer falls back to SummaryCompressionTargetLines truncation");
+    }
+
+    [Fact]
+    public async Task Write_should_retain_most_recent_entries_after_compression_fallback()
+    {
+        var options = new KodaClaw.Runtime.ChannelSessionOptions
+        {
+            SummaryCompressionThreshold = 8,
+            SummaryCompressionTargetLines = 4,
+        };
+        var writer = new ChannelThreadSummaryWriter(_workspaceMock.Object, options: options);
+
+        var binding = BuildBinding("binding-compress-2");
+        var filePath = Path.Combine(
+            _workspaceRoot, "workspace", "channels", "binding-compress-2", "SUMMARY.md");
+
+        // Write exactly threshold+1 (9) entries so one compression pass fires on the last write.
+        for (var i = 0; i < 9; i++)
+        {
+            await writer.WriteAsync(binding, BuildOutcome(ChannelTurnOutcomeKind.Delivered, $"compress-entry-{i}"));
+        }
+
+        var content = await File.ReadAllTextAsync(filePath);
+        content.Should().Contain("compress-entry-8", because: "most recent entry must survive compression fallback");
+        content.Should().NotContain("compress-entry-0", because: "oldest entry must be dropped after compression fallback");
+    }
+
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------

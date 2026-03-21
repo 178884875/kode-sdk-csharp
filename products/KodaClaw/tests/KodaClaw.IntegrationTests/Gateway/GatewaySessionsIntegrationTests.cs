@@ -241,6 +241,62 @@ public sealed class GatewaySessionsIntegrationTests
     }
 
     [Fact]
+    public async Task Sessions_rotate_should_require_token()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await SeedWorkspaceConfigAsync(workspace.Path, activeMainSessionId: "session-main-001");
+        await using var hosted = await StartRealWorkspaceGatewayAsync(workspace.Path);
+
+        var response = await hosted.Client.PostAsync("/api/sessions/rotate", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Sessions_rotate_should_clear_active_session_and_return_previous_id()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await SeedWorkspaceConfigAsync(workspace.Path, activeMainSessionId: "session-main-001");
+        await using var hosted = await StartRealWorkspaceGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "test-token");
+
+        var response = await hosted.Client.PostAsync("/api/sessions/rotate", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<RotateSessionResponse>();
+        payload.Should().NotBeNull();
+        payload!.Ok.Should().BeTrue();
+        payload.PreviousSessionId.Should().Be("session-main-001");
+
+        // Verify ActiveMainSessionId was cleared in workspace config
+        var services = new ServiceCollection();
+        services.AddKodaClawWorkspace(options => options.RootPath = workspace.Path);
+        using var provider = services.BuildServiceProvider();
+        var workspaceService = provider.GetRequiredService<IWorkspaceService>();
+        var appConfig = await workspaceService.LoadAppConfigAsync();
+        appConfig.ActiveMainSessionId.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
+    public async Task Sessions_rotate_should_return_null_previous_id_when_no_active_session()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await SeedWorkspaceConfigAsync(workspace.Path, activeMainSessionId: null);
+        await using var hosted = await StartRealWorkspaceGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "test-token");
+
+        var response = await hosted.Client.PostAsync("/api/sessions/rotate", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<RotateSessionResponse>();
+        payload.Should().NotBeNull();
+        payload!.Ok.Should().BeTrue();
+        payload.PreviousSessionId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Sessions_list_should_infer_channel_session_kind_from_channel_session_id()
     {
         using var workspace = new TempWorkspaceRoot();

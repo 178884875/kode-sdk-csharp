@@ -31,6 +31,8 @@ public sealed class MainSessionOptions
         "inbox_create",
         "inbox_read",
         "workspace_read",
+        "channel_send",
+        "channel_list",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =
@@ -59,6 +61,22 @@ public sealed class MainSessionOptions
         Mode = "auto",
         RequireApprovalTools = DefaultRequireApprovalTools,
     };
+
+    /// <summary>
+    /// Fraction of the model's context window at which compression is triggered.
+    /// </summary>
+    public double ContextCompressionTriggerRatio { get; init; } = 0.75;
+
+    /// <summary>
+    /// Fraction of the model's context window to compress down to.
+    /// </summary>
+    public double ContextCompressionTargetRatio { get; init; } = 0.40;
+
+    /// <summary>
+    /// Assumed context window size (tokens) used to compute compression thresholds.
+    /// Conservative default of 128k covers all modern OpenAI and Anthropic models.
+    /// </summary>
+    public int DefaultContextWindowSize { get; init; } = 128_000;
 }
 
 public interface IMainSessionAgentDependenciesFactory

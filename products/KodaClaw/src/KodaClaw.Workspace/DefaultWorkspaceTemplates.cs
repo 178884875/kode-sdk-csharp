@@ -16,6 +16,12 @@ public static class DefaultWorkspaceTemplates
 - Use canvas_upsert to publish reports, task boards, or structured results the user can view in Canvas.
 - Use inbox_create to proactively notify the user of findings or decisions that require their attention.
 - Use inbox_read to review what is currently in the Inbox before summarizing or acting on pending items.
+
+## Skills
+- Use skill_list to discover available skills from all configured paths.
+- Use skill_activate to load a skill's full instructions into the current session context.
+- Use skill_resource to access a skill's reference documents or asset files.
+- To create a new skill, write a SKILL.md file to workspace/skills/<skill-name>/SKILL.md using fs_write, then use skill_list to verify discovery.
 """;
 
     public static string Identity() => """
@@ -75,7 +81,14 @@ public static class DefaultWorkspaceTemplates
     Merge new facts with existing ones, remove duplicates, generalize recurring patterns,
     and discard transient details. Use workspace_protocol_update with target=memory
     to overwrite MEMORY.md with the updated consolidated content.
-- enabled: false
+
+    Retention rule: keep high-signal facts from the past 90 days. Remove entries that are
+    superseded by newer facts, transient (task-specific, no longer relevant), or exact
+    duplicates. Target size: under 200 lines.
+
+    After successfully writing MEMORY.md, use fs_rm to delete today's daily log file
+    (memory/YYYY-MM-DD.md). Also delete any daily log files older than 7 days.
+- enabled: true
 - inputs:
   - MEMORY.md
   - memory/YYYY-MM-DD.md

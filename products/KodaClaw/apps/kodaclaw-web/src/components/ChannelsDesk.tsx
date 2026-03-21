@@ -1,10 +1,14 @@
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
+  createChannelAccount,
+  deleteChannelAccount,
   fetchChannelAccounts,
   fetchChannelConnectors,
   fetchChannelThreadAudit,
   fetchChannelThreadDetail,
   fetchChannelThreads,
+  testTelegramToken,
+  updateChannelAccount,
   updateThreadSettings,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
@@ -15,6 +19,7 @@ import type {
   ChannelConnectorKind,
   ChannelThreadDetail,
   ChannelThreadSummary,
+  CreateChannelAccountRequest,
   DeliveryMode,
   ChannelTurnOutcomeKind,
   SessionKind,
@@ -327,6 +332,19 @@ export function ChannelsDesk() {
   const [updatingDelivery, setUpdatingDelivery] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Add channel form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addFormStep, setAddFormStep] = useState<1 | 2 | 3 | 4>(1);
+  const [addFormConnectorKind, setAddFormConnectorKind] = useState<ChannelConnectorKind>("Telegram");
+  const [addFormDisplayName, setAddFormDisplayName] = useState("");
+  const [addFormBotToken, setAddFormBotToken] = useState("");
+  const [addFormWebhookPath, setAddFormWebhookPath] = useState("");
+  const [addFormDeliveryMode, setAddFormDeliveryMode] = useState<DeliveryMode>("RequireApproval");
+  const [addFormTelegramTestResult, setAddFormTelegramTestResult] = useState<string | null>(null);
+  const [addFormTesting, setAddFormTesting] = useState(false);
+  const [addFormSaving, setAddFormSaving] = useState(false);
+  const [addFormError, setAddFormError] = useState<string | null>(null);
+
   const listRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
 
@@ -588,8 +606,109 @@ export function ChannelsDesk() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connectorFilter, accountFilter]);
 
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void loadDesk("refresh");
+    }, 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectorFilter, accountFilter]);
+
   async function handleRefresh() {
     await loadDesk("refresh");
+  }
+
+  function handleOpenAddForm() {
+    setShowAddForm(true);
+    setAddFormStep(1);
+    setAddFormConnectorKind("Telegram");
+    setAddFormDisplayName("");
+    setAddFormBotToken("");
+    setAddFormWebhookPath("");
+    setAddFormDeliveryMode("RequireApproval");
+    setAddFormTelegramTestResult(null);
+    setAddFormTesting(false);
+    setAddFormSaving(false);
+    setAddFormError(null);
+  }
+
+  function handleCancelAddForm() {
+    setShowAddForm(false);
+  }
+
+  async function handleTestTelegramToken() {
+    if (!addFormBotToken.trim()) {
+      return;
+    }
+
+    setAddFormTesting(true);
+    setAddFormTelegramTestResult(null);
+    setAddFormError(null);
+
+    try {
+      const result = await testTelegramToken(addFormBotToken.trim());
+      if (result.ok) {
+        setAddFormTelegramTestResult(`@${result.botUsername ?? "unknown"} · ${result.botName ?? ""}`);
+        setAddFormStep(3);
+      } else {
+        setAddFormError(result.error ?? "Token verification failed.");
+      }
+    } catch (nextError) {
+      setAddFormError(nextError instanceof Error ? nextError.message : "Token verification failed.");
+    } finally {
+      setAddFormTesting(false);
+    }
+  }
+
+  async function handleSaveChannelAccount() {
+    setAddFormSaving(true);
+    setAddFormError(null);
+
+    try {
+      const accountId = `account-${Date.now()}`;
+      let configurationJson: string | undefined;
+
+      if (addFormConnectorKind === "Telegram" && addFormBotToken.trim()) {
+        configurationJson = JSON.stringify({ botToken: addFormBotToken.trim() });
+      } else if (addFormConnectorKind === "GenericWebhook" && addFormWebhookPath.trim()) {
+        configurationJson = JSON.stringify({ webhookPath: addFormWebhookPath.trim() });
+      }
+
+      const request: CreateChannelAccountRequest = {
+        id: accountId,
+        connectorKind: addFormConnectorKind,
+        displayName: addFormDisplayName.trim() || (addFormConnectorKind === "Telegram" ? `Telegram Bot` : `Webhook`),
+        configurationJson,
+        inboundEnabled: true,
+      };
+
+      await createChannelAccount(request);
+      setShowAddForm(false);
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setAddFormError(nextError instanceof Error ? nextError.message : "Failed to create channel account.");
+    } finally {
+      setAddFormSaving(false);
+    }
+  }
+
+  async function handleDeleteAccount(accountId: string) {
+    try {
+      await deleteChannelAccount(accountId);
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to delete channel account.");
+    }
+  }
+
+  async function handleToggleAccount(account: ChannelAccount) {
+    try {
+      await updateChannelAccount(account.id, { enabled: !account.inboundEnabled });
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to update channel account.");
+    }
   }
 
   async function handleSelectThread(bindingId: string) {
@@ -629,6 +748,20 @@ export function ChannelsDesk() {
           }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
+        </button>
+        {isRefreshing ? (
+          <span className="composer__status" data-testid="channels-refresh-indicator">
+            {text.refreshing}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="secondary-button"
+          data-testid="channel-add-btn"
+          disabled={isLoadingList}
+          onClick={handleOpenAddForm}
+        >
+          + Add Channel
         </button>
 
         <label className="metric-label" htmlFor="channels-connector-filter">
@@ -711,11 +844,225 @@ export function ChannelsDesk() {
                 <span className="metric-label">
                   {text.updatedAt(formatDateTime(account.updatedAt, text.unavailable))}
                 </span>
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    data-testid={`channel-account-toggle-${account.id}`}
+                    onClick={() => { void handleToggleAccount(account); }}
+                  >
+                    {account.inboundEnabled ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    data-testid={`channel-account-delete-${account.id}`}
+                    onClick={() => { void handleDeleteAccount(account.id); }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </article>
             ))}
 
             {!isLoadingList && connectors.length === 0 && accounts.length === 0 ? (
               <p className="timeline__empty">{text.emptyConnectors}</p>
+            ) : null}
+
+            {showAddForm ? (
+              <div className="metric-item" data-testid="channel-config-form" style={{ marginTop: 12 }}>
+                <span className="metric-label">Add Channel — Step {addFormStep}/4</span>
+
+                {addFormStep === 1 ? (
+                  <>
+                    <label className="metric-label" htmlFor="channel-form-kind">
+                      Connector type
+                    </label>
+                    <select
+                      id="channel-form-kind"
+                      className="bootstrap-form__textarea"
+                      value={addFormConnectorKind}
+                      onChange={(e) => setAddFormConnectorKind(e.target.value as ChannelConnectorKind)}
+                    >
+                      <option value="Telegram">Telegram</option>
+                      <option value="GenericWebhook">Generic Webhook</option>
+                    </select>
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setAddFormStep(2)}
+                      >
+                        Next
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleCancelAddForm}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : addFormStep === 2 ? (
+                  <>
+                    {addFormConnectorKind === "Telegram" ? (
+                      <>
+                        <label className="metric-label" htmlFor="channel-form-bot-token">
+                          Bot token
+                        </label>
+                        <input
+                          id="channel-form-bot-token"
+                          className="bootstrap-form__textarea"
+                          type="password"
+                          value={addFormBotToken}
+                          onChange={(e) => setAddFormBotToken(e.target.value)}
+                          placeholder="123456789:ABC..."
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <label className="metric-label" htmlFor="channel-form-webhook-path">
+                          Webhook path
+                        </label>
+                        <input
+                          id="channel-form-webhook-path"
+                          className="bootstrap-form__textarea"
+                          type="text"
+                          value={addFormWebhookPath}
+                          onChange={(e) => setAddFormWebhookPath(e.target.value)}
+                          placeholder="/my-webhook"
+                        />
+                      </>
+                    )}
+                    {addFormError ? (
+                      <span className="metric-value" style={{ color: "var(--color-error, red)" }}>
+                        {addFormError}
+                      </span>
+                    ) : null}
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      {addFormConnectorKind === "Telegram" ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={addFormTesting || !addFormBotToken.trim()}
+                          onClick={() => { void handleTestTelegramToken(); }}
+                        >
+                          {addFormTesting ? "Verifying..." : "Verify Token"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => setAddFormStep(3)}
+                        >
+                          Next
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => { setAddFormStep(1); setAddFormError(null); }}
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleCancelAddForm}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {addFormTelegramTestResult ? (
+                      <span className="metric-value">{addFormTelegramTestResult}</span>
+                    ) : null}
+                  </>
+                ) : addFormStep === 3 ? (
+                  <>
+                    <label className="metric-label" htmlFor="channel-form-delivery-rule">
+                      Delivery rule
+                    </label>
+                    <select
+                      id="channel-form-delivery-rule"
+                      className="bootstrap-form__textarea"
+                      data-testid="channel-delivery-rule-select"
+                      value={addFormDeliveryMode}
+                      onChange={(e) => setAddFormDeliveryMode(e.target.value as DeliveryMode)}
+                    >
+                      <option value="AutoSend">Auto send</option>
+                      <option value="DraftApproval">Draft approval</option>
+                      <option value="RequireApproval">Require approval</option>
+                    </select>
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setAddFormStep(4)}
+                      >
+                        Next
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setAddFormStep(2)}
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleCancelAddForm}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="metric-label" htmlFor="channel-form-display-name">
+                      Display name
+                    </label>
+                    <input
+                      id="channel-form-display-name"
+                      className="bootstrap-form__textarea"
+                      type="text"
+                      value={addFormDisplayName}
+                      onChange={(e) => setAddFormDisplayName(e.target.value)}
+                      placeholder="My Telegram Bot"
+                    />
+                    {addFormError ? (
+                      <span className="metric-value" style={{ color: "var(--color-error, red)" }}>
+                        {addFormError}
+                      </span>
+                    ) : null}
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        disabled={addFormSaving}
+                        onClick={() => { void handleSaveChannelAccount(); }}
+                      >
+                        {addFormSaving ? "Saving..." : "Save"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setAddFormStep(3)}
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={handleCancelAddForm}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             ) : null}
           </div>
         </section>

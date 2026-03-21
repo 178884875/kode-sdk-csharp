@@ -149,6 +149,8 @@ public sealed class SqliteInboxRepositoryTests
             return Path.Combine(RootPath, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         }
 
+        public IReadOnlyList<string> GetSkillsPaths() => [];
+
         private WorkspaceSnapshot CreateSnapshot(bool initialized = false)
         {
             return new WorkspaceSnapshot(
