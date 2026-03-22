@@ -78,6 +78,28 @@ public sealed class AnthropicProvider : IModelProvider
                 continue;
             }
 
+            // Fallback: SDK 12.9.0+ requires a "caller" field in tool_use content blocks
+            // that Anthropic-compatible APIs (e.g. BigModel/ZhiPu) do not include.
+            // When TryPickContentBlockStart fails, try parsing the raw JSON to detect tool_use.
+            if (TryParseRawToolUseContentBlockStart(evt.Json, out var rawIndex, out var rawId, out var rawName))
+            {
+                toolIdMap[rawIndex] = rawId;
+                toolNameMap[rawIndex] = rawName;
+                toolInputBuilders[rawIndex] = new System.Text.StringBuilder();
+
+                yield return new StreamChunk
+                {
+                    Type = StreamChunkType.ToolUseStart,
+                    ToolUse = new ToolUseChunk
+                    {
+                        Id = rawId,
+                        Name = rawName
+                    }
+                };
+
+                continue;
+            }
+
             // Handle content block delta
             if (evt.TryPickContentBlockDelta(out var deltaEvent))
             {
@@ -422,6 +444,43 @@ public sealed class AnthropicProvider : IModelProvider
             },
             Model = response.Model ?? ""
         };
+    }
+
+    /// <summary>
+    /// Fallback parser for tool_use content_block_start events from Anthropic-compatible APIs
+    /// (e.g. BigModel/ZhiPu) that omit the "caller" field required by Anthropic SDK 12.9.0+.
+    /// When TryPickContentBlockStart fails to parse such events, this reads the raw JSON directly.
+    /// </summary>
+    private static bool TryParseRawToolUseContentBlockStart(
+        JsonElement rawJson,
+        out long index,
+        out string toolUseId,
+        out string toolUseName)
+    {
+        index = 0;
+        toolUseId = string.Empty;
+        toolUseName = string.Empty;
+
+        if (rawJson.ValueKind != JsonValueKind.Object)
+            return false;
+        if (!rawJson.TryGetProperty("type", out var typeEl) ||
+            typeEl.GetString() != "content_block_start")
+            return false;
+        if (!rawJson.TryGetProperty("content_block", out var contentBlock))
+            return false;
+        if (!contentBlock.TryGetProperty("type", out var blockType) ||
+            blockType.GetString() != "tool_use")
+            return false;
+        if (!rawJson.TryGetProperty("index", out var indexEl))
+            return false;
+
+        index = indexEl.GetInt64();
+        if (contentBlock.TryGetProperty("id", out var idEl))
+            toolUseId = idEl.GetString() ?? string.Empty;
+        if (contentBlock.TryGetProperty("name", out var nameEl))
+            toolUseName = nameEl.GetString() ?? string.Empty;
+
+        return true;
     }
 }
 
