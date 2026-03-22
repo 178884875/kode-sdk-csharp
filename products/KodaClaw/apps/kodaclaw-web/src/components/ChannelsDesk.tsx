@@ -12,6 +12,9 @@ import {
   updateThreadSettings,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Radio } from "lucide-react";
 import type {
   ChannelAccount,
   ChannelAuditEntry,
@@ -31,13 +34,6 @@ type AccountFilter = "all" | string;
 const THREAD_LIMIT = 80;
 const AUDIT_LIMIT = 20;
 
-const toolbarStyle: CSSProperties = {
-  marginTop: 12,
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
 
 const connectorSelectStyle: CSSProperties = {
   minWidth: 180,
@@ -66,11 +62,6 @@ const threadListStyle: CSSProperties = {
   overflow: "auto",
 };
 
-const threadButtonStyle: CSSProperties = {
-  textAlign: "left",
-  borderRadius: 18,
-  padding: "12px 14px",
-};
 
 const detailPanelStyle: CSSProperties = {
   marginTop: 16,
@@ -732,12 +723,11 @@ export function ChannelsDesk() {
   }
 
   return (
-    <section className="bootstrap-panel" data-testid="channels-desk">
-      <div className="section-eyebrow">{text.eyebrow}</div>
-      <h2 className="section-title">{text.title}</h2>
-      <p className="section-copy">{text.copy}</p>
+    <section className="" data-testid="channels-desk">
+      <h2 className="desk-section-title">{text.title}</h2>
+      <p className="desk-section-desc">{text.copy}</p>
 
-      <div className="channels-desk__toolbar" style={toolbarStyle}>
+      <div className="channels-desk__toolbar">
         <button
           type="button"
           className="secondary-button"
@@ -811,7 +801,7 @@ export function ChannelsDesk() {
       </div>
 
       {error ? (
-        <p className="bootstrap-panel__feedback bootstrap-panel__feedback--error" data-testid="channels-error">
+        <p className="__feedback __feedback--error" data-testid="channels-error">
           {error}
         </p>
       ) : null}
@@ -819,7 +809,7 @@ export function ChannelsDesk() {
       <div className="channels-desk__layout" style={splitLayoutStyle}>
         <section className="timeline" data-testid="channels-connectors-accounts">
           <div className="timeline__header">
-            <h3 className="section-title">{text.connectorsTitle}</h3>
+            <h3 className="desk-section-title">{text.connectorsTitle}</h3>
             <span className="composer__status">{text.connectorsCount(connectors.length)}</span>
           </div>
           <div className="timeline__body" style={connectorsBodyStyle}>
@@ -865,8 +855,9 @@ export function ChannelsDesk() {
               </article>
             ))}
 
+            {isLoadingList ? <Skeleton height={52} count={3} /> : null}
             {!isLoadingList && connectors.length === 0 && accounts.length === 0 ? (
-              <p className="timeline__empty">{text.emptyConnectors}</p>
+              <EmptyState icon={<Radio size={28} strokeWidth={1.5} />} title={text.emptyConnectors} />
             ) : null}
 
             {showAddForm ? (
@@ -1068,8 +1059,7 @@ export function ChannelsDesk() {
         </section>
 
         <section className="status-card status-card--normal" data-testid="channels-threads">
-          <p className="section-eyebrow">{text.threadEyebrow}</p>
-          <h3 className="section-title">{text.threadTitle}</h3>
+          <h3 className="desk-section-title">{text.threadTitle}</h3>
 
           <div className="channels-desk__thread-list" style={threadListStyle}>
             {threads.map((thread) => {
@@ -1078,13 +1068,12 @@ export function ChannelsDesk() {
                 <button
                   key={thread.bindingId}
                   type="button"
-                  className="secondary-button"
+                  className="secondary-button channel-thread-btn"
                   data-testid={`channel-thread-select-${thread.bindingId}`}
                   aria-pressed={selected}
                   onClick={() => {
                     void handleSelectThread(thread.bindingId);
                   }}
-                  style={threadButtonStyle}
                 >
                   <div className="message__meta">
                     <span className="message__role">{thread.connectorKind}</span>
@@ -1098,15 +1087,15 @@ export function ChannelsDesk() {
             })}
 
             {!isLoadingList && threads.length === 0 ? (
-              <p className="section-copy" data-testid="channels-empty">
-                {text.emptyThreads}
-              </p>
+              <div data-testid="channels-empty">
+                <EmptyState icon={<Radio size={28} strokeWidth={1.5} />} title={text.emptyThreads} />
+              </div>
             ) : null}
           </div>
 
           <div className="channels-desk__detail-panel" style={detailPanelStyle} data-testid="channel-thread-detail">
             {isLoadingDetail ? (
-              <p className="section-copy">{text.loadingDetail}</p>
+              <Skeleton height={52} count={3} />
             ) : threadDetail && selectedThread ? (
               <>
                 <div className="metric-item">
@@ -1206,7 +1195,7 @@ export function ChannelsDesk() {
                 </div>
               </>
             ) : (
-              <p className="section-copy">{text.emptyDetail}</p>
+              <EmptyState icon={<Radio size={28} strokeWidth={1.5} />} title={text.emptyDetail} />
             )}
           </div>
         </section>

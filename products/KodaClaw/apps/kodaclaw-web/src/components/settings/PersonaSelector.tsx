@@ -1,16 +1,32 @@
 import { useState, useEffect } from 'react';
 import type { PersonaPreset } from '../../types/contracts';
 import { fetchPersonaPresets, applyPersonaPreset } from '../../lib/api';
+import { useLocaleText } from '../../i18n/I18nProvider';
 
-interface Props {
-  onNext: (presetId: string) => void;
-  onSkip: () => void;
-}
+type PersonaSelectorProps = {
+  onSelect: (soulMarkdown: string) => void;
+  onDismiss: () => void;
+};
 
-export function PersonaStep({ onNext, onSkip }: Props) {
+export function PersonaSelector({ onSelect, onDismiss }: PersonaSelectorProps) {
   const [presets, setPresets] = useState<PersonaPreset[]>([]);
   const [selected, setSelected] = useState<PersonaPreset | null>(null);
   const [applying, setApplying] = useState(false);
+
+  const text = useLocaleText({
+    zh: {
+      previewTitle: '核心准则预览',
+      applying: '应用中...',
+      applyLabel: (name: string) => `使用「${name}」风格 →`,
+      cancel: '取消',
+    },
+    en: {
+      previewTitle: 'Core principles preview',
+      applying: 'Applying...',
+      applyLabel: (name: string) => `Use "${name}" style →`,
+      cancel: 'Cancel',
+    },
+  });
 
   useEffect(() => {
     fetchPersonaPresets().then(setPresets).catch(() => {});
@@ -21,19 +37,16 @@ export function PersonaStep({ onNext, onSkip }: Props) {
     setApplying(true);
     try {
       await applyPersonaPreset(selected.presetId);
-      onNext(selected.presetId);
     } catch {
-      onNext(selected.presetId);
+      // best-effort; caller still receives the markdown
     } finally {
       setApplying(false);
     }
+    onSelect(selected.soulMarkdown);
   };
 
   return (
-    <div className="onboarding-step" data-testid="onboarding-step-persona">
-      <h1 className="onboarding-step-title">选择 Koda 的风格</h1>
-      <p className="onboarding-step-desc">选择一种和你最搭的沟通风格，之后可以随时调整</p>
-
+    <div data-testid="persona-selector">
       <div className="persona-grid">
         {presets.map(preset => (
           <div
@@ -50,10 +63,9 @@ export function PersonaStep({ onNext, onSkip }: Props) {
                 <span key={tag} className="persona-tag">{tag}</span>
               ))}
             </div>
-
             {selected?.presetId === preset.presetId && (
               <div className="persona-preview" data-testid="persona-preview">
-                <div className="persona-preview-title">核心准则预览</div>
+                <div className="persona-preview-title">{text.previewTitle}</div>
                 <div className="persona-preview-content">
                   {preset.soulMarkdown.split('\n').filter(l => l.startsWith('-')).slice(0, 5).map((l, i) => (
                     <div key={i} className="persona-preview-bullet">{l}</div>
@@ -65,24 +77,21 @@ export function PersonaStep({ onNext, onSkip }: Props) {
         ))}
       </div>
 
-      {selected && (
-        <button
-          className="onboarding-next-btn apply-persona-btn"
-          data-testid="apply-persona-btn"
-          onClick={() => void handleApply()}
-          disabled={applying}
-        >
-          {applying ? '应用中...' : `使用「${selected.displayName}」风格 →`}
+      <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+        {selected && (
+          <button
+            className="onboarding-next-btn"
+            data-testid="apply-persona-btn"
+            onClick={() => void handleApply()}
+            disabled={applying}
+          >
+            {applying ? text.applying : text.applyLabel(selected.displayName)}
+          </button>
+        )}
+        <button className="onboarding-skip-step-btn" onClick={onDismiss}>
+          {text.cancel}
         </button>
-      )}
-
-      <button
-        className="onboarding-skip-step-btn"
-        data-testid="skip-to-bootstrap-btn"
-        onClick={onSkip}
-      >
-        让 Koda 自己来了解我（通过 Bootstrap 对话决定）
-      </button>
+      </div>
     </div>
   );
 }

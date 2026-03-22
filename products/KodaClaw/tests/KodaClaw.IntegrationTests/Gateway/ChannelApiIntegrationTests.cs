@@ -565,6 +565,17 @@ public sealed class ChannelApiIntegrationTests
                 MessageId = 1,
             });
         }
+
+        public Task<TelegramSendMessageResult> SendPhotoAsync(
+            string botToken,
+            long chatId,
+            Stream photo,
+            string contentType,
+            string? caption,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 2 });
+        }
     }
 
     private static TelegramUpdate CreateDirectMessageUpdate(int updateId, int messageId, string text)

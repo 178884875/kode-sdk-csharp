@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
@@ -15,18 +16,21 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly ChannelSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
+    private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
         IWorkspaceService workspaceService,
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         ChannelSessionOptions? options = null,
-        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null)
+        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
+        IModelRegistryRepository? modelRegistryRepository = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new ChannelSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
+        _modelRegistryRepository = modelRegistryRepository;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -68,7 +72,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
-            var configuredModel = ResolveConfiguredModel();
+            var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
@@ -127,7 +131,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             }
         }
 
-        var initialModel = ResolveConfiguredModel();
+        var initialModel = await ResolveConfiguredModelAsync(cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             binding.SessionId,
             CreateAgentConfig(sessionDirectory, systemPrompt, initialModel),
@@ -297,12 +301,12 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         };
     }
 
-    private string ResolveConfiguredModel()
-    {
-        return RuntimeProviderSelector.ResolveModelOrThrow(
+    private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
+        RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
-            _options.Model);
-    }
+            _options.Model,
+            _modelRegistryRepository,
+            cancellationToken);
 
     private PromptBuildResult BuildSystemPrompt(
         ThreadBinding binding,

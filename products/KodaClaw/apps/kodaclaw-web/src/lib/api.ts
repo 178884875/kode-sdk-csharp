@@ -49,6 +49,7 @@ import {
   type PluginTrustState,
   type PluginType,
   type RotateSessionResponse,
+  type ResumeSessionResponse,
   type SessionDetail,
   type SessionsQueryResponse,
   type UpdateAutomationDefinitionRequest,
@@ -609,6 +610,14 @@ export async function rotateSession(signal?: AbortSignal): Promise<RotateSession
   });
 }
 
+export async function resumeSession(id: string, signal?: AbortSignal): Promise<ResumeSessionResponse> {
+  return requestJson<ResumeSessionResponse>(`/api/sessions/${id}/resume`, {
+    method: "POST",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
 export async function fetchDiagnosticsRecent(
   query?: {
     limit?: number;
@@ -816,6 +825,14 @@ export async function saveSettings(
   });
 }
 
+export async function setAutomationsEnabled(
+  enabled: boolean,
+  signal?: AbortSignal,
+): Promise<KodaClawSettings> {
+  const current = await fetchSettings(signal);
+  return saveSettings({ ...current, automationsEnabled: enabled }, signal);
+}
+
 export type ParseSseFramesOptions = {
   flushTrailing?: boolean;
 };
@@ -962,6 +979,33 @@ export async function resetOnboarding(signal?: AbortSignal): Promise<OnboardingS
   return requestJson<OnboardingState>("/api/onboarding/reset", {
     method: "POST",
     headers: buildHeaders(),
+    signal,
+  });
+}
+
+// ===== Workspace File API =====
+
+export type WorkspaceFileTarget = 'identity' | 'soul' | 'user' | 'memory' | 'heartbeat';
+
+export async function fetchWorkspaceFile(
+  target: WorkspaceFileTarget,
+  signal?: AbortSignal,
+): Promise<{ target: string; content: string }> {
+  return requestJson<{ target: string; content: string }>(
+    `/api/workspace/file?target=${encodeURIComponent(target)}`,
+    { headers: buildHeaders(), signal },
+  );
+}
+
+export async function updateWorkspaceFile(
+  target: WorkspaceFileTarget,
+  content: string,
+  signal?: AbortSignal,
+): Promise<{ target: string; content: string }> {
+  return requestJson<{ target: string; content: string }>(`/api/workspace/file?target=${encodeURIComponent(target)}`, {
+    method: "PUT",
+    headers: buildHeaders(true),
+    body: JSON.stringify({ content }),
     signal,
   });
 }

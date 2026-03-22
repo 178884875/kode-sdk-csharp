@@ -44,7 +44,8 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient(nameof(AnthropicProvider))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler());
         services.TryAddSingleton<IRuntimeModelProviderFactory, DefaultRuntimeModelProviderFactory>();
-        services.TryAddSingleton<IModelProvider, DynamicModelProvider>();
+        services.TryAddSingleton<DynamicModelProvider>();
+        services.TryAddSingleton<IModelProvider, RegistryAwareModelProvider>();
 
         services.AddAgentSdk();
 
@@ -106,6 +107,13 @@ public static class ServiceCollectionExtensions
             {
                 toolRegistry.Register("channel_list",
                     _ => new ChannelListTool(bindingRepository));
+            }
+
+            var generationService = sp.GetService<KodaClaw.ModelHub.IGenerationService>();
+            if (generationService is not null)
+            {
+                toolRegistry.Register("generate_image",
+                    _ => new GenerateImageTool(generationService, workspaceService, canvasRepository));
             }
 
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies

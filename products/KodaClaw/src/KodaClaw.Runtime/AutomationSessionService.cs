@@ -1,5 +1,6 @@
 using System.Text;
 using KodaClaw.Contracts;
+using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
@@ -23,18 +24,21 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly AutomationSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
+    private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public AutomationSessionService(
         IWorkspaceService workspaceService,
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         AutomationSessionOptions? options = null,
-        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null)
+        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
+        IModelRegistryRepository? modelRegistryRepository = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new AutomationSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
+        _modelRegistryRepository = modelRegistryRepository;
     }
 
     public async Task<AutomationSessionHandle> StartAutomationSessionAsync(
@@ -55,7 +59,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
-        var configuredModel = ResolveConfiguredModel();
+        var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
         var agent = await AgentRuntime.CreateAsync(
             sessionId,
             CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel),
@@ -238,12 +242,12 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         };
     }
 
-    private string ResolveConfiguredModel()
-    {
-        return RuntimeProviderSelector.ResolveModelOrThrow(
+    private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
+        RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
-            _options.Model);
-    }
+            _options.Model,
+            _modelRegistryRepository,
+            cancellationToken);
 
     private PromptBuildResult BuildSystemPrompt(
         AutomationDefinition definition,

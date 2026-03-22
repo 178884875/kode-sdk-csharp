@@ -76,6 +76,7 @@ public enum MessageRole
 [JsonDerivedType(typeof(ToolUseContent), "tool_use")]
 [JsonDerivedType(typeof(ToolResultContent), "tool_result")]
 [JsonDerivedType(typeof(ThinkingContent), "thinking")]
+[JsonDerivedType(typeof(ImageContent), "image")]
 public abstract record ContentBlock
 {
     /// <summary>
@@ -135,6 +136,49 @@ public record ToolUseContent : ContentBlock
     /// Input arguments for the tool.
     /// </summary>
     public required object Input { get; init; }
+}
+
+/// <summary>
+/// Image content block (user-provided image for vision models).
+/// Supports both URL-referenced images and base64-encoded data.
+/// </summary>
+public record ImageContent : ContentBlock
+{
+    /// <inheritdoc />
+    public override string Type => "image";
+
+    /// <summary>
+    /// The media type of the image (e.g. "image/png", "image/jpeg").
+    /// Required when <see cref="Data"/> is provided; ignored when <see cref="Url"/> is set.
+    /// </summary>
+    public string? MediaType { get; init; }
+
+    /// <summary>
+    /// Base64-encoded image data. Mutually exclusive with <see cref="Url"/>.
+    /// </summary>
+    public string? Data { get; init; }
+
+    /// <summary>
+    /// URL of the image. Mutually exclusive with <see cref="Data"/>.
+    /// </summary>
+    public string? Url { get; init; }
+
+    /// <summary>
+    /// Creates an image content block from base64 data.
+    /// </summary>
+    public static ImageContent FromBase64(string mediaType, string base64Data) => new()
+    {
+        MediaType = mediaType,
+        Data = base64Data
+    };
+
+    /// <summary>
+    /// Creates an image content block from a URL.
+    /// </summary>
+    public static ImageContent FromUrl(string url) => new()
+    {
+        Url = url
+    };
 }
 
 /// <summary>

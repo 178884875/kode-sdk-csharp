@@ -4,10 +4,14 @@ import {
   fetchAutomations,
   fetchSessionDetail,
   fetchSettings,
+  setAutomationsEnabled,
   triggerAutomation,
   updateAutomationDefinition,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Zap } from "lucide-react";
 import type {
   AutomationDefinition,
   AutomationDefinitionSource,
@@ -21,13 +25,6 @@ type SourceFilter = "all" | AutomationDefinitionSource;
 
 const SOURCE_FILTER_OPTIONS: AutomationDefinitionSource[] = ["Manual", "Heartbeat"];
 
-const toolbarStyle: CSSProperties = {
-  marginTop: 12,
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: 10,
-};
 
 const selectStyle: CSSProperties = {
   minWidth: 160,
@@ -208,6 +205,8 @@ export function AutomationsDesk() {
       triggering: "执行中...",
       triggerError: "触发自动化失败。",
       engineDisabledBanner: "自动化引擎当前已关闭。前往设置页启用「启用自动化引擎」后，所有已开启的自动化才会按计划执行。",
+      engineEnabled: "已启用",
+      engineDisabled: "已禁用",
     },
     en: {
       eyebrow: "Control Plane",
@@ -321,6 +320,8 @@ export function AutomationsDesk() {
       triggering: "Running...",
       triggerError: "Failed to trigger automation.",
       engineDisabledBanner: "The automations engine is currently disabled. Go to Settings and enable \"Automations engine enabled\" so scheduled automations can run.",
+      engineEnabled: "Enabled",
+      engineDisabled: "Disabled",
     },
   });
 
@@ -339,6 +340,7 @@ export function AutomationsDesk() {
   const [error, setError] = useState<string | null>(null);
   const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
   const [automationsEngineEnabled, setAutomationsEngineEnabled] = useState<boolean | null>(null);
+  const [isTogglingEngine, setIsTogglingEngine] = useState(false);
 
   const listRequestIdRef = useRef(0);
   const runsRequestIdRef = useRef(0);
@@ -615,11 +617,24 @@ export function AutomationsDesk() {
     path.endsWith("/MEMORY.md") || path === "workspace/MEMORY.md",
   ) ?? false;
 
+  async function handleToggleEngine() {
+    if (automationsEngineEnabled === null || isTogglingEngine) return;
+    setIsTogglingEngine(true);
+    try {
+      const next = !automationsEngineEnabled;
+      await setAutomationsEnabled(next);
+      setAutomationsEngineEnabled(next);
+    } catch {
+      // Keep current state on failure
+    } finally {
+      setIsTogglingEngine(false);
+    }
+  }
+
   return (
-    <section className="bootstrap-panel" data-testid="automations-desk">
-      <div className="section-eyebrow">{text.eyebrow}</div>
-      <h2 className="section-title">{text.title}</h2>
-      <p className="section-copy">{text.copy}</p>
+    <section className="" data-testid="automations-desk">
+      <h2 className="desk-section-title">{text.title}</h2>
+      <p className="desk-section-desc">{text.copy}</p>
 
       {automationsEngineEnabled === false && (
         <div
@@ -631,7 +646,7 @@ export function AutomationsDesk() {
         </div>
       )}
 
-      <div className="automations-desk__toolbar" style={toolbarStyle}>
+      <div className="automations-desk__toolbar">
         <button
           type="button"
           className="secondary-button"
@@ -677,11 +692,26 @@ export function AutomationsDesk() {
             </option>
           ))}
         </select>
+
+        {automationsEngineEnabled !== null && (
+          <label className="automations-engine-toggle" data-testid="automations-engine-toggle">
+            <input
+              type="checkbox"
+              checked={automationsEngineEnabled}
+              disabled={isTogglingEngine}
+              onChange={() => { void handleToggleEngine(); }}
+              aria-label={automationsEngineEnabled ? text.engineEnabled : text.engineDisabled}
+            />
+            <span className="automations-engine-toggle__label">
+              {automationsEngineEnabled ? text.engineEnabled : text.engineDisabled}
+            </span>
+          </label>
+        )}
       </div>
 
       {error ? (
         <p
-          className="bootstrap-panel__feedback bootstrap-panel__feedback--error"
+          className="__feedback __feedback--error"
           data-testid="automations-error"
         >
           {error}
@@ -691,16 +721,16 @@ export function AutomationsDesk() {
       <div className="automations-desk__layout" style={splitLayoutStyle}>
         <section className="timeline" data-testid="automations-list">
           <div className="timeline__header">
-            <h3 className="section-title">{text.indexTitle}</h3>
+            <h3 className="desk-section-title">{text.indexTitle}</h3>
             <span className="composer__status">
               {isLoadingList ? text.loadingList : text.loaded(automations.length)}
             </span>
           </div>
 
           <div className="timeline__body automations-desk__list-body" style={listBodyStyle}>
-            {isLoadingList ? <p className="timeline__empty">{text.loadingList}</p> : null}
+            {isLoadingList ? <Skeleton height={52} count={3} /> : null}
             {!isLoadingList && automations.length === 0 ? (
-              <p className="timeline__empty">{text.emptyList}</p>
+              <EmptyState icon={<Zap size={28} strokeWidth={1.5} />} title={text.emptyList} />
             ) : null}
 
             {automations.map((automation) => {
@@ -765,11 +795,10 @@ export function AutomationsDesk() {
         </section>
 
         <section className="status-card status-card--normal" data-testid="automation-detail">
-          <p className="section-eyebrow">{text.detailEyebrow}</p>
           {selectedAutomation ? (
             <>
-              <h3 className="section-title">{selectedAutomation.title}</h3>
-              <p className="section-copy">
+              <h3 className="desk-section-title">{selectedAutomation.title}</h3>
+              <p className="desk-section-desc">
                 {text.detailSubtitle(
                   formatSchedule(selectedAutomation.schedule),
                   resolveSourceLabel(selectedAutomation.source),
@@ -840,9 +869,9 @@ export function AutomationsDesk() {
 
               <div data-testid="automation-runs">
                 <p className="metric-label">{text.recentRuns}</p>
-                {isLoadingRuns ? <p className="section-copy">{text.loadingRuns}</p> : null}
+                {isLoadingRuns ? <p className="desk-section-desc">{text.loadingRuns}</p> : null}
                 {!isLoadingRuns && recentRuns.length === 0 ? (
-                  <p className="section-copy">{text.emptyRuns}</p>
+                  <p className="desk-section-desc">{text.emptyRuns}</p>
                 ) : null}
                 {!isLoadingRuns && recentRuns.length > 0 ? (
                   <ul style={runsListStyle}>
@@ -868,7 +897,7 @@ export function AutomationsDesk() {
               >
                 <span className="metric-label">{text.promptDiagnostics}</span>
                 {isLoadingPromptDiagnostics ? (
-                  <p className="section-copy">{text.loadingPromptDiagnostics}</p>
+                  <p className="desk-section-desc">{text.loadingPromptDiagnostics}</p>
                 ) : promptDiagnosticsError ? (
                   <span className="metric-value">{promptDiagnosticsError}</span>
                 ) : latestPromptReport ? (
@@ -944,7 +973,7 @@ export function AutomationsDesk() {
               </div>
             </>
           ) : (
-            <p className="section-copy">{text.emptyDetail}</p>
+            <EmptyState icon={<Zap size={28} strokeWidth={1.5} />} title={text.emptyDetail} />
           )}
         </section>
       </div>

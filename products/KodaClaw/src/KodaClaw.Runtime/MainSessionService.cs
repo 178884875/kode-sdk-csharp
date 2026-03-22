@@ -33,6 +33,9 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly IPluginRegistryRepository? _pluginRegistryRepository;
     private readonly IPluginLifecycleHost? _pluginLifecycleHost;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
+    private readonly IWorkspaceReadinessService? _workspaceReadinessService;
+    private readonly KodaClaw.Contracts.IModelRegistryRepository? _modelRegistryRepository;
+    private volatile bool _pendingWorkspaceRotation;
 
     public MainSessionService(
         IWorkspaceService workspaceService,
@@ -44,7 +47,9 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IInboxRepository? inboxRepository = null,
         IPluginRegistryRepository? pluginRegistryRepository = null,
         IPluginLifecycleHost? pluginLifecycleHost = null,
-        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null)
+        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
+        IWorkspaceReadinessService? workspaceReadinessService = null,
+        KodaClaw.Contracts.IModelRegistryRepository? modelRegistryRepository = null)
     {
         _workspaceService = workspaceService;
         _dependenciesFactory = dependenciesFactory;
@@ -56,11 +61,19 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         _pluginRegistryRepository = pluginRegistryRepository;
         _pluginLifecycleHost = pluginLifecycleHost;
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
+        _workspaceReadinessService = workspaceReadinessService;
+        _modelRegistryRepository = modelRegistryRepository;
     }
 
     public async Task<MainSessionHandle> EnsureMainSessionAsync(CancellationToken cancellationToken = default)
     {
         await _workspaceService.EnsureInitializedAsync(cancellationToken);
+
+        if (_pendingWorkspaceRotation)
+        {
+            _pendingWorkspaceRotation = false;
+            await RotateMainSessionAsync(cancellationToken);
+        }
 
         var appConfig = await _workspaceService.LoadAppConfigAsync(cancellationToken);
         MainSessionHandle handle;
@@ -117,6 +130,46 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             sessionId: previousSessionId ?? string.Empty);
 
         return string.IsNullOrWhiteSpace(previousSessionId) ? null : previousSessionId;
+    }
+
+    public async Task<ResumeSessionResponse> ResumeSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        await _workspaceService.EnsureInitializedAsync(cancellationToken);
+
+        var appConfig = await _workspaceService.LoadAppConfigAsync(cancellationToken);
+        var previousSessionId = appConfig.ActiveMainSessionId;
+
+        if (!string.IsNullOrWhiteSpace(previousSessionId))
+        {
+            if (_sessionSubscriptions.TryGetValue(previousSessionId, out var subs))
+            {
+                subs.Dispose();
+                _sessionSubscriptions.Remove(previousSessionId);
+            }
+
+            if (_agents.TryGetValue(previousSessionId, out var agent))
+            {
+                _agents.Remove(previousSessionId);
+                await agent.DisposeAsync();
+            }
+        }
+
+        await _workspaceService.SaveAppConfigAsync(
+            appConfig with { ActiveMainSessionId = sessionId },
+            cancellationToken);
+
+        RecordDiagnosticEvent(
+            eventType: "main_session.resumed",
+            level: "info",
+            message: $"Main session resumed to {sessionId}. Next EnsureMainSessionAsync will load from store.",
+            sessionId: sessionId);
+
+        return new ResumeSessionResponse(Ok: true, ResumedSessionId: sessionId);
+    }
+
+    public void RequestWorkspaceRotation()
+    {
+        _pendingWorkspaceRotation = true;
     }
 
     public Task<ApprovalDecisionDispatchResult> ApproveApprovalAsync(
@@ -380,7 +433,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         if (await dependencies.Store.ExistsAsync(sessionId, cancellationToken))
         {
-            var configuredModel = ResolveConfiguredModel();
+            var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
@@ -447,7 +500,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
-        var configuredModel = ResolveConfiguredModel();
+        var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             sessionId,
             CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt),
@@ -616,12 +669,12 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         };
     }
 
-    private string ResolveConfiguredModel()
-    {
-        return RuntimeProviderSelector.ResolveModelOrThrow(
+    private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
+        RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
-            _options.Model);
-    }
+            _options.Model,
+            _modelRegistryRepository,
+            cancellationToken);
 
     private static readonly IReadOnlyList<string> BaselineContextFiles =
     [
@@ -651,9 +704,33 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         await TryAddContextDocumentAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
         await TryAddContextDocumentAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
 
-        return new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
+        var builder = new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)
-            .AddBody("Keep actions observable, local-first, and approval-aware.")
+            .AddBody("Keep actions observable, local-first, and approval-aware.");
+
+        if (_workspaceReadinessService is not null)
+        {
+            var readiness = await _workspaceReadinessService.GetReadinessAsync(cancellationToken);
+            if (readiness.HasAnyGap)
+            {
+                var gaps = new List<string>();
+                if (!readiness.IsIdentitySet) gaps.Add("IDENTITY.md (Koda's persona and role)");
+                if (!readiness.IsSoulSet) gaps.Add("SOUL.md (behavior principles)");
+                if (!readiness.IsUserSet) gaps.Add("USER.md (user profile and preferences)");
+
+                builder.AddBody($"""
+                    ## Workspace Guidance Active
+
+                    The following workspace files still contain placeholder content: {string.Join(", ", gaps)}.
+
+                    In this session, engage the user naturally to discover their preferences. Ask about who they are, how they work, and what they want Koda to optimize for. Once you have enough context, use workspace_protocol_update to update the relevant files. After updating, the new settings will take effect in the next session.
+
+                    Do not ask all questions at once — have a natural conversation.
+                    """);
+            }
+        }
+
+        return builder
             .AddContextDocuments(documents)
             .Build();
     }

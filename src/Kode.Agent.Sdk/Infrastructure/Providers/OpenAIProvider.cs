@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Chat;
 using ContentBlock = Kode.Agent.Sdk.Core.Types.ContentBlock;
+using ImageContent = Kode.Agent.Sdk.Core.Types.ImageContent;
 using Message = Kode.Agent.Sdk.Core.Types.Message;
 using TextContent = Kode.Agent.Sdk.Core.Types.TextContent;
 using ToolResultContent = Kode.Agent.Sdk.Core.Types.ToolResultContent;
@@ -134,8 +135,33 @@ public sealed class OpenAIProvider : IModelProvider
     {
         if (msg.Role == MessageRole.User)
         {
-            var text = string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
-            return new UserChatMessage(text);
+            var hasImages = msg.Content.OfType<ImageContent>().Any();
+            if (!hasImages)
+            {
+                var text = string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
+                return new UserChatMessage(text);
+            }
+
+            // Multi-modal user message: build content part list
+            var parts = new List<ChatMessageContentPart>();
+            foreach (var block in msg.Content)
+            {
+                switch (block)
+                {
+                    case TextContent tc:
+                        parts.Add(ChatMessageContentPart.CreateTextPart(tc.Text));
+                        break;
+                    case ImageContent img when img.Url is not null:
+                        parts.Add(ChatMessageContentPart.CreateImagePart(new Uri(img.Url)));
+                        break;
+                    case ImageContent img when img.Data is not null:
+                        parts.Add(ChatMessageContentPart.CreateImagePart(
+                            BinaryData.FromBytes(Convert.FromBase64String(img.Data)),
+                            img.MediaType ?? "image/png"));
+                        break;
+                }
+            }
+            return new UserChatMessage(parts);
         }
 
         if (msg.Role == MessageRole.Assistant)

@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -9,6 +9,9 @@ import {
   fetchCanvasDefaultEntry,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Layers } from "lucide-react";
 import type { CanvasArtifact, CanvasArtifactKind, CanvasEntryResponse } from "../types/contracts";
 
 type CanvasKindFilter = CanvasArtifactKind | "all";
@@ -20,87 +23,9 @@ const CANVAS_KIND_OPTIONS: CanvasArtifactKind[] = [
   "TaskList",
   "PluginPanel",
   "Html",
+  "Image",
 ];
 
-const rootLayoutStyle: CSSProperties = {
-  gridTemplateColumns: "1fr",
-  gap: 18,
-};
-
-const toolbarStyle: CSSProperties = {
-  marginTop: 16,
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 10,
-  alignItems: "center",
-};
-
-const splitLayoutStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(280px, 0.95fr) minmax(420px, 1.35fr)",
-  gap: 18,
-};
-
-const artifactButtonStyle: CSSProperties = {
-  textAlign: "left",
-  display: "grid",
-  gap: 8,
-};
-
-const previewColumnStyle: CSSProperties = {
-  gridTemplateColumns: "1fr",
-  gap: 18,
-};
-
-const previewHeaderStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 12,
-};
-
-const previewEyebrowStyle: CSSProperties = {
-  marginBottom: 4,
-};
-
-const previewSurfaceStyle: CSSProperties = {
-  marginTop: 14,
-  borderRadius: 18,
-  overflow: "hidden",
-  border: "1px solid rgba(117, 87, 42, 0.2)",
-  minHeight: 360,
-  background: "rgba(255, 252, 247, 0.75)",
-};
-
-const previewFrameStyle: CSSProperties = {
-  width: "100%",
-  minHeight: 360,
-  border: 0,
-  display: "block",
-};
-
-const previewFallbackStyle: CSSProperties = {
-  minHeight: 360,
-  display: "grid",
-  placeItems: "center",
-  padding: 20,
-  textAlign: "center",
-};
-
-const noMarginStyle: CSSProperties = {
-  margin: 0,
-};
-
-const fitContentBadgeStyle: CSSProperties = {
-  width: "fit-content",
-  textTransform: "uppercase",
-};
-
-const metadataGridStyle: CSSProperties = {
-  marginTop: 12,
-  display: "grid",
-  gap: 10,
-};
 
 function resolveDefaultEntryUrl(
   defaultEntry: CanvasEntryResponse | null,
@@ -166,6 +91,7 @@ export function CanvasDesk() {
         TaskList: "任务列表",
         PluginPanel: "插件面板",
         Html: "HTML 页面",
+        Image: "图片",
       },
     },
     en: {
@@ -210,6 +136,7 @@ export function CanvasDesk() {
         TaskList: "Task List",
         PluginPanel: "Plugin Panel",
         Html: "HTML",
+        Image: "Image",
       },
     },
   });
@@ -359,12 +286,11 @@ export function CanvasDesk() {
   const metadataSummary = selectedArtifact?.summary ?? text.defaultSummary;
 
   return (
-    <section data-testid="canvas-desk" className="desk-column canvas-desk" style={rootLayoutStyle}>
+    <section data-testid="canvas-desk" className="desk-column canvas-desk canvas-root-layout">
       <section className="status-card status-card--normal">
-        <p className="section-eyebrow">{text.eyebrow}</p>
-        <h2 className="section-title">{text.title}</h2>
-        <p className="section-copy">{text.copy}</p>
-        <div className="canvas-desk__toolbar" style={toolbarStyle}>
+        <h2 className="desk-section-title">{text.title}</h2>
+        <p className="desk-section-desc">{text.copy}</p>
+        <div className="canvas-desk__toolbar canvas-toolbar">
           <button
             type="button"
             className="secondary-button"
@@ -400,27 +326,25 @@ export function CanvasDesk() {
 
       {error ? (
         <section className="status-card status-card--error" data-testid="canvas-error">
-          <p className="section-eyebrow">{text.errorEyebrow}</p>
-          <h3 className="section-title">{text.errorTitle}</h3>
-          <p className="section-copy">{error}</p>
+          <h3 className="desk-section-title">{text.errorTitle}</h3>
+          <p className="desk-section-desc">{error}</p>
         </section>
       ) : null}
 
-      <div className="canvas-desk__layout" style={splitLayoutStyle}>
+      <div className="canvas-desk__layout canvas-split-layout">
         <section className="timeline" data-testid="canvas-artifact-list">
           <div className="timeline__header">
-            <h3 className="section-title">{text.listTitle}</h3>
+            <h3 className="desk-section-title">{text.listTitle}</h3>
             <span className="composer__status">
               {isLoading ? text.loading : kindFilter === "all" ? text.allKinds : resolveKindLabel(kindFilter)}
             </span>
           </div>
           <div className="timeline__body">
+            {isLoading ? <Skeleton height={52} count={2} /> : null}
             {!isLoading && artifacts.length === 0 ? (
-              <article className="message message--system" data-testid="canvas-empty-state">
-                <p className="section-copy" style={noMarginStyle}>
-                  {text.emptyState}
-                </p>
-              </article>
+              <div data-testid="canvas-empty-state">
+                <EmptyState icon={<Layers size={28} strokeWidth={1.5} />} title={text.emptyState} />
+              </div>
             ) : null}
 
             {artifacts.map((artifact) => {
@@ -431,14 +355,13 @@ export function CanvasDesk() {
                 <button
                   type="button"
                   key={artifact.id}
-                  className="message message--assistant"
+                  className="message message--assistant canvas-artifact-button"
                   data-testid={`canvas-artifact-select-${artifact.id}`}
                   aria-pressed={isSelected}
                   disabled={isPending}
                   onClick={() => {
                     void handleSelectArtifact(artifact.id);
                   }}
-                  style={artifactButtonStyle}
                 >
                   <div className="message__meta">
                     <span className="message__role">{resolveKindLabel(artifact.kind)}</span>
@@ -448,7 +371,7 @@ export function CanvasDesk() {
                   <span>{artifact.source}</span>
                   {artifact.route ? <span className="metric-value metric-value--path">{artifact.route}</span> : null}
                   {isSelected ? (
-                    <span className="stream-indicator is-live" style={fitContentBadgeStyle}>
+                    <span className="stream-indicator is-live mode-badge canvas-fit-content-badge">
                       {text.selected}
                     </span>
                   ) : null}
@@ -458,20 +381,24 @@ export function CanvasDesk() {
           </div>
         </section>
 
-        <div className="desk-column canvas-desk__preview-column" style={previewColumnStyle}>
+        <div className="desk-column canvas-desk__preview-column canvas-preview-column">
           <section className="status-card status-card--warning" data-testid="canvas-preview">
-            <div className="canvas-desk__preview-header" style={previewHeaderStyle}>
+            <div className="canvas-desk__preview-header canvas-preview-header">
               <div>
-                <p className="section-eyebrow" style={previewEyebrowStyle}>
-                  {text.renderSurface}
-                </p>
-                <h3 className="section-title">{selectionLabel}</h3>
+                <h3 className="desk-section-title">{selectionLabel}</h3>
               </div>
               <span className={`stream-indicator ${selectedArtifact ? "is-live" : ""}`}>{selectionKind}</span>
             </div>
 
-            <div className="canvas-desk__preview-surface" style={previewSurfaceStyle}>
-              {selectedArtifact?.contentText != null && selectedArtifact.kind !== "Html" ? (
+            <div className="canvas-desk__preview-surface canvas-preview-surface">
+              {selectedArtifact?.kind === "Image" ? (
+                <img
+                  data-testid="canvas-artifact-image"
+                  src={`/api/${selectedArtifact.entryPath}`}
+                  alt={selectedArtifact.title}
+                  className="canvas-preview-image"
+                />
+              ) : selectedArtifact?.contentText != null && selectedArtifact.kind !== "Html" ? (
                 <div
                   data-testid="canvas-artifact-content"
                   data-kind={selectedArtifact.kind}
@@ -485,18 +412,18 @@ export function CanvasDesk() {
                   data-testid="canvas-entry-frame"
                   srcDoc={selectedArtifact.contentText}
                   sandbox="allow-scripts"
-                  style={{ width: "100%", height: 500, border: "none", display: "block" }}
+                  className="canvas-preview-frame"
                 />
               ) : previewEntryUrl ? (
                 <iframe
                   title={text.previewFrameTitle}
                   data-testid="canvas-entry-frame"
                   src={previewEntryUrl}
-                  style={previewFrameStyle}
+                  className="canvas-preview-frame"
                 />
               ) : (
-                <div data-testid="canvas-fallback" style={previewFallbackStyle}>
-                  <p className="section-copy" style={noMarginStyle}>
+                <div data-testid="canvas-fallback" className="canvas-preview-fallback">
+                  <p className="desk-section-desc canvas-no-margin">
                     {text.previewUnavailable}
                   </p>
                 </div>
@@ -505,9 +432,8 @@ export function CanvasDesk() {
           </section>
 
           <section className="status-card status-card--normal" data-testid="canvas-metadata">
-            <p className="section-eyebrow">{text.metadataEyebrow}</p>
-            <h3 className="section-title">{text.metadataTitle}</h3>
-            <div className="canvas-desk__metadata-grid" style={metadataGridStyle}>
+            <h3 className="desk-section-title">{text.metadataTitle}</h3>
+            <div className="canvas-desk__metadata-grid canvas-metadata-grid">
               <div className="metric-item">
                 <span className="metric-label">{text.metadata.route}</span>
                 <span className="metric-value metric-value--path">{metadataRoute}</span>

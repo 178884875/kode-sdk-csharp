@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.ModelHub\KodaClaw.ModelHub.csproj" />
     <ProjectReference Include="..\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\..\..\..\src\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
     <ProjectReference Include="..\..\..\..\src\Kode.Agent.Store.Json\Kode.Agent.Store.Json.csproj" />

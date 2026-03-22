@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom";
 import React from "react";
 import { ReadableStream } from "node:stream/web";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -328,6 +328,8 @@ const channelThreadDetailFixture = {
   hasPendingDraft: false,
 };
 
+const onboardingCompleted = { isCompleted: true, currentStep: null, completedAt: "2026-03-18T10:00:00Z" };
+
 describe("App shell", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -344,64 +346,54 @@ describe("App shell", () => {
     global.fetch = originalFetch;
   });
 
-  it("renders bootstrap desk when bootstrap-state requires onboarding", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({ name: "KodaClaw Gateway", status: "healthy", mode: "Bootstrap" }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
+  it("defaults to Chinese and allows switching the shell copy to English", async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+      if (url.endsWith("/api/system/health")) {
+        return jsonResponse({ name: "KodaClaw Gateway", status: "healthy", mode: "Normal" });
+      }
+      if (url.endsWith("/api/system/bootstrap-state")) {
+        return jsonResponse({
           workspaceRootPath: "/tmp/.kodaclaw",
           workspaceVersion: 1,
           workspaceInitialized: true,
-          requiresBootstrap: true,
-          activeMainSessionId: null,
-          mode: "Bootstrap",
-        }),
-      );
+          requiresBootstrap: false,
+          activeMainSessionId: "main-001",
+          mode: "Normal",
+        });
+      }
+      if (url.endsWith("/api/onboarding/state")) {
+        return jsonResponse(onboardingCompleted);
+      }
+      return jsonResponse({});
+    });
 
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByText("引导编排")).toBeInTheDocument();
+      expect(screen.getByTestId("kc-shell")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("v2-shell")).toBeInTheDocument();
-    expect(screen.getByTestId("chat-input")).toBeInTheDocument();
-    expect(screen.getByTestId("bootstrap-identity-input")).toBeInTheDocument();
-    expect(screen.getByTestId("bootstrap-soul-input")).toBeInTheDocument();
-    expect(screen.getByTestId("bootstrap-user-input")).toBeInTheDocument();
-  });
 
-  it("defaults to Chinese and allows switching the shell copy to English", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({ name: "KodaClaw Gateway", status: "healthy", mode: "Bootstrap" }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          workspaceRootPath: "/tmp/.kodaclaw",
-          workspaceVersion: 1,
-          workspaceInitialized: true,
-          requiresBootstrap: true,
-          activeMainSessionId: null,
-          mode: "Bootstrap",
-        }),
-      );
-
-    renderApp();
-
-    await screen.findByText("引导编排");
     expect(document.documentElement.lang).toBe("zh-CN");
+    expect(document.title).toBe("KodaClaw 现场中枢");
 
     const user = userEvent.setup();
+    // LocaleToggle has moved to Settings Desk — navigate there first
+    await user.click(screen.getByTestId("desk-tab-settings"));
+    await waitFor(() => { expect(screen.getByTestId("settings-desk")).toBeInTheDocument(); });
     await user.click(screen.getByTestId("locale-toggle-en-US"));
 
     await waitFor(() => {
-      expect(screen.getByText("Bootstrap Guidance")).toBeInTheDocument();
+      expect(document.title).toBe("KodaClaw Field Console");
     });
     expect(window.localStorage.getItem("kodaclaw.locale")).toBe("en-US");
     expect(document.documentElement.lang).toBe("en-US");
-    expect(document.title).toBe("KodaClaw Field Console");
   });
 
   it("renders main chat status when bootstrap has completed", async () => {
@@ -420,31 +412,16 @@ describe("App shell", () => {
         }),
       )
       .mockResolvedValueOnce(
-        jsonResponse({
-          sessions: [
-            {
-              sessionId: "main-001",
-              sessionKind: "Main",
-              status: {
-                isActiveMainSession: true,
-                breakpointState: "Ready",
-                messageCount: 4,
-                pendingApprovalCount: 0,
-              },
-              createdAt: "2026-03-18T10:00:00Z",
-              lastEventAt: "2026-03-18T10:01:00Z",
-            },
-          ],
-        }),
+        jsonResponse(onboardingCompleted),
       );
 
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByText("主控对话已激活")).toBeInTheDocument();
+      expect(screen.getByTestId("kc-shell")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("v2-shell")).toBeInTheDocument();
-    expect(screen.getByText("引导已归档")).toBeInTheDocument();
+    expect(screen.getByTestId("kc-shell").getAttribute("data-kc-mode")).toBe("main");
+    expect(screen.getByTestId("kc-chat-view")).toBeInTheDocument();
     expect(screen.getByTestId("desk-tab-chat")).toBeInTheDocument();
     expect(screen.getByTestId("desk-tab-automations")).toBeInTheDocument();
     expect(screen.getByTestId("desk-tab-channels")).toBeInTheDocument();
@@ -452,9 +429,7 @@ describe("App shell", () => {
     expect(screen.getByTestId("desk-tab-canvas")).toBeInTheDocument();
   });
 
-  it("switches to the v2 shell when requested via query string", async () => {
-    window.history.pushState({}, "", "/?shell=v2");
-
+  it("renders main mode with new AppShell and supports desk navigation", async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url =
         typeof input === "string"
@@ -478,103 +453,8 @@ describe("App shell", () => {
         });
       }
 
-      if (url.includes("/api/sessions?limit=8")) {
-        return jsonResponse({
-          sessions: [
-            {
-              sessionId: "main-v2-001",
-              sessionKind: "Main",
-              status: {
-                isActiveMainSession: true,
-                breakpointState: "Ready",
-                messageCount: 12,
-                pendingApprovalCount: 1,
-              },
-              createdAt: "2026-03-20T03:00:00Z",
-              lastEventAt: "2026-03-20T03:05:00Z",
-            },
-            {
-              sessionId: "channel-archive-001",
-              sessionKind: "ChannelDirectMessage",
-              status: {
-                isActiveMainSession: false,
-                breakpointState: null,
-                messageCount: 4,
-                pendingApprovalCount: 0,
-              },
-              createdAt: "2026-03-19T22:00:00Z",
-              lastEventAt: "2026-03-19T22:10:00Z",
-            },
-          ],
-        });
-      }
-
-      if (url.includes("/api/sessions?limit=20")) {
-        return jsonResponse({
-          sessions: [
-            {
-              sessionId: "main-v2-001",
-              sessionKind: "Main",
-              status: {
-                isActiveMainSession: true,
-                breakpointState: "Ready",
-                messageCount: 12,
-                pendingApprovalCount: 1,
-              },
-              createdAt: "2026-03-20T03:00:00Z",
-              lastEventAt: "2026-03-20T03:05:00Z",
-            },
-            {
-              sessionId: "channel-archive-001",
-              sessionKind: "ChannelDirectMessage",
-              status: {
-                isActiveMainSession: false,
-                breakpointState: null,
-                messageCount: 4,
-                pendingApprovalCount: 0,
-              },
-              createdAt: "2026-03-19T22:00:00Z",
-              lastEventAt: "2026-03-19T22:10:00Z",
-            },
-          ],
-        });
-      }
-
-      if (url.endsWith("/api/sessions/channel-archive-001")) {
-        return jsonResponse({
-          sessionId: "channel-archive-001",
-          sessionKind: "ChannelDirectMessage",
-          status: {
-            isActiveMainSession: false,
-            breakpointState: null,
-            messageCount: 4,
-            pendingApprovalCount: 0,
-          },
-          createdAt: "2026-03-19T22:00:00Z",
-          lastEventAt: "2026-03-19T22:10:00Z",
-          userMessageCount: 2,
-          assistantMessageCount: 2,
-          toolCallCount: 0,
-          lastSfpIndex: 3,
-          pendingApprovalCallIds: [],
-        });
-      }
-
-      if (url.includes("/api/diagnostics/timeline?sessionId=channel-archive-001&limit=60")) {
-        return jsonResponse({
-          events: [
-            {
-              id: "evt-channel-archive-001",
-              source: "gateway.diagnostics",
-              eventType: "timeline.loaded",
-              level: "info",
-              message: "timeline-channel-archive-001",
-              timestamp: "2026-03-19T22:10:30Z",
-              sessionId: "channel-archive-001",
-              correlationId: null,
-            },
-          ],
-        });
+      if (url.endsWith("/api/onboarding/state")) {
+        return jsonResponse(onboardingCompleted);
       }
 
       if (url.includes("/api/inbox?limit=50")) {
@@ -591,59 +471,22 @@ describe("App shell", () => {
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByTestId("v2-shell")).toBeInTheDocument();
+      expect(screen.getByTestId("kc-shell")).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId("v2-global-rail")).toBeInTheDocument();
-    expect(screen.getByTestId("v2-context-rail")).toBeInTheDocument();
-    expect(screen.getByTestId("v2-main-stage")).toBeInTheDocument();
-    expect(screen.getByTestId("v2-chat-stage")).toBeInTheDocument();
-    expect(screen.getByTestId("v2-chat-context")).toBeInTheDocument();
-    expect(within(screen.getByTestId("v2-chat-context")).getByText("main-v2-001")).toBeInTheDocument();
+    expect(screen.getByTestId("kc-shell").getAttribute("data-kc-mode")).toBe("main");
+    expect(screen.getByTestId("kc-sidebar")).toBeInTheDocument();
+    expect(screen.getByTestId("kc-main-content")).toBeInTheDocument();
+    expect(screen.getByTestId("kc-chat-view")).toBeInTheDocument();
 
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("v2-chat-session-channel-archive-001"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("sessions-diagnostics-desk")).toBeInTheDocument();
-    });
-    expect(screen.getByTestId("session-detail")).toHaveTextContent("channel-archive-001");
-    expect(screen.getByTestId("diagnostics-timeline")).toHaveTextContent("timeline-channel-archive-001");
-
     await user.click(screen.getByTestId("desk-tab-inbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("inbox-approval-desk")).toBeInTheDocument();
     });
 
-    expect(window.localStorage.getItem("kodaclaw.shellVariant")).toBe("v2");
-  });
-
-  it("allows forcing the legacy shell with query string override", async () => {
-    window.localStorage.setItem("kodaclaw.shellVariant", "v2");
-    window.history.pushState({}, "", "/?shell=v1");
-
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        jsonResponse({ name: "KodaClaw Gateway", status: "healthy", mode: "Bootstrap" }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          workspaceRootPath: "/tmp/.kodaclaw",
-          workspaceVersion: 1,
-          workspaceInitialized: true,
-          requiresBootstrap: true,
-          activeMainSessionId: null,
-          mode: "Bootstrap",
-        }),
-      );
-
-    renderApp();
-
-    await waitFor(() => {
-      expect(screen.getByTestId("bootstrap-shell")).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId("v2-shell")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("kodaclaw.mainDesk")).toBe("inbox");
   });
 
   it("switches into automations and canvas desks from the main shell", async () => {
@@ -668,6 +511,10 @@ describe("App shell", () => {
           activeMainSessionId: "main-001",
           mode: "Normal",
         });
+      }
+
+      if (url.endsWith("/api/onboarding/state")) {
+        return jsonResponse(onboardingCompleted);
       }
 
       if (url.includes("/api/automations/auto-heartbeat/runs")) {
@@ -740,8 +587,9 @@ describe("App shell", () => {
     renderApp();
 
     await waitFor(() => {
-      expect(screen.getByText("主控对话已激活")).toBeInTheDocument();
+      expect(screen.getByTestId("kc-chat-view")).toBeInTheDocument();
     });
+    expect(screen.getByTestId("kc-shell").getAttribute("data-kc-mode")).toBe("main");
 
     const user = userEvent.setup();
     await user.click(screen.getByTestId("desk-tab-automations"));
@@ -762,169 +610,6 @@ describe("App shell", () => {
     await user.click(screen.getByTestId("desk-tab-channels"));
     await waitFor(() => {
       expect(screen.getByTestId("channels-desk")).toBeInTheDocument();
-    });
-  });
-
-  it("completes bootstrap when onboarding form is submitted", async () => {
-    let bootstrapCompleted = false;
-    let completionRequest: unknown = null;
-
-    vi.mocked(fetch).mockImplementation(async (input, init) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-
-      if (url.endsWith("/api/system/health")) {
-        return jsonResponse({
-          name: "KodaClaw Gateway",
-          status: "healthy",
-          mode: bootstrapCompleted ? "Normal" : "Bootstrap",
-        });
-      }
-
-      if (url.endsWith("/api/system/bootstrap-state")) {
-        return jsonResponse({
-          workspaceRootPath: "/tmp/.kodaclaw",
-          workspaceVersion: 1,
-          workspaceInitialized: true,
-          requiresBootstrap: !bootstrapCompleted,
-          activeMainSessionId: bootstrapCompleted ? "main-001" : null,
-          mode: bootstrapCompleted ? "Normal" : "Bootstrap",
-        });
-      }
-
-      if (url.endsWith("/api/system/bootstrap-complete")) {
-        completionRequest = JSON.parse((init?.body as string) ?? "{}");
-        bootstrapCompleted = true;
-
-        return jsonResponse({
-          workspaceRootPath: "/tmp/.kodaclaw",
-          bootstrapCompleted: true,
-          identityFilePath: "/tmp/.kodaclaw/workspace/IDENTITY.md",
-          soulFilePath: "/tmp/.kodaclaw/workspace/SOUL.md",
-          userFilePath: "/tmp/.kodaclaw/workspace/USER.md",
-          bootstrapFileArchived: true,
-        });
-      }
-
-      throw new Error(`Unexpected fetch request: ${url}`);
-    });
-
-    renderApp();
-
-    const user = userEvent.setup();
-    const identityInput = (await screen.findByTestId("bootstrap-identity-input")) as HTMLTextAreaElement;
-    const soulInput = screen.getByTestId("bootstrap-soul-input") as HTMLTextAreaElement;
-    const userInput = screen.getByTestId("bootstrap-user-input") as HTMLTextAreaElement;
-
-    await user.clear(identityInput);
-    await user.type(identityInput, "# identity guide");
-    await user.clear(soulInput);
-    await user.type(soulInput, "# soul guide");
-    await user.clear(userInput);
-    await user.type(userInput, "# user boundaries");
-    await user.click(screen.getByTestId("bootstrap-submit"));
-
-    await waitFor(() => {
-      expect(completionRequest).toEqual({
-        identityMarkdown: "# identity guide",
-        soulMarkdown: "# soul guide",
-        userMarkdown: "# user boundaries",
-        archiveBootstrapFile: true,
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("主控对话已激活")).toBeInTheDocument();
-    });
-    expect(screen.getByText("引导已归档")).toBeInTheDocument();
-  });
-
-  it("generates bootstrap draft from onboarding conversation before submission", async () => {
-    let draftRequest: unknown = null;
-
-    vi.mocked(fetch).mockImplementation(async (input, init) => {
-      const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
-
-      if (url.endsWith("/api/system/health")) {
-        return jsonResponse({
-          name: "KodaClaw Gateway",
-          status: "healthy",
-          mode: "Bootstrap",
-        });
-      }
-
-      if (url.endsWith("/api/system/bootstrap-state")) {
-        return jsonResponse({
-          workspaceRootPath: "/tmp/.kodaclaw",
-          workspaceVersion: 1,
-          workspaceInitialized: true,
-          requiresBootstrap: true,
-          activeMainSessionId: null,
-          mode: "Bootstrap",
-        });
-      }
-
-      if (url.endsWith("/api/chat/stream")) {
-        const payload = [
-          `event: text_chunk\ndata: ${JSON.stringify({ type: "text_chunk", sessionId: "main-bootstrap", delta: "我会优先保护本地数据边界。" })}`,
-          `event: done\ndata: ${JSON.stringify({ type: "done", sessionId: "main-bootstrap", reason: "completed" })}`,
-          "",
-        ].join("\n\n");
-
-        return streamResponse(payload);
-      }
-
-      if (url.endsWith("/api/system/bootstrap-draft")) {
-        draftRequest = JSON.parse((init?.body as string) ?? "{}");
-        return jsonResponse({
-          identityMarkdown: "# Koda Identity\n\n- Name: Koda",
-          soulMarkdown: "# Koda Soul\n\n- Rule: protect local trust",
-          userMarkdown: "# User Profile\n\n- Working style: direct",
-          summary: "Captured identity, soul, and user collaboration style from the onboarding chat.",
-        });
-      }
-
-      throw new Error(`Unexpected fetch request: ${url}`);
-    });
-
-    renderApp();
-
-    const user = userEvent.setup();
-    await user.type(await screen.findByTestId("chat-input"), "我是你的长期用户，偏好直接沟通。");
-    await user.click(screen.getByRole("button", { name: "发送给 Koda" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("我会优先保护本地数据边界。")).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByTestId("bootstrap-generate-draft"));
-
-    await waitFor(() => {
-      expect(draftRequest).toEqual({
-        conversation: [
-          { role: "user", text: "我是你的长期用户，偏好直接沟通。" },
-          { role: "assistant", text: "我会优先保护本地数据边界。" },
-        ],
-        identityMarkdown: expect.any(String),
-        soulMarkdown: expect.any(String),
-        userMarkdown: expect.any(String),
-      });
-    });
-
-    await waitFor(() => {
-      expect((screen.getByTestId("bootstrap-identity-input") as HTMLTextAreaElement).value).toContain("Name: Koda");
-      expect((screen.getByTestId("bootstrap-soul-input") as HTMLTextAreaElement).value).toContain("protect local trust");
-      expect((screen.getByTestId("bootstrap-user-input") as HTMLTextAreaElement).value).toContain("Working style: direct");
-      expect(screen.getByTestId("bootstrap-draft-summary")).toHaveTextContent("Captured identity, soul, and user collaboration style");
     });
   });
 
@@ -977,6 +662,10 @@ describe("App shell", () => {
           activeMainSessionId: "main-001",
           mode: "Normal",
         });
+      }
+
+      if (url === "http://127.0.0.1:5076/api/onboarding/state") {
+        return jsonResponse(onboardingCompleted);
       }
 
       if (url.startsWith("http://127.0.0.1:5076/api/inbox")) {

@@ -1,4 +1,6 @@
+import { useEffect, useRef } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { ArrowUp } from "lucide-react";
 import { useLocaleText } from "../i18n/I18nProvider";
 
 type ChatComposerProps = {
@@ -18,6 +20,16 @@ export function ChatComposer({
   onChange,
   onSubmit,
 }: ChatComposerProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow textarea
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }, [value]);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmit();
@@ -32,36 +44,25 @@ export function ChatComposer({
 
   const text = useLocaleText({
     zh: {
-      label: "指令投递",
-      live: "正在接收流式回复",
-      ready: "准备发送",
-      waiting: "正在等待 Gateway 快照完成同步。",
-      hint: "Shift+Enter 换行，Enter 直接发送。",
-      submit: "发送给 Koda",
-      streaming: "流式输出中…",
+      live: "正在接收回复…",
+      waiting: "正在等待 Gateway 同步，请稍候。",
+      hint: "Shift+Enter 换行",
+      submit: "发送",
     },
     en: {
-      label: "Dispatch",
-      live: "Live stream in progress",
-      ready: "Ready to send",
-      waiting: "Waiting for gateway snapshot before dispatch.",
-      hint: "Shift+Enter for line breaks, Enter to submit from the desk.",
-      submit: "Send to Koda",
-      streaming: "Streaming…",
+      live: "Receiving response…",
+      waiting: "Waiting for gateway sync…",
+      hint: "Shift+Enter for new line",
+      submit: "Send",
     },
   });
 
+  const isSubmitDisabled = disabled || isStreaming || value.trim().length === 0;
+
   return (
     <form className="composer" data-testid="chat-composer" onSubmit={handleSubmit}>
-      <div className="composer__meta">
-        <label className="composer__label" htmlFor="chat-input">
-          {text.label}
-        </label>
-        <span className={`composer__status ${isStreaming ? "is-live" : ""}`}>
-          {isStreaming ? text.live : text.ready}
-        </span>
-      </div>
       <textarea
+        ref={textareaRef}
         id="chat-input"
         name="message"
         data-testid="chat-input"
@@ -69,23 +70,22 @@ export function ChatComposer({
         value={value}
         disabled={disabled || isStreaming}
         placeholder={placeholder}
-        rows={4}
+        rows={1}
         onKeyDown={handleKeyDown}
         onChange={(event) => onChange(event.target.value)}
       />
       <div className="composer__actions">
         <p className="composer__hint">
-          {disabled
-            ? text.waiting
-            : text.hint}
+          {disabled ? text.waiting : isStreaming ? text.live : text.hint}
         </p>
         <button
           data-testid="chat-submit"
           className="composer__submit"
           type="submit"
-          disabled={disabled || isStreaming || value.trim().length === 0}
+          disabled={isSubmitDisabled}
+          aria-label={text.submit}
         >
-          {isStreaming ? text.streaming : text.submit}
+          <ArrowUp size={16} strokeWidth={2.5} />
         </button>
       </div>
     </form>

@@ -37,4 +37,5 @@ public static class KodaClawWorkspaceLayout
     public const string McpConfigFile = "mcp.json";
 
     public const string WorkspaceSkillsDirectory = "workspace/skills";
+    public const string MediaDirectory = "media";
 }

@@ -71,6 +71,7 @@ public sealed class ChannelDeliveryGovernanceService
             externalThreadId = draft.ExternalThreadId,
             deliveryMode = deliveryRule.Mode,
             messageText = draft.MessageText,
+            mediaAttachments = draft.MediaAttachments,
             token = approvalToken,
         }, JsonOptions);
 

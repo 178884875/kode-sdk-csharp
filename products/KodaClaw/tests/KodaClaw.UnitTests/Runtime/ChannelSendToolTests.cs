@@ -38,7 +38,7 @@ public sealed class ChannelSendToolTests
     {
         var sentAt = DateTimeOffset.UtcNow;
         _sendServiceMock
-            .Setup(s => s.SendAsync("binding-001", "Hello there!", It.IsAny<CancellationToken>()))
+            .Setup(s => s.SendAsync("binding-001", "Hello there!", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ChannelSendResult(Ok: true, BindingId: "binding-001", SentAt: sentAt));
 
         var result = await ExecuteAsync(new ChannelSendArgs
@@ -49,7 +49,7 @@ public sealed class ChannelSendToolTests
 
         result.Success.Should().BeTrue();
         _sendServiceMock.Verify(
-            s => s.SendAsync("binding-001", "Hello there!", It.IsAny<CancellationToken>()),
+            s => s.SendAsync("binding-001", "Hello there!", null, It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -59,7 +59,7 @@ public sealed class ChannelSendToolTests
     public async Task RunAsync_SendServiceThrows_ReturnsToolError()
     {
         _sendServiceMock
-            .Setup(s => s.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Setup(s => s.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("Channel binding 'bad-id' was not found."));
 
         var result = await ExecuteAsync(new ChannelSendArgs

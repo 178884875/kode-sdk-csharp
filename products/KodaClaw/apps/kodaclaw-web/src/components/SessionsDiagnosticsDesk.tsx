@@ -6,6 +6,9 @@ import {
   fetchSessions,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Search, ChevronDown, ChevronRight } from "lucide-react";
 import { getRuntimeConfig } from "../lib/config";
 import type {
   DiagnosticBundleExportRequest,
@@ -49,6 +52,43 @@ function buildDiagnosticBundleRequest(
   return request;
 }
 
+/** Collapsible section with a chevron toggle */
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="diag-collapsible">
+      <button
+        type="button"
+        className="diag-collapsible__trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+      >
+        {open ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronRight size={14} strokeWidth={2} />}
+        <span>{title}</span>
+      </button>
+      {open && <div className="diag-collapsible__body">{children}</div>}
+    </div>
+  );
+}
+
+/** Two-column metric grid item */
+function MetricRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="metric-item">
+      <span className="metric-label">{label}</span>
+      <span className="metric-value">{children}</span>
+    </div>
+  );
+}
+
 export function SessionsDiagnosticsDesk({
   defaultLimit = 20,
   focusRequest = null,
@@ -63,18 +103,21 @@ export function SessionsDiagnosticsDesk({
         refreshing: "正在刷新...",
         items: (count: number) => `${count} 个会话`,
       },
-      eyebrow: "控制平面",
       title: "会话 / 诊断台",
       summary: {
         loading: "正在汇总活跃与最近会话。",
         empty: "还没有可检查的会话，先触发一次聊天或自动化运行。",
-        ready: (count: number) => `已加载 ${count} 个会话。选择一条轨迹，查看诊断时间线或导出脱敏证据包。`,
+        ready: (count: number) => `已加载 ${count} 个会话。选择一条轨迹查看诊断详情或导出脱敏证据包。`,
       },
       refresh: "刷新会话",
       sections: {
         sessionIndex: "会话索引",
         sessionDetail: "会话详情",
-        promptReport: "提示词报告",
+        promptOverview: "提示词概况",
+        contextFiles: "上下文文件",
+        recentChanges: "最近变化",
+        recentBuilds: "历史版本",
+        systemPrompt: "系统提示词",
         diagnosticsTimeline: "诊断时间线",
         diagnosticBundle: "诊断证据包",
       },
@@ -92,13 +135,13 @@ export function SessionsDiagnosticsDesk({
         breakpoint: "断点",
         lastEvent: "最近事件",
         promptProfile: "提示词画像",
-        promptSize: "提示词大小",
+        promptSize: "大小",
         promptSizeValue: (count: number) => `${count} 字符`,
-        promptBudget: "提示词预算",
+        promptBudget: "预算",
         promptBudgetValue: (used: number, budget: number, remaining: number) =>
           `${used} / ${budget} 字符，剩余 ${remaining}`,
         promptGeneratedAt: "最近生成",
-        loadedContextFiles: "上下文文件",
+        loadedContextFiles: "已加载文件",
         truncationState: "裁剪状态",
         truncationOn: "已裁剪",
         truncationOff: "未裁剪",
@@ -164,18 +207,21 @@ export function SessionsDiagnosticsDesk({
         refreshing: "Refreshing...",
         items: (count: number) => `${count} sessions`,
       },
-      eyebrow: "Control Plane",
       title: "Sessions & Diagnostics",
       summary: {
         loading: "Collecting active and recent sessions.",
         empty: "No sessions available yet. Trigger a chat run first.",
-        ready: (count: number) => `${count} sessions loaded. Pick one to inspect diagnostics timeline or export a redacted bundle.`,
+        ready: (count: number) => `${count} sessions loaded. Pick one to inspect diagnostics or export a redacted bundle.`,
       },
       refresh: "Refresh sessions",
       sections: {
         sessionIndex: "Session index",
         sessionDetail: "Session detail",
-        promptReport: "Prompt report",
+        promptOverview: "Prompt overview",
+        contextFiles: "Context files",
+        recentChanges: "Recent changes",
+        recentBuilds: "Recent builds",
+        systemPrompt: "System prompt",
         diagnosticsTimeline: "Diagnostics timeline",
         diagnosticBundle: "Diagnostic bundle",
       },
@@ -192,14 +238,14 @@ export function SessionsDiagnosticsDesk({
         traceIndex: "Last SFP",
         breakpoint: "Breakpoint",
         lastEvent: "Last event",
-        promptProfile: "Prompt profile",
-        promptSize: "Prompt size",
+        promptProfile: "Profile",
+        promptSize: "Size",
         promptSizeValue: (count: number) => `${count} chars`,
-        promptBudget: "Prompt budget",
+        promptBudget: "Budget",
         promptBudgetValue: (used: number, budget: number, remaining: number) =>
           `${used} / ${budget} chars, ${remaining} remaining`,
         promptGeneratedAt: "Last generated",
-        loadedContextFiles: "Context files",
+        loadedContextFiles: "Loaded files",
         truncationState: "Truncation",
         truncationOn: "Truncated",
         truncationOff: "Not truncated",
@@ -274,47 +320,29 @@ export function SessionsDiagnosticsDesk({
     useState<DiagnosticBundleExportResponse | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
-  const formatTimestamp = (value?: string | null): string => {
-    return formatDateTime(value, text.common.none);
-  };
+  const formatTimestamp = (value?: string | null): string =>
+    formatDateTime(value, text.common.none);
 
-  const formatSessionKind = (kind: string): string => {
-    return text.sessionKindLabels[kind as keyof typeof text.sessionKindLabels] ?? kind;
-  };
+  const formatSessionKind = (kind: string): string =>
+    text.sessionKindLabels[kind as keyof typeof text.sessionKindLabels] ?? kind;
 
-  const formatPromptSize = (count?: number | null): string => {
-    if (!count || count <= 0) {
-      return text.sessionDetail.none;
-    }
-
-    return text.sessionDetail.promptSizeValue(count);
-  };
+  const formatPromptSize = (count?: number | null): string =>
+    count && count > 0 ? text.sessionDetail.promptSizeValue(count) : text.sessionDetail.none;
 
   const formatPromptBudget = (
     used?: number | null,
     budget?: number | null,
     remaining?: number | null,
-  ): string => {
-    if (!used || !budget || budget <= 0) {
-      return text.sessionDetail.none;
-    }
+  ): string =>
+    used && budget && budget > 0
+      ? text.sessionDetail.promptBudgetValue(used, budget, Math.max(remaining ?? 0, 0))
+      : text.sessionDetail.none;
 
-    return text.sessionDetail.promptBudgetValue(used, budget, Math.max(remaining ?? 0, 0));
-  };
-
-  const formatPromptDelta = (delta?: number | null): string => {
-    if (delta == null) {
-      return text.sessionDetail.none;
-    }
-
-    return text.sessionDetail.charDeltaValue(delta);
-  };
+  const formatPromptDelta = (delta?: number | null): string =>
+    delta != null ? text.sessionDetail.charDeltaValue(delta) : text.sessionDetail.none;
 
   useEffect(() => {
-    if (!focusRequest?.sessionId) {
-      return;
-    }
-
+    if (!focusRequest?.sessionId) return;
     setSelectedSessionId(focusRequest.sessionId);
     onFocusRequestConsumed?.();
   }, [focusRequest, onFocusRequestConsumed]);
@@ -325,46 +353,31 @@ export function SessionsDiagnosticsDesk({
     async function loadList() {
       setIsLoadingList(true);
       setError(null);
-
       try {
         const payload = await fetchSessions(defaultLimit);
-        if (isDisposed) {
-          return;
-        }
-
+        if (isDisposed) return;
         setSessions(payload.sessions);
         const preferredSessionId = focusRequest?.sessionId ?? selectedSessionId;
         const hasPreferred = preferredSessionId
-          ? payload.sessions.some((session) => session.sessionId === preferredSessionId)
+          ? payload.sessions.some((s) => s.sessionId === preferredSessionId)
           : false;
-        if (hasPreferred && preferredSessionId) {
-          setSelectedSessionId(preferredSessionId);
-        } else {
-          setSelectedSessionId(payload.sessions[0]?.sessionId ?? null);
-        }
+        setSelectedSessionId(
+          hasPreferred && preferredSessionId
+            ? preferredSessionId
+            : payload.sessions[0]?.sessionId ?? null,
+        );
       } catch (nextError) {
-        if (isDisposed) {
-          return;
-        }
-
-        const detail =
-          nextError instanceof Error
-            ? nextError.message
-            : text.errors.sessions;
-        setError(detail);
+        if (isDisposed) return;
+        setError(nextError instanceof Error ? nextError.message : text.errors.sessions);
         setSessions([]);
         setSelectedSessionId(null);
       } finally {
-        if (!isDisposed) {
-          setIsLoadingList(false);
-        }
+        if (!isDisposed) setIsLoadingList(false);
       }
     }
 
     void loadList();
-    return () => {
-      isDisposed = true;
-    };
+    return () => { isDisposed = true; };
   }, [defaultLimit, focusRequest?.sessionId, refreshToken, selectedSessionId, text.errors.sessions]);
 
   useEffect(() => {
@@ -373,69 +386,41 @@ export function SessionsDiagnosticsDesk({
     async function loadDetailAndTimeline(sessionId: string) {
       setIsLoadingDetail(true);
       setError(null);
-
       try {
         const [detail, timelinePayload] = await Promise.all([
           fetchSessionDetail(sessionId),
-          fetchDiagnosticsTimeline({
-            sessionId,
-            limit: 60,
-          }),
+          fetchDiagnosticsTimeline({ sessionId, limit: 60 }),
         ]);
-
-        if (isDisposed) {
-          return;
-        }
-
+        if (isDisposed) return;
         setSessionDetail(detail);
         setTimeline(timelinePayload.events);
       } catch (nextError) {
-        if (isDisposed) {
-          return;
-        }
-
-        const detail =
-          nextError instanceof Error
-            ? nextError.message
-            : text.errors.sessionDetail;
-        setError(detail);
+        if (isDisposed) return;
+        setError(nextError instanceof Error ? nextError.message : text.errors.sessionDetail);
         setSessionDetail(null);
         setTimeline([]);
       } finally {
-        if (!isDisposed) {
-          setIsLoadingDetail(false);
-        }
+        if (!isDisposed) setIsLoadingDetail(false);
       }
     }
 
     if (!selectedSessionId) {
       setSessionDetail(null);
       setTimeline([]);
-      return () => {
-        isDisposed = true;
-      };
+      return () => { isDisposed = true; };
     }
-
     void loadDetailAndTimeline(selectedSessionId);
-    return () => {
-      isDisposed = true;
-    };
+    return () => { isDisposed = true; };
   }, [refreshToken, selectedSessionId, text.errors.sessionDetail]);
 
   const summaryLine = useMemo(() => {
-    if (isLoadingList) {
-      return text.summary.loading;
-    }
-
-    if (!sessions.length) {
-      return text.summary.empty;
-    }
-
+    if (isLoadingList) return text.summary.loading;
+    if (!sessions.length) return text.summary.empty;
     return text.summary.ready(sessions.length);
   }, [isLoadingList, sessions.length, text.summary]);
 
   const selectedSessionSummary = useMemo(
-    () => sessions.find((session) => session.sessionId === selectedSessionId) ?? null,
+    () => sessions.find((s) => s.sessionId === selectedSessionId) ?? null,
     [selectedSessionId, sessions],
   );
   const hasFreshSessionDetail =
@@ -448,7 +433,6 @@ export function SessionsDiagnosticsDesk({
     setBundleError(null);
     setBundleNote(null);
     setIsExportingBundle(true);
-
     try {
       const exported = await exportDiagnosticBundle(
         buildDiagnosticBundleRequest(selectedSessionId),
@@ -460,28 +444,26 @@ export function SessionsDiagnosticsDesk({
           : text.bundle.exportedGeneric,
       );
     } catch (nextError) {
-      const detail =
-        nextError instanceof Error
-          ? nextError.message
-          : text.bundle.exportFailed;
-      setBundleError(detail);
+      setBundleError(
+        nextError instanceof Error ? nextError.message : text.bundle.exportFailed,
+      );
     } finally {
       setIsExportingBundle(false);
     }
   }
 
   return (
-    <section className="bootstrap-panel control-plane-stack" data-testid="sessions-diagnostics-desk">
-      <div className="section-eyebrow">{text.eyebrow}</div>
-      <h2 className="section-title">{text.title}</h2>
-      <p className="section-copy">{summaryLine}</p>
-
-      <div className="control-plane-toolbar">
+    <section className="control-plane-stack" data-testid="sessions-diagnostics-desk">
+      <div className="diag-page-header">
+        <div className="diag-page-header__left">
+          <h2 className="desk-section-title">{text.title}</h2>
+          <span className="desk-section-desc diag-page-header__desc">{summaryLine}</span>
+        </div>
         <button
           type="button"
           className="secondary-button"
           data-testid="sessions-refresh"
-          onClick={() => setRefreshToken((value) => value + 1)}
+          onClick={() => setRefreshToken((v) => v + 1)}
           disabled={isLoadingList || isLoadingDetail}
         >
           {isLoadingList || isLoadingDetail ? text.common.refreshing : text.refresh}
@@ -489,26 +471,30 @@ export function SessionsDiagnosticsDesk({
       </div>
 
       {error ? (
-        <p className="bootstrap-panel__feedback bootstrap-panel__feedback--error" role="alert">
-          {error}
-        </p>
+        <p className="desk-feedback desk-feedback--error" role="alert">{error}</p>
       ) : null}
 
       <div className="control-plane-pane-shell">
+        {/* ── Left rail: session list ── */}
         <section className="timeline control-plane-pane-rail" data-testid="sessions-list">
           <div className="timeline__header">
-            <div>
-              <h3 className="section-title">{text.sections.sessionIndex}</h3>
-              <p className="section-copy control-plane-compact-copy">{summaryLine}</p>
-            </div>
-            <span className="composer__status">{isLoadingList ? text.common.loading : text.common.items(sessions.length)}</span>
+            <h3 className="desk-section-title">{text.sections.sessionIndex}</h3>
+            <span className="composer__status">
+              {isLoadingList ? text.common.loading : text.common.items(sessions.length)}
+            </span>
           </div>
           <div className="timeline__body control-plane-session-list">
+            {isLoadingList ? <Skeleton height={52} count={3} /> : null}
+            {!isLoadingList && sessions.length === 0 ? (
+              <EmptyState icon={<Search size={28} strokeWidth={1.5} />} title={text.summary.empty} />
+            ) : null}
             {sessions.map((session) => (
               <button
                 key={session.sessionId}
                 type="button"
-                className={`control-plane-session-card control-plane-list-button ${selectedSessionId === session.sessionId ? "control-plane-list-button--selected" : ""}`}
+                className={`control-plane-session-card control-plane-list-button ${
+                  selectedSessionId === session.sessionId ? "control-plane-list-button--selected" : ""
+                }`}
                 data-testid={`session-select-${session.sessionId}`}
                 onClick={() => setSelectedSessionId(session.sessionId)}
                 aria-pressed={selectedSessionId === session.sessionId}
@@ -539,22 +525,27 @@ export function SessionsDiagnosticsDesk({
           </div>
         </section>
 
+        {/* ── Right stage: detail + timeline + bundle ── */}
         <div className="control-plane-pane-stage">
+
+          {/* Session detail card */}
           <section className="status-card status-card--normal control-plane-stage-hero" data-testid="session-detail">
-            <p className="section-eyebrow">{text.sections.sessionDetail}</p>
             {isHydratingSelection ? (
-              <p className="section-copy">{text.sessionDetail.loading}</p>
+              <Skeleton height={52} count={3} />
             ) : sessionDetail && hasFreshSessionDetail ? (
               <div className="control-plane-stack">
+                {/* Header */}
                 <div className="control-plane-stage-hero__header">
                   <div>
-                    <h3 className="section-title control-plane-card-title">{sessionDetail.sessionId}</h3>
-                    <p className="section-copy control-plane-compact-copy">
+                    <h3 className="desk-section-title">{sessionDetail.sessionId}</h3>
+                    <p className="desk-section-desc">
                       {text.sessionDetail.sessionFocus} · {formatSessionKind(sessionDetail.sessionKind)}
                     </p>
                   </div>
                   <div className="control-plane-chip-row">
-                    <span className="control-plane-chip">{text.sessionDetail.breakpoint}: {sessionDetail.status.breakpointState ?? text.sessionDetail.none}</span>
+                    <span className="control-plane-chip">
+                      {text.sessionDetail.breakpoint}: {sessionDetail.status.breakpointState ?? text.sessionDetail.none}
+                    </span>
                     {sessionDetail.status.pendingApprovalCount > 0 ? (
                       <span className="control-plane-chip control-plane-chip--warning">
                         {text.sessionList.pendingApprovals(sessionDetail.status.pendingApprovalCount)}
@@ -563,203 +554,208 @@ export function SessionsDiagnosticsDesk({
                   </div>
                 </div>
 
+                {/* Session metrics grid */}
                 <div className="control-plane-summary-grid">
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.session}</span>
-                    <span className="metric-value metric-value--path">{sessionDetail.sessionId}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.kind}</span>
-                    <span className="metric-value">{formatSessionKind(sessionDetail.sessionKind)}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.createdAt}</span>
-                    <span className="metric-value">{formatTimestamp(sessionDetail.createdAt)}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.lastEvent}</span>
-                    <span className="metric-value">{formatTimestamp(sessionDetail.lastEventAt)}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.messagesAndApprovals}</span>
-                    <span className="metric-value">
-                      {sessionDetail.status.messageCount} / {sessionDetail.status.pendingApprovalCount}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.messageBreakdown}</span>
-                    <span className="metric-value">
-                      {sessionDetail.userMessageCount} / {sessionDetail.assistantMessageCount} / {sessionDetail.toolCallCount}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.approvals}</span>
-                    <span className="metric-value">{sessionDetail.pendingApprovalCallIds.length}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.sessionDetail.traceIndex}</span>
-                    <span className="metric-value">{sessionDetail.lastSfpIndex}</span>
-                  </div>
+                  <MetricRow label={text.sessionDetail.session}>
+                    <span className="metric-value--path">{sessionDetail.sessionId}</span>
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.kind}>
+                    {formatSessionKind(sessionDetail.sessionKind)}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.createdAt}>
+                    {formatTimestamp(sessionDetail.createdAt)}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.lastEvent}>
+                    {formatTimestamp(sessionDetail.lastEventAt)}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.messagesAndApprovals}>
+                    {sessionDetail.status.messageCount} / {sessionDetail.status.pendingApprovalCount}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.messageBreakdown}>
+                    {sessionDetail.userMessageCount} / {sessionDetail.assistantMessageCount} / {sessionDetail.toolCallCount}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.approvals}>
+                    {sessionDetail.pendingApprovalCallIds.length}
+                  </MetricRow>
+                  <MetricRow label={text.sessionDetail.traceIndex}>
+                    {sessionDetail.lastSfpIndex}
+                  </MetricRow>
                 </div>
 
-                <div className="metric-item control-plane-stack" data-testid="session-prompt-report">
-                  <span className="metric-label">{text.sections.promptReport}</span>
+                {/* Prompt report — collapsible sections */}
+                <div data-testid="session-prompt-report">
                   {sessionDetail.promptReport ? (
                     <>
-                      <span className="metric-label">{text.sessionDetail.promptProfile}</span>
-                      <span className="metric-value">{sessionDetail.promptReport.profileId}</span>
-                      <span className="metric-label">{text.sessionDetail.promptSize}</span>
-                      <span className="metric-value">{formatPromptSize(sessionDetail.promptReport.characterCount)}</span>
-                      <span className="metric-label">{text.sessionDetail.promptBudget}</span>
-                      <span className="metric-value">
-                        {formatPromptBudget(
-                          sessionDetail.promptReport.characterCount,
-                          sessionDetail.promptReport.characterBudget,
-                          sessionDetail.promptReport.remainingCharacterBudget,
+                      {/* Overview */}
+                      <CollapsibleSection title={text.sections.promptOverview}>
+                        <div className="control-plane-summary-grid">
+                          <MetricRow label={text.sessionDetail.promptProfile}>
+                            {sessionDetail.promptReport.profileId}
+                          </MetricRow>
+                          <MetricRow label={text.sessionDetail.promptSize}>
+                            {formatPromptSize(sessionDetail.promptReport.characterCount)}
+                          </MetricRow>
+                          <MetricRow label={text.sessionDetail.promptBudget}>
+                            {formatPromptBudget(
+                              sessionDetail.promptReport.characterCount,
+                              sessionDetail.promptReport.characterBudget,
+                              sessionDetail.promptReport.remainingCharacterBudget,
+                            )}
+                          </MetricRow>
+                          <MetricRow label={text.sessionDetail.promptGeneratedAt}>
+                            {formatTimestamp(sessionDetail.promptReport.generatedAt)}
+                          </MetricRow>
+                          <MetricRow label={text.sessionDetail.truncationState}>
+                            {sessionDetail.promptReport.wasTruncated
+                              ? text.sessionDetail.truncationOn
+                              : text.sessionDetail.truncationOff}
+                          </MetricRow>
+                        </div>
+                      </CollapsibleSection>
+
+                      {/* Context files */}
+                      <CollapsibleSection title={text.sections.contextFiles}>
+                        <div className="control-plane-summary-grid">
+                          <MetricRow label={text.sessionDetail.loadedContextFiles}>
+                            {sessionDetail.promptReport.loadedContextFiles.length > 0
+                              ? sessionDetail.promptReport.loadedContextFiles.map((p) => (
+                                  <span key={p} className="metric-value metric-value--path diag-path-item">{p}</span>
+                                ))
+                              : text.sessionDetail.none}
+                          </MetricRow>
+                          {sessionDetail.promptReport.wasTruncated && (
+                            <>
+                              <MetricRow label={text.sessionDetail.truncatedContextFiles}>
+                                {(sessionDetail.promptReport.truncatedContextFiles?.length ?? 0) > 0
+                                  ? sessionDetail.promptReport.truncatedContextFiles!.map((p) => (
+                                      <span key={p} className="metric-value metric-value--path diag-path-item">{p}</span>
+                                    ))
+                                  : text.sessionDetail.none}
+                              </MetricRow>
+                              <MetricRow label={text.sessionDetail.truncationNotes}>
+                                {(sessionDetail.promptReport.truncationNotes?.length ?? 0) > 0
+                                  ? sessionDetail.promptReport.truncationNotes!.map((note) => (
+                                      <span key={note} className="metric-value diag-path-item">{note}</span>
+                                    ))
+                                  : text.sessionDetail.none}
+                              </MetricRow>
+                            </>
+                          )}
+                        </div>
+                      </CollapsibleSection>
+
+                      {/* Recent changes / delta */}
+                      <CollapsibleSection title={text.sections.recentChanges} defaultOpen={true}>
+                        {sessionDetail.promptReportDelta ? (
+                          <div className="control-plane-summary-grid">
+                            <MetricRow label={text.sessionDetail.previousPromptGeneratedAt}>
+                              {formatTimestamp(sessionDetail.promptReportDelta.previousGeneratedAt)}
+                            </MetricRow>
+                            <MetricRow label={text.sessionDetail.charDelta}>
+                              {formatPromptDelta(sessionDetail.promptReportDelta.characterCountDelta)}
+                            </MetricRow>
+                            {sessionDetail.promptReportDelta.truncationStateChanged ? (
+                              <MetricRow label={text.sessionDetail.truncationChanged}>—</MetricRow>
+                            ) : null}
+                            <MetricRow label={text.sessionDetail.addedContextFiles}>
+                              {sessionDetail.promptReportDelta.addedContextFiles.length > 0
+                                ? sessionDetail.promptReportDelta.addedContextFiles.map((p) => (
+                                    <span key={p} className="metric-value metric-value--path diag-path-item">{p}</span>
+                                  ))
+                                : text.sessionDetail.none}
+                            </MetricRow>
+                            <MetricRow label={text.sessionDetail.removedContextFiles}>
+                              {sessionDetail.promptReportDelta.removedContextFiles.length > 0
+                                ? sessionDetail.promptReportDelta.removedContextFiles.map((p) => (
+                                    <span key={p} className="metric-value metric-value--path diag-path-item">{p}</span>
+                                  ))
+                                : text.sessionDetail.none}
+                            </MetricRow>
+                          </div>
+                        ) : (
+                          <p className="desk-section-desc" style={{ margin: 0 }}>
+                            {text.sessionDetail.noPromptDelta}
+                          </p>
                         )}
-                      </span>
-                      <span className="metric-label">{text.sessionDetail.promptGeneratedAt}</span>
-                      <span className="metric-value">{formatTimestamp(sessionDetail.promptReport.generatedAt)}</span>
-                      <span className="metric-label">{text.sessionDetail.truncationState}</span>
-                      <span className="metric-value">
-                        {sessionDetail.promptReport.wasTruncated
-                          ? text.sessionDetail.truncationOn
-                          : text.sessionDetail.truncationOff}
-                      </span>
-                      <span className="metric-label">{text.sessionDetail.loadedContextFiles}</span>
-                      {sessionDetail.promptReport.loadedContextFiles.length > 0 ? (
-                        sessionDetail.promptReport.loadedContextFiles.map((path) => (
-                          <span key={path} className="metric-value metric-value--path">{path}</span>
-                        ))
-                      ) : (
-                        <span className="metric-value">{text.sessionDetail.none}</span>
-                      )}
-                      {sessionDetail.promptReport.wasTruncated ? (
-                        <>
-                          <span className="metric-label">{text.sessionDetail.truncatedContextFiles}</span>
-                          {(sessionDetail.promptReport.truncatedContextFiles?.length ?? 0) > 0 ? (
-                            sessionDetail.promptReport.truncatedContextFiles!.map((path) => (
-                              <span key={path} className="metric-value metric-value--path">{path}</span>
-                            ))
-                          ) : (
-                            <span className="metric-value">{text.sessionDetail.none}</span>
-                          )}
-                          <span className="metric-label">{text.sessionDetail.truncationNotes}</span>
-                          {(sessionDetail.promptReport.truncationNotes?.length ?? 0) > 0 ? (
-                            sessionDetail.promptReport.truncationNotes!.map((note) => (
-                              <span key={note} className="metric-value">{note}</span>
-                            ))
-                          ) : (
-                            <span className="metric-value">{text.sessionDetail.none}</span>
-                          )}
-                        </>
-                      ) : null}
-                      <span className="metric-label">{text.sessionDetail.promptDelta}</span>
-                      {sessionDetail.promptReportDelta ? (
-                        <>
-                          <span className="metric-label">{text.sessionDetail.previousPromptGeneratedAt}</span>
-                          <span className="metric-value">{formatTimestamp(sessionDetail.promptReportDelta.previousGeneratedAt)}</span>
-                          <span className="metric-label">{text.sessionDetail.charDelta}</span>
-                          <span className="metric-value">{formatPromptDelta(sessionDetail.promptReportDelta.characterCountDelta)}</span>
-                          {sessionDetail.promptReportDelta.truncationStateChanged ? (
-                            <span className="metric-value">{text.sessionDetail.truncationChanged}</span>
-                          ) : null}
-                          <span className="metric-label">{text.sessionDetail.addedContextFiles}</span>
-                          {sessionDetail.promptReportDelta.addedContextFiles.length > 0 ? (
-                            sessionDetail.promptReportDelta.addedContextFiles.map((path) => (
-                              <span key={path} className="metric-value metric-value--path">{path}</span>
-                            ))
-                          ) : (
-                            <span className="metric-value">{text.sessionDetail.none}</span>
-                          )}
-                          <span className="metric-label">{text.sessionDetail.removedContextFiles}</span>
-                          {sessionDetail.promptReportDelta.removedContextFiles.length > 0 ? (
-                            sessionDetail.promptReportDelta.removedContextFiles.map((path) => (
-                              <span key={path} className="metric-value metric-value--path">{path}</span>
-                            ))
-                          ) : (
-                            <span className="metric-value">{text.sessionDetail.none}</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="metric-value">{text.sessionDetail.noPromptDelta}</span>
-                      )}
-                      <span className="metric-label">{text.sessionDetail.promptHistory}</span>
-                      {(sessionDetail.recentPromptReports?.length ?? 0) > 0 ? (
-                        sessionDetail.recentPromptReports!.map((report, index) => (
-                          <span key={`${report.generatedAt}-${index}`} className="metric-value">
-                            {report.profileId} · {formatPromptSize(report.characterCount)} · {formatTimestamp(report.generatedAt)}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="metric-value">{text.sessionDetail.none}</span>
-                      )}
-                      <span className="metric-label">{text.sessionDetail.promptPreview}</span>
-                      <pre className="message__text">{sessionDetail.promptReport.systemPrompt}</pre>
+                      </CollapsibleSection>
+
+                      {/* Recent builds */}
+                      <CollapsibleSection title={text.sessionDetail.promptHistory} defaultOpen={false}>
+                        {(sessionDetail.recentPromptReports?.length ?? 0) > 0 ? (
+                          <div className="control-plane-summary-grid">
+                            {sessionDetail.recentPromptReports!.map((report, index) => (
+                              <MetricRow key={`${report.generatedAt}-${index}`} label={report.profileId}>
+                                {formatPromptSize(report.characterCount)} · {formatTimestamp(report.generatedAt)}
+                              </MetricRow>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="desk-section-desc" style={{ margin: 0 }}>{text.sessionDetail.none}</p>
+                        )}
+                      </CollapsibleSection>
+
+                      {/* System prompt */}
+                      <CollapsibleSection title={text.sections.systemPrompt} defaultOpen={true}>
+                        <pre className="diag-system-prompt">{sessionDetail.promptReport.systemPrompt}</pre>
+                      </CollapsibleSection>
                     </>
                   ) : (
-                    <span className="metric-value">{text.sessionDetail.promptUnavailable}</span>
+                    <p className="desk-section-desc">{text.sessionDetail.promptUnavailable}</p>
                   )}
                 </div>
               </div>
             ) : selectedSessionSummary ? (
               <div className="control-plane-summary-grid">
-                <div className="metric-item">
-                  <span className="metric-label">{text.sessionDetail.session}</span>
-                  <span className="metric-value metric-value--path">{selectedSessionSummary.sessionId}</span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">{text.sessionDetail.kind}</span>
-                  <span className="metric-value">{formatSessionKind(selectedSessionSummary.sessionKind)}</span>
-                </div>
+                <MetricRow label={text.sessionDetail.session}>
+                  <span className="metric-value--path">{selectedSessionSummary.sessionId}</span>
+                </MetricRow>
+                <MetricRow label={text.sessionDetail.kind}>
+                  {formatSessionKind(selectedSessionSummary.sessionKind)}
+                </MetricRow>
               </div>
             ) : (
-              <p className="section-copy">{text.sessionDetail.empty}</p>
+              <EmptyState icon={<Search size={28} strokeWidth={1.5} />} title={text.sessionDetail.empty} />
             )}
           </section>
 
+          {/* Timeline + Bundle export */}
           <div className="control-plane-two-pane control-plane-two-pane--diagnostics">
             <section className="timeline control-plane-stage-panel" data-testid="diagnostics-timeline">
               <div className="timeline__header">
-                <h3 className="section-title">{text.sections.diagnosticsTimeline}</h3>
+                <h3 className="desk-section-title">{text.sections.diagnosticsTimeline}</h3>
                 <span className="composer__status">{visibleTimeline.length}</span>
               </div>
               <div className="timeline__body">
                 {isHydratingSelection ? (
-                  <p className="section-copy">{text.timeline.loading}</p>
+                  <Skeleton height={36} count={5} />
                 ) : visibleTimeline.length > 0 ? (
-                  visibleTimeline.map((event) => (
-                    <article key={event.id} className="message message--system control-plane-stack">
-                      <div className="message__meta">
-                        <span className="message__role">{event.level} · {event.eventType}</span>
-                        <span>{formatTimestamp(event.timestamp)}</span>
+                  <div className="diag-event-log">
+                    {visibleTimeline.map((event) => (
+                      <div key={event.id} className={`diag-event diag-event--${event.level.toLowerCase()}`}>
+                        <span className="diag-event__time">{formatTimestamp(event.timestamp)}</span>
+                        <span className={`diag-event__level diag-event__level--${event.level.toLowerCase()}`}>{event.level}</span>
+                        <span className="diag-event__source">{event.source}</span>
+                        <span className="diag-event__msg">{event.message}</span>
                       </div>
-                      <p className="control-plane-zero-margin">{event.message}</p>
-                      <span className="metric-label">{event.source}</span>
-                    </article>
-                  ))
+                    ))}
+                  </div>
                 ) : (
-                  <p className="section-copy">{text.timeline.empty}</p>
+                  <p className="desk-section-desc">{text.timeline.empty}</p>
                 )}
               </div>
             </section>
 
             <section className="status-card status-card--warning control-plane-stage-panel" data-testid="diagnostic-bundle-export">
-              <p className="section-eyebrow">{text.sections.diagnosticBundle}</p>
               <div className="control-plane-summary-grid">
-                <div className="metric-item">
-                  <span className="metric-label">{text.bundle.requestedSession}</span>
-                  <span className="metric-value">
-                    {selectedSessionId ?? text.bundle.crossSession}
-                  </span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">{text.bundle.timelineWindow}</span>
-                  <span className="metric-value">{text.bundle.timelineWindowValue}</span>
-                </div>
+                <MetricRow label={text.bundle.requestedSession}>
+                  {selectedSessionId ?? text.bundle.crossSession}
+                </MetricRow>
+                <MetricRow label={text.bundle.timelineWindow}>
+                  {text.bundle.timelineWindowValue}
+                </MetricRow>
               </div>
 
-              <div className="bootstrap-form__actions">
+              <div style={{ marginTop: 'var(--space-3)' }}>
                 <button
                   type="button"
                   className="secondary-button"
@@ -772,48 +768,38 @@ export function SessionsDiagnosticsDesk({
               </div>
 
               {bundleError ? (
-                <p
-                  className="bootstrap-panel__feedback bootstrap-panel__feedback--error"
-                  data-testid="diagnostic-bundle-export-error"
-                >
+                <p className="desk-feedback desk-feedback--error" data-testid="diagnostic-bundle-export-error">
                   {bundleError}
                 </p>
               ) : null}
 
               {bundleNote ? (
-                <p
-                  className="bootstrap-panel__feedback bootstrap-panel__feedback--success"
-                  data-testid="diagnostic-bundle-export-note"
-                >
+                <p className="desk-feedback desk-feedback--success" data-testid="diagnostic-bundle-export-note">
                   {bundleNote}
                 </p>
               ) : null}
 
               {bundleExport ? (
-                <div className="metric-item control-plane-stack" data-testid="diagnostic-bundle-export-result">
-                  <span className="metric-label">{text.bundle.bundlePath}</span>
-                  <span className="metric-value metric-value--path">
-                    {bundleExport.bundlePath}
-                  </span>
-                  <span className="metric-label">{text.bundle.workspaceRoot}</span>
-                  <span className="metric-value metric-value--path">
-                    {bundleExport.workspaceRootPath}
-                  </span>
-                  <span className="metric-label">{text.bundle.manifest}</span>
-                  <span className="metric-value">
-                    {bundleExport.manifest.entries.length} entries · {formatTimestamp(bundleExport.generatedAt)}
-                  </span>
-                  <span className="metric-label">{text.bundle.redactionPosture}</span>
-                  <span className="metric-value">
-                    {text.bundle.rawSecrets}: {bundleExport.manifest.redactionSummary.includesRawSecrets ? text.bundle.included : text.bundle.excluded}
-                    {" · "}
-                    {text.bundle.messageBodies}: {bundleExport.manifest.redactionSummary.includesMessageBodies ? text.bundle.included : text.bundle.excluded}
-                  </span>
+                <div className="control-plane-stack" data-testid="diagnostic-bundle-export-result" style={{ marginTop: 'var(--space-3)' }}>
+                  <div className="control-plane-summary-grid">
+                    <MetricRow label={text.bundle.bundlePath}>
+                      <span className="metric-value--path">{bundleExport.bundlePath}</span>
+                    </MetricRow>
+                    <MetricRow label={text.bundle.workspaceRoot}>
+                      <span className="metric-value--path">{bundleExport.workspaceRootPath}</span>
+                    </MetricRow>
+                    <MetricRow label={text.bundle.manifest}>
+                      {bundleExport.manifest.entries.length} entries · {formatTimestamp(bundleExport.generatedAt)}
+                    </MetricRow>
+                    <MetricRow label={text.bundle.redactionPosture}>
+                      {text.bundle.rawSecrets}: {bundleExport.manifest.redactionSummary.includesRawSecrets ? text.bundle.included : text.bundle.excluded}
+                      {" · "}
+                      {text.bundle.messageBodies}: {bundleExport.manifest.redactionSummary.includesMessageBodies ? text.bundle.included : text.bundle.excluded}
+                    </MetricRow>
+                  </div>
                   <ul data-testid="diagnostic-bundle-redaction-notes" className="risk-briefing__list">
                     {bundleExport.manifest.redactionSummary.notes.map((note) => (
-                      <li key={note} className="section-copy">
-                        {note}
-                      </li>
+                      <li key={note} className="desk-section-desc">{note}</li>
                     ))}
                   </ul>
                 </div>

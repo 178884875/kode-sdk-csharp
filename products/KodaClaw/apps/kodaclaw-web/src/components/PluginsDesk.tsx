@@ -1,4 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Puzzle } from "lucide-react";
 import {
   disablePlugin,
   discoverPlugins,
@@ -625,10 +628,9 @@ export function PluginsDesk() {
   const stopButtonEnabled = !isMutating && !!detail && detail.record.runtimeState === "Running";
 
   return (
-    <section className="bootstrap-panel" data-testid="plugins-desk">
-      <div className="section-eyebrow">{text.common.controlPlane}</div>
-      <h2 className="section-title">{text.title}</h2>
-      <p className="section-copy">{text.intro}</p>
+    <section className="" data-testid="plugins-desk">
+      <h2 className="desk-section-title">{text.title}</h2>
+      <p className="desk-section-desc">{text.intro}</p>
 
       <div className="control-plane-toolbar">
         <button
@@ -745,12 +747,12 @@ export function PluginsDesk() {
       </form>
 
       {error ? (
-        <p className="bootstrap-panel__feedback bootstrap-panel__feedback--error" data-testid="plugins-error">
+        <p className="__feedback __feedback--error" data-testid="plugins-error">
           {error}
         </p>
       ) : null}
       {note ? (
-        <p className="bootstrap-panel__feedback bootstrap-panel__feedback--success" data-testid="plugins-note">
+        <p className="__feedback __feedback--success" data-testid="plugins-note">
           {note}
         </p>
       ) : null}
@@ -758,14 +760,14 @@ export function PluginsDesk() {
       <div className="control-plane-split-pane">
         <section className="timeline" data-testid="plugins-list">
           <div className="timeline__header">
-            <h3 className="section-title">{text.list.title}</h3>
+            <h3 className="desk-section-title">{text.list.title}</h3>
             <span className="composer__status">{isLoadingList ? text.common.loading : `${plugins.length} ${text.list.pluginsSuffix}`}</span>
           </div>
 
           <div className="timeline__body" style={{ maxHeight: "min(52vh, 680px)" }}>
-            {isLoadingList ? <p className="timeline__empty">{text.list.loading}</p> : null}
+            {isLoadingList ? <Skeleton height={52} count={3} /> : null}
             {!isLoadingList && plugins.length === 0 ? (
-              <p className="timeline__empty">{text.list.empty}</p>
+              <EmptyState icon={<Puzzle size={28} strokeWidth={1.5} />} title={text.list.empty} />
             ) : null}
 
             {plugins.map((plugin) => {
@@ -811,7 +813,7 @@ export function PluginsDesk() {
             <div className="timeline__header">
               <div>
                 <p className="section-eyebrow control-plane-compact-copy">{text.detail.eyebrow}</p>
-                <h3 className="section-title control-plane-card-title">{detail?.record.manifest.name ?? selectedSummary?.name ?? text.detail.empty}</h3>
+                <h3 className="desk-section-title control-plane-card-title">{detail?.record.manifest.name ?? selectedSummary?.name ?? text.detail.empty}</h3>
               </div>
               <span className={`stream-indicator ${detail?.healthSummary.isHealthy ? "is-live" : ""}`}>
                 {detail?.healthSummary.status ?? text.detail.idle}
@@ -871,7 +873,7 @@ export function PluginsDesk() {
 
             <div className="timeline control-plane-panel" data-testid="plugin-trust-evidence">
               <div className="timeline__header">
-                <h3 className="section-title">{text.trustEvidence.title}</h3>
+                <h3 className="desk-section-title">{text.trustEvidence.title}</h3>
                 <span className={`composer__status ${detail?.record.trustEvidence?.verificationState === "Verified" ? "is-live" : ""}`}>
                   {detail?.record.trustEvidence?.verificationState ?? text.trustEvidence.unavailable}
                 </span>
@@ -911,7 +913,7 @@ export function PluginsDesk() {
 
           <section className="timeline" data-testid="plugin-permissions">
             <div className="timeline__header">
-              <h3 className="section-title">{text.permissions.title}</h3>
+              <h3 className="desk-section-title">{text.permissions.title}</h3>
               <span className={`composer__status ${detail?.permissionSummary.hasHighRisk ? "" : "is-live"}`}>
                 {detail?.permissionSummary.hasHighRisk ? text.permissions.reviewRequired : text.permissions.lowFriction}
               </span>
@@ -937,7 +939,7 @@ export function PluginsDesk() {
 
           <section className="timeline" data-testid="plugin-tools">
             <div className="timeline__header">
-              <h3 className="section-title">{text.tools.title}</h3>
+              <h3 className="desk-section-title">{text.tools.title}</h3>
               <span className="composer__status">{isLoadingDetail ? text.common.loading : `${toolNames.length} ${text.tools.toolsSuffix}`}</span>
             </div>
             <div className="timeline__body">
@@ -961,8 +963,8 @@ export function PluginsDesk() {
           <section className="timeline" data-testid="plugin-logs">
             <div className="timeline__header">
               <div>
-                <h3 className="section-title">{text.logs.title}</h3>
-                <p className="section-copy control-plane-compact-copy">{text.logs.copy}</p>
+                <h3 className="desk-section-title">{text.logs.title}</h3>
+                <p className="desk-section-desc">{text.logs.copy}</p>
               </div>
               <a data-testid="plugin-logs-link" className="secondary-button" href={selectedPluginId ? `/api/plugins/${selectedPluginId}/logs?limit=${PLUGIN_LOG_LIMIT}` : "#"}>
                 {text.logs.rawLogs}
@@ -988,9 +990,8 @@ export function PluginsDesk() {
           </section>
 
           <section className="status-card status-card--normal" data-testid="plugin-settings-placeholder">
-            <p className="section-eyebrow">{text.future.eyebrow}</p>
-            <h3 className="section-title">{text.future.title}</h3>
-            <p className="section-copy">{text.future.copy}</p>
+            <h3 className="desk-section-title">{text.future.title}</h3>
+            <p className="desk-section-desc">{text.future.copy}</p>
           </section>
         </div>
       </div>

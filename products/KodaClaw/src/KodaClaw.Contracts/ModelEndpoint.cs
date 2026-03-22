@@ -9,8 +9,12 @@ public sealed record ModelEndpoint(
     string? ApiKeyEnvironmentVariable,
     string? ApiKeySecretRef,
     bool Enabled,
-    bool SupportsToolCalling,
+    ModelCapabilitySet Capabilities,
     bool IsDefault,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
-    int ContextWindowSize = 128_000);
+    int ContextWindowSize = 128_000)
+{
+    /// <summary>向后兼容计算属性，不存入数据库。</summary>
+    public bool SupportsToolCalling => Capabilities.HasFlag(ModelCapabilitySet.ToolCalling);
+}

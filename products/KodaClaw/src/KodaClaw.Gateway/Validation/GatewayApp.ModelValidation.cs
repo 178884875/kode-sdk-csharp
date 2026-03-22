@@ -10,7 +10,7 @@ public static partial class GatewayApp
         string? ApiKeyEnvironmentVariable,
         string? ApiKeySecretRef,
         bool Enabled,
-        bool SupportsToolCalling,
+        ModelCapabilitySet Capabilities,
         int ContextWindowSize = 128_000);
 
     private static bool TryValidateModelEndpointRequest(
@@ -26,7 +26,7 @@ public static partial class GatewayApp
             request.ApiKeyEnvironmentVariable,
             request.ApiKeySecretRef,
             request.Enabled,
-            request.SupportsToolCalling,
+            request.Capabilities,
             request.ContextWindowSize,
             out validated,
             out error);
@@ -45,7 +45,7 @@ public static partial class GatewayApp
             request.ApiKeyEnvironmentVariable,
             request.ApiKeySecretRef,
             request.Enabled,
-            request.SupportsToolCalling,
+            request.Capabilities,
             request.ContextWindowSize,
             out validated,
             out error);
@@ -59,7 +59,7 @@ public static partial class GatewayApp
         string? apiKeyEnvironmentVariable,
         string? apiKeySecretRef,
         bool enabled,
-        bool supportsToolCalling,
+        ModelCapabilitySet capabilities,
         int contextWindowSize,
         out ValidatedModelEndpointRequest validated,
         out ErrorResponse? error)
@@ -119,7 +119,7 @@ public static partial class GatewayApp
             ApiKeyEnvironmentVariable: normalizedApiKeyVariable,
             ApiKeySecretRef: normalizedApiKeySecretRef,
             Enabled: enabled,
-            SupportsToolCalling: supportsToolCalling,
+            Capabilities: capabilities,
             ContextWindowSize: contextWindowSize);
         return true;
     }
@@ -159,7 +159,7 @@ public static partial class GatewayApp
                 Message: "API key environment variable must not contain whitespace.");
             return false;
         }
-        
+
         if (!rawValue.All(static ch => char.IsLetterOrDigit(ch) || ch == '_') ||
             !(char.IsLetter(rawValue[0]) || rawValue[0] == '_'))
         {

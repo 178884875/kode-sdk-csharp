@@ -4,6 +4,7 @@ using Anthropic;
 using Anthropic.Models.Messages;
 using Microsoft.Extensions.Logging;
 using ContentBlock = Kode.Agent.Sdk.Core.Types.ContentBlock;
+using ImageContent = Kode.Agent.Sdk.Core.Types.ImageContent;
 using Message = Kode.Agent.Sdk.Core.Types.Message;
 using TextContent = Kode.Agent.Sdk.Core.Types.TextContent;
 using ToolResultContent = Kode.Agent.Sdk.Core.Types.ToolResultContent;
@@ -30,7 +31,7 @@ public sealed class AnthropicProvider : IModelProvider
 
         _client = new AnthropicClient
         {
-            APIKey = options.ApiKey,
+            ApiKey = options.ApiKey,
             BaseUrl = options.BaseUrl ?? "https://api.anthropic.com"
         };
     }
@@ -88,11 +89,11 @@ public sealed class AnthropicProvider : IModelProvider
                         TextDelta = textDelta.Text
                     };
                 }
-                else if (deltaEvent.Delta.TryPickInputJSON(out var jsonDelta))
+                else if (deltaEvent.Delta.TryPickInputJson(out var jsonDelta))
                 {
                     if (toolInputBuilders.TryGetValue(deltaEvent.Index, out var builder))
                     {
-                        builder.Append(jsonDelta.PartialJSON);
+                        builder.Append(jsonDelta.PartialJson);
                     }
 
                     var toolId = toolIdMap.GetValueOrDefault(deltaEvent.Index, deltaEvent.Index.ToString());
@@ -105,7 +106,7 @@ public sealed class AnthropicProvider : IModelProvider
                         {
                             Id = toolId,
                             Name = toolName,
-                            InputDelta = jsonDelta.PartialJSON
+                            InputDelta = jsonDelta.PartialJson
                         }
                     };
                 }
@@ -255,6 +256,26 @@ public sealed class AnthropicProvider : IModelProvider
         return block switch
         {
             TextContent text => new ContentBlockParam(new TextBlockParam { Text = text.Text }),
+            ImageContent img when img.Url is not null =>
+                new ContentBlockParam(new ImageBlockParam
+                {
+                    Source = new UrlImageSource { Url = img.Url }
+                }),
+            ImageContent img when img.Data is not null =>
+                new ContentBlockParam(new ImageBlockParam
+                {
+                    Source = new Base64ImageSource
+                    {
+                        MediaType = img.MediaType switch
+                        {
+                            "image/jpeg" => MediaType.ImageJpeg,
+                            "image/gif"  => MediaType.ImageGif,
+                            "image/webp" => MediaType.ImageWebP,
+                            _            => MediaType.ImagePng,
+                        },
+                        Data = img.Data
+                    }
+                }),
             ToolUseContent toolUse => new ContentBlockParam(new ToolUseBlockParam
             {
                 ID = toolUse.Id,

@@ -207,7 +207,8 @@ public sealed class ChannelDeliveryApprovalService
                 CreatedAt: now,
                 SessionId: approval.SessionId,
                 CorrelationId: approval.CorrelationId ?? _correlationContextAccessor?.CorrelationId,
-                ApprovalId: approval.Id),
+                ApprovalId: approval.Id,
+                MediaAttachments: payload.MediaAttachments),
             new ChannelTurnOutcome(
                 Kind: ChannelTurnOutcomeKind.Delivered,
                 Summary: BuildPreview(payload.MessageText),
@@ -437,5 +438,6 @@ public sealed class ChannelDeliveryApprovalService
         string AccountId,
         string ExternalThreadId,
         DeliveryMode DeliveryMode,
-        string MessageText);
+        string MessageText,
+        IReadOnlyList<MediaReference>? MediaAttachments = null);
 }

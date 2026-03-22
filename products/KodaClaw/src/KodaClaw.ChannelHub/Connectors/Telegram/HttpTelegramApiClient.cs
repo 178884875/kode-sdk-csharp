@@ -65,6 +65,53 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
             cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<TelegramSendMessageResult> SendPhotoAsync(
+        string botToken,
+        long chatId,
+        Stream photo,
+        string contentType,
+        string? caption,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            throw new ArgumentException("A non-empty telegram bot token is required.", nameof(botToken));
+        }
+
+        ArgumentNullException.ThrowIfNull(photo);
+
+        var ext = contentType.Contains("jpeg", StringComparison.OrdinalIgnoreCase) ? "jpg" : "png";
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
+        var photoContent = new StreamContent(photo);
+        photoContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(photoContent, "photo", $"photo.{ext}");
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            form.Add(new StringContent(caption), "caption");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(botToken, "sendPhoto"))
+        {
+            Content = form,
+        };
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var envelope = await response.Content
+            .ReadFromJsonAsync<TelegramApiResponse<TelegramSendMessageResult>>(JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (envelope is null || !envelope.Ok || envelope.Result is null)
+        {
+            throw new InvalidOperationException(
+                $"Telegram API 'sendPhoto' failed: {envelope?.Description ?? "unknown error"}");
+        }
+
+        return envelope.Result;
+    }
+
     private async Task<T> SendAsync<T>(
         string botToken,
         string method,

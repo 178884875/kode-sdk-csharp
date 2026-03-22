@@ -46,6 +46,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 api_key_secret_ref,
                 enabled,
                 supports_tool_calling,
+                capabilities,
                 is_default,
                 created_at,
                 updated_at,
@@ -61,6 +62,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 $apiKeySecretRef,
                 $enabled,
                 $supportsToolCalling,
+                $capabilities,
                 $isDefault,
                 $createdAt,
                 $updatedAt,
@@ -91,7 +93,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 is_default,
                 created_at,
                 updated_at,
-                COALESCE(context_window_size, 128000)
+                COALESCE(context_window_size, 128000),
+                capabilities
             FROM {TableName}
             ORDER BY is_default DESC, created_at DESC;
             """;
@@ -133,6 +136,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 api_key_secret_ref = $apiKeySecretRef,
                 enabled = $enabled,
                 supports_tool_calling = $supportsToolCalling,
+                capabilities = $capabilities,
                 context_window_size = $contextWindowSize,
                 updated_at = $updatedAt
             WHERE id = $id;
@@ -191,6 +195,53 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
         return rows > 0;
     }
 
+    public async Task<ModelEndpoint?> ResolveDefaultForAsync(
+        ModelCapabilitySet required,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+
+        // 对于旧行（capabilities IS NULL），从 supports_tool_calling 推导：
+        // supports_tool_calling=1 → capabilities=3 (TextChat|ToolCalling)
+        // supports_tool_calling=0 → capabilities=1 (TextChat)
+        var requiredInt = (long)required;
+        command.CommandText =
+            $"""
+            SELECT
+                id,
+                display_name,
+                provider,
+                model_id,
+                base_url,
+                api_key_env,
+                api_key_secret_ref,
+                enabled,
+                supports_tool_calling,
+                is_default,
+                created_at,
+                updated_at,
+                COALESCE(context_window_size, 128000),
+                capabilities
+            FROM {TableName}
+            WHERE enabled = 1
+              AND (
+                COALESCE(capabilities, CASE WHEN supports_tool_calling = 1 THEN 3 ELSE 1 END) & $required
+              ) = $required
+            ORDER BY is_default DESC, created_at DESC
+            LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("$required", requiredInt);
+
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            return MapEndpoint(reader);
+        }
+
+        return null;
+    }
+
     private async Task<string> EnsureDatabaseAsync(CancellationToken cancellationToken)
     {
         if (_initialized && _databasePath is not null)
@@ -234,25 +285,17 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                     api_key_secret_ref TEXT,
                     enabled INTEGER NOT NULL,
                     supports_tool_calling INTEGER NOT NULL,
+                    capabilities INTEGER,
                     is_default INTEGER NOT NULL,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    context_window_size INTEGER NOT NULL DEFAULT 128000
                 );
                 CREATE UNIQUE INDEX IF NOT EXISTS ix_{TableName}_is_default
                     ON {TableName}(is_default)
                     WHERE is_default = 1;
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
-            await EnsureColumnExistsAsync(
-                connection,
-                columnName: "api_key_secret_ref",
-                columnDefinition: "TEXT",
-                cancellationToken);
-            await EnsureColumnExistsAsync(
-                connection,
-                columnName: "context_window_size",
-                columnDefinition: "INTEGER NOT NULL DEFAULT 128000",
-                cancellationToken);
 
             _databasePath = databasePath;
             _initialized = true;
@@ -335,7 +378,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 is_default,
                 created_at,
                 updated_at,
-                COALESCE(context_window_size, 128000)
+                COALESCE(context_window_size, 128000),
+                capabilities
             FROM {TableName}
             WHERE id = $id
             LIMIT 1;
@@ -362,6 +406,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
         command.Parameters.AddWithValue("$apiKeySecretRef", (object?)endpoint.ApiKeySecretRef ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", endpoint.Enabled ? 1 : 0);
         command.Parameters.AddWithValue("$supportsToolCalling", endpoint.SupportsToolCalling ? 1 : 0);
+        command.Parameters.AddWithValue("$capabilities", (long)endpoint.Capabilities);
         command.Parameters.AddWithValue("$isDefault", endpoint.IsDefault ? 1 : 0);
         command.Parameters.AddWithValue("$createdAt", FormatTimestamp(endpoint.CreatedAt));
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(endpoint.UpdatedAt));
@@ -370,6 +415,23 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
 
     private static ModelEndpoint MapEndpoint(SqliteDataReader reader)
     {
+        // col 8: supports_tool_calling（旧列，用于向后兼容推导）
+        var supportsToolCalling = reader.GetInt64(8) != 0;
+
+        // col 13: capabilities（新列，nullable）
+        ModelCapabilitySet capabilities;
+        if (reader.IsDBNull(13))
+        {
+            // 旧行：从 supports_tool_calling 推导
+            capabilities = ModelCapabilitySet.TextChat;
+            if (supportsToolCalling)
+                capabilities |= ModelCapabilitySet.ToolCalling;
+        }
+        else
+        {
+            capabilities = (ModelCapabilitySet)reader.GetInt64(13);
+        }
+
         return new ModelEndpoint(
             Id: reader.GetString(0),
             DisplayName: reader.GetString(1),
@@ -379,7 +441,7 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
             ApiKeyEnvironmentVariable: reader.IsDBNull(5) ? null : reader.GetString(5),
             ApiKeySecretRef: reader.IsDBNull(6) ? null : reader.GetString(6),
             Enabled: reader.GetInt64(7) != 0,
-            SupportsToolCalling: reader.GetInt64(8) != 0,
+            Capabilities: capabilities,
             IsDefault: reader.GetInt64(9) != 0,
             CreatedAt: ParseTimestamp(reader.GetString(10)),
             UpdatedAt: ParseTimestamp(reader.GetString(11)),
@@ -435,28 +497,6 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
         }
     }
 
-    private static async Task EnsureColumnExistsAsync(
-        SqliteConnection connection,
-        string columnName,
-        string columnDefinition,
-        CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA table_info({TableName});";
-
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            if (string.Equals(reader.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-        }
-
-        await using var alterCommand = connection.CreateCommand();
-        alterCommand.CommandText = $"ALTER TABLE {TableName} ADD COLUMN {columnName} {columnDefinition};";
-        await alterCommand.ExecuteNonQueryAsync(cancellationToken);
-    }
 
     private static string FormatTimestamp(DateTimeOffset value)
     {

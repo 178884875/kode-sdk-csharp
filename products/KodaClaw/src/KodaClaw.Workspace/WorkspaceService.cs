@@ -27,6 +27,7 @@ public sealed class WorkspaceService : IWorkspaceService
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "channels"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "plugins"),
         KodaClawWorkspaceLayout.WorkspaceSkillsDirectory,
+        KodaClawWorkspaceLayout.MediaDirectory,
     ];
 
     public WorkspaceService(KodaClawWorkspaceOptions options)

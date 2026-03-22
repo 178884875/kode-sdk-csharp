@@ -17,5 +17,13 @@ public interface ITelegramApiClient
         long chatId,
         string text,
         CancellationToken cancellationToken = default);
+
+    Task<TelegramSendMessageResult> SendPhotoAsync(
+        string botToken,
+        long chatId,
+        Stream photo,
+        string contentType,
+        string? caption,
+        CancellationToken cancellationToken = default);
 }
 

@@ -1,0 +1,137 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { SettingsDesk } from "../components/SettingsDesk";
+import { I18nProvider } from "../i18n/I18nProvider";
+
+function jsonResponse(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function renderDesk() {
+  return render(
+    <I18nProvider>
+      <SettingsDesk />
+    </I18nProvider>,
+  );
+}
+
+describe("SettingsDesk", () => {
+  beforeEach(() => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (url.includes("persona-presets")) return jsonResponse([]);
+      if (url.includes("channels/accounts")) return jsonResponse([]);
+      return jsonResponse({ target: "identity", content: "" });
+    });
+  });
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("renders all four sections", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-desk")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-identity-section")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-connections-section")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-preferences-section")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-system-section")).toBeInTheDocument();
+  });
+
+  it("renders workspace identity editors", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-identity-editor")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-soul-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-user-editor")).toBeInTheDocument();
+  });
+
+  it("shows persona selector trigger", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-persona-trigger")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("settings-persona-trigger"));
+    await waitFor(() => {
+      expect(screen.getByTestId("persona-selector")).toBeInTheDocument();
+    });
+  });
+
+  it("renders system action buttons", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("settings-clear-identity")).toBeInTheDocument();
+  });
+
+  it("shows confirmation before reset-onboarding action", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("settings-reset-onboarding"));
+    await waitFor(() => {
+      expect(screen.getByText("确认重置 Onboarding？")).toBeInTheDocument();
+    });
+    expect(screen.getByText("取消")).toBeInTheDocument();
+  });
+
+  it("cancels reset-onboarding confirmation", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("settings-reset-onboarding"));
+    await waitFor(() => { screen.getByText("取消"); });
+    fireEvent.click(screen.getByText("取消"));
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
+    });
+  });
+
+  it("shows confirmation before clear-identity action", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-clear-identity")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("settings-clear-identity"));
+    await waitFor(() => {
+      expect(screen.getByText("确认清除所有身份文件？")).toBeInTheDocument();
+    });
+  });
+
+  it("clears identity files on confirm", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
+      if (url.includes("persona-presets")) return jsonResponse([]);
+      if (url.includes("channels/accounts")) return jsonResponse([]);
+      return jsonResponse({ target: "identity", content: "" });
+    });
+
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-clear-identity")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("settings-clear-identity"));
+    await waitFor(() => { screen.getByText("确认清除所有身份文件？"); });
+    fireEvent.click(screen.getByText("确认"));
+    await waitFor(() => {
+      expect(screen.getByText(/已清除/)).toBeInTheDocument();
+    });
+  });
+
+  it("renders locale toggle in preferences section", async () => {
+    renderDesk();
+    await waitFor(() => {
+      expect(screen.getByTestId("settings-preferences-section")).toBeInTheDocument();
+    });
+    // LocaleToggle renders buttons with data-testid locale-toggle-*
+    expect(screen.getAllByTestId(/locale-toggle/).length).toBeGreaterThan(0);
+  });
+});

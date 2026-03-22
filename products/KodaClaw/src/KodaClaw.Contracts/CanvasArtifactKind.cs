@@ -11,4 +11,5 @@ public enum CanvasArtifactKind
     TaskList = 3,
     PluginPanel = 4,
     Html = 5,
+    Image = 6,
 }

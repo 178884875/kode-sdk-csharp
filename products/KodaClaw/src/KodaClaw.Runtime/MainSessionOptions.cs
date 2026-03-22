@@ -33,6 +33,7 @@ public sealed class MainSessionOptions
         "workspace_read",
         "channel_send",
         "channel_list",
+        "generate_image",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =

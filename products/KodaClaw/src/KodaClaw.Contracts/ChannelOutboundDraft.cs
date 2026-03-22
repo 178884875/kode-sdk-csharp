@@ -12,4 +12,5 @@ public sealed record ChannelOutboundDraft(
     string? SessionId = null,
     string? CorrelationId = null,
     string? ApprovalId = null,
-    string? MetadataJson = null);
+    string? MetadataJson = null,
+    IReadOnlyList<MediaReference>? MediaAttachments = null);

@@ -105,6 +105,34 @@ internal static class RuntimeProviderSelector
         return snapshot.DefaultModel!;
     }
 
+    /// <summary>
+    /// Like ResolveModelOrThrow, but falls back to the default Registry endpoint's
+    /// ModelId when env-var config is absent. Use this in session services to support
+    /// Registry-first model routing without requiring environment variables.
+    /// </summary>
+    public static async Task<string> ResolveModelOrFallbackAsync(
+        IRuntimeConfigurationResolver? resolver,
+        string? fallbackModel,
+        KodaClaw.Contracts.IModelRegistryRepository? registry,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return ResolveModelOrThrow(resolver, fallbackModel);
+        }
+        catch (InvalidOperationException) when (registry is not null)
+        {
+            var endpoint = await registry.ResolveDefaultForAsync(
+                KodaClaw.Contracts.ModelCapabilitySet.TextChat | KodaClaw.Contracts.ModelCapabilitySet.ToolCalling,
+                cancellationToken);
+
+            if (endpoint is not null && !string.IsNullOrWhiteSpace(endpoint.ModelId))
+                return endpoint.ModelId;
+
+            throw;
+        }
+    }
+
     private static bool LooksLikeOpenAiModel(string model)
     {
         return model.StartsWith("gpt", StringComparison.OrdinalIgnoreCase)

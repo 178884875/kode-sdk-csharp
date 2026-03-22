@@ -605,44 +605,516 @@
 
 范围冻结：见 `docs/ITERATION_24_FREEZE.md`（2026-03-21）。前置依赖：Iter 22（Channel 账号绑定 API）+ Iter 23（全部四项）。
 
-- `KC-2401`：`Pending`。
+- `KC-2401`：`Completed`（2026-03-21）。
   - User Outcome：全新安装的 KodaClaw 启动后自动进入引导程序，已完成引导的用户直接进入主界面；引导程序可从 Settings 重新触发。
   - Scope：`App.tsx` 启动时检查 `GET /api/onboarding/state`，`isCompleted=false` 时渲染全屏 `OnboardingShell`；右上角提供"跳过"入口；Settings 页加"重新引导"按钮（调用 `POST /api/onboarding/reset`）。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`；`npm run typecheck`。
 
-- `KC-2402`：`Pending`。
+- `KC-2402`：`Completed`（2026-03-21）。
   - User Outcome：引导程序第一步选择界面语言，点击即选，立刻影响后续所有引导文案及 Koda 默认回复语言。
   - Scope：全屏居中两张大卡片（中文 / English）；点击后写 `localStorage["kodaclaw.locale"]`，推进 onboarding 状态到 `model` 步骤。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（语言切换后 locale 正确）。
 
-- `KC-2403`：`Pending`。
+- `KC-2403`：`Completed`（2026-03-21）。
   - User Outcome：用户在引导中选择 Provider → 看到推荐模型 → 填入 API Key → 立刻测试连通 → 成功后配置自动保存，整个流程不超过 3 分钟。
   - Scope：Provider 选择卡片（5 个）→ 模型列表（来自预设 API）→ API Key 输入框 + "如何获取 Key"展开说明 + "测试连接"按钮 → 连通性测试结果 → 成功后调用 `POST /api/models` 保存并设为 default；消费 KC-2301 / KC-2302。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（mock 连通性测试成功/失败分支）；`npx playwright test tests/kc2401-onboarding.spec.ts`（L4）。
 
-- `KC-2404`：`Pending`。
+- `KC-2404`：`Completed`（2026-03-21）。
   - User Outcome：用户选择一种 Koda 人格模板后，SOUL.md 立刻被写入对应内容，下一次主会话启动时 Koda 的行为风格即生效。
   - Scope：6 张 Persona 卡片（来自预设 API）；选中后展开 SOUL.md 前 5 条准则预览；"使用这个风格"调用 `POST /api/onboarding/apply-persona`（写入 SOUL.md）；"让 Koda 自己来了解我"跳过（不写 SOUL.md，Bootstrap 对话决定）；消费 KC-2303。
   - Modules：`apps/kodaclaw-web`、`src/KodaClaw.Gateway`（apply-persona 端点）。
   - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（apply-persona 后 onboarding state 更新）。
 
-- `KC-2405`：`Pending`。
+- `KC-2405`：`Completed`（2026-03-21）。
   - User Outcome：在引导程序中完成 Telegram Bot 创建和绑定，包含 BotFather 步骤说明、token 验证和 Delivery Rule 选择，整个流程可在引导内完成，无需跳转其他页面。
   - Scope：4 个子步骤内嵌向导（说明 → BotFather 步骤 → Token 输入 + 验证 → Delivery Rule 选择）；`POST /api/channels/test-telegram-token`（新增，验证 token 有效返回 bot 名称）；成功后调用 `POST /api/channels/accounts`（KC-2203）；步骤可整体跳过。
   - Modules：`apps/kodaclaw-web`、`src/KodaClaw.Gateway`。
   - Verification：`npm test -- src/__tests__/onboarding-shell.spec.tsx`（跳过路径；mock token 验证成功路径）。
 
-- `KC-2406`：`Pending`。
+- `KC-2406`：`Completed`（2026-03-21）。
   - User Outcome：引导完成后看到配置摘要和 3 条具体行动建议，点击"开始使用"直接进入主对话界面，立刻可以和 Koda 交谈。
   - Scope：完成页展示配置摘要（已选模型 / 人格 / 是否绑定 Telegram）+ 动态行动建议列表（根据已完成步骤生成）；"开始使用"调用 `POST /api/onboarding/complete` 后跳转到 `mainDesk="chat"`。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npx playwright test tests/kc2401-onboarding.spec.ts`（完整引导流程 E2E）。
 
-- `KC-2407`：`Pending`。
+- `KC-2407`：`Completed`（2026-03-21）。
   - User Outcome：在 Models Settings Desk 添加模型时，可从预设列表一键填充模型参数，不再需要手动查阅模型名称和 context window 大小。
   - Scope：ModelsSettingsDesk 添加模型表单上方加"从预设选择"区域（Provider 下拉 → 模型列表）；选中后自动填充 modelId / baseUrl / contextWindowSize；保留手动修改能力；复用连通性测试按钮。
   - Modules：`apps/kodaclaw-web`。
   - Verification：`npm test -- src/__tests__/models-settings-desk.spec.tsx`；`npx playwright test tests/kc0212-models-settings.spec.ts`。
+
+## 迭代 25：前端全面重构（Claude Desktop 风格）
+
+范围冻结：见 `docs/ITERATION_25_FREEZE.md`（2026-03-21）。
+
+- `KC-W2-010`：`Completed`（2026-03-21）。
+  - User Outcome：整体视觉风格从暖棕 grain 纹理切换为干净现代的 Agent OS 风格，色彩、字体、圆角统一更新。
+  - Scope：新建 CSS 变量体系（amber 品牌色 + 中性背景）；替换 index.css 色彩/字体；移除 grain 纹理、paper-haze、glass-morphism 样式；Card radius 12px，Button/Input radius 8px。
+  - Modules：`apps/kodaclaw-web/src/index.css`。
+  - Verification：`npm run build`；`npm run typecheck`。
+
+- `KC-W2-011`：`Completed`（2026-03-21）。
+  - User Outcome：用户看到干净的二栏布局——左侧 240px 固定侧边栏（导航 + 状态）+ 右侧全宽主内容区。对话界面占据全宽，其他设置页面同样全宽展示，不再有中间 ContextRail 的信息噪音。
+  - Scope：新建 `src/shell/` 目录；创建 AppShell.tsx（二栏根容器）、Sidebar.tsx（导航分组 + 状态徽章）、MainContent.tsx（Desk 路由）、DeskPageHeader.tsx（非 Chat 页标题）、app-shell.css；data-testid 按迁移表更新。
+  - Modules：`apps/kodaclaw-web/src/shell/`。
+  - Verification：`npm run test`；`npm run build`。
+
+- `KC-W2-012`：`Completed`（2026-03-21）。
+  - User Outcome：App.tsx 从 981 行瘦身到约 180 行，代码可读性大幅提升，维护成本降低。
+  - Scope：抽取 `src/i18n/app-strings.ts`（~350 行 i18n 文本）；抽取 `src/hooks/useBootstrap.ts`（~8 个 Bootstrap useState + 相关 handler）；App.tsx 只保留顶层编排逻辑。
+  - Modules：`apps/kodaclaw-web/src/App.tsx`、`src/i18n/`、`src/hooks/`。
+  - Verification：`npm run typecheck`；`npm run build`；`npm run test`。
+
+- `KC-W2-013`：`Completed`（2026-03-21）。
+  - User Outcome：Onboarding 引导程序视觉风格与主界面一致（amber/orange 品牌色，无蓝色 accent，圆角 8px）。
+  - Scope：更新 `src/onboarding/onboarding.css`，蓝色 `#0070f3` → amber `#D97706`；圆角、字体、间距统一新设计语言。
+  - Modules：`apps/kodaclaw-web/src/onboarding/onboarding.css`。
+  - Verification：`npm run build`。
+
+- `KC-W2-014`：`Completed`（2026-03-21）。
+  - User Outcome：代码库去除 ~1500 行冗余旧壳代码（V1 Shell、V2 Shell、DeskHeader、SystemStatusCard、shell-variant）；测试正确反映新 Shell 结构。
+  - Scope：删除 `src/shell-v1/`、`src/shell-v2/`、`src/components/DeskHeader.tsx`、`src/components/SystemStatusCard.tsx`、`src/shell-shared/shell-variant.ts`；更新 `src/__tests__/app-shell.spec.tsx` 和相关 E2E 测试的 data-testid。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck`；`npm run build`；`npm run test`；`npm run test:e2e`。
+
+## 迭代 26：自然语言 Workspace 引导（对话即配置）
+
+范围冻结：见 `docs/ITERATION_26_FREEZE.md`（2026-03-21）。前置依赖：Iter 25（新 AppShell + App.tsx 瘦身）。
+
+- `KC-2601`：`Completed`。
+  - User Outcome：Onboarding 精简为"模型配置 → 直接进主界面"，去掉语言选择（改为自动检测）、Persona 选择、Telegram 渠道绑定三个步骤，新用户配置时间从 5 分钟缩短到 90 秒。
+  - Scope：删除 `OnboardingShell` 中的 LanguageStep / PersonaStep / ChannelStep 步骤引用及 LanguageStep 组件文件；**PersonaStep / ChannelStep 组件文件保留**，迁移路径为 `src/components/settings/`（供 Iter 27 Settings Desk 复用）；OnboardingShell 精简为 model → done 两步；App.tsx 启动时从 `navigator.language` 自动设置 locale，不再等用户选择。
+  - Modules：`apps/kodaclaw-web/src/onboarding/`、`apps/kodaclaw-web/src/App.tsx`。
+  - Verification：`npm run typecheck`；`npm run test`。
+
+- `KC-2602`：`Completed`。
+  - User Outcome：App.tsx 和 AppShell 不再有 bootstrap mode 分支；BootstrapPanel 组件和 useBootstrap hook 整体删除；shell 只剩 main 单一模式，代码结构更清晰。
+  - Scope：删除 `BootstrapPanel.tsx`、`useBootstrap.ts`；从 App.tsx 移除 bootstrap 相关 state（`bootstrapBanner`、`contextPanel`、bootstrap aside）；从 `MainContent.tsx`、`Sidebar.tsx`、`AppShell.tsx` 移除 bootstrap mode 渲染分支；从 `app-strings.ts` 删除 bootstrap 相关文案；更新受影响测试。
+  - Modules：`apps/kodaclaw-web/src/`。
+  - Verification：`npm run typecheck`；`npm run build`；`npm run test`。
+
+- `KC-2603`：`Completed`。
+  - User Outcome：Gateway 能返回当前 workspace 哪些关键文件缺少实质内容，为 session 构建时的引导注入提供依据。
+  - Scope：新增 `WorkspaceReadinessService`，检查 IDENTITY.md / SOUL.md / USER.md 是否为空或仅含默认占位符（字符数 < 50 或内容与 default template 一致）；Gateway 新增 `GET /api/workspace/readiness` 端点返回 `{ identityMissing, soulMissing, userMissing, hasAnyGap }`。
+  - Modules：`src/KodaClaw.Runtime`、`src/KodaClaw.Gateway`。
+  - Verification：`dotnet test --filter "WorkspaceReadiness"`；`dotnet build KodaClaw.sln`。
+
+- `KC-2604`：`Completed`。
+  - User Outcome：当 workspace 不完整时，Koda 在对话开始时主动询问身份/风格/用户画像，每次只问一个问题；用户拒绝时不再重复。
+  - Scope：session 构建时消费 KC-2603 结果，若 `hasAnyGap=true` 在 system prompt 末尾附加引导 section（含缺失文件列表、问法模板、写入前需总结确认的指令、用户拒绝时 suppress 的指令）；session 内存级 suppress flag（不持久化）。
+  - Modules：`src/KodaClaw.Runtime`（session 构建逻辑）。
+  - Verification：`dotnet test --filter "WorkspaceGuidance"`；L5 dogfood 验证 Koda 实际问询效果。
+
+- `KC-2605`：`Completed`。
+  - User Outcome：Koda 写入 workspace 文件后，新设定在同一对话内立刻生效，不需要用户手动重启或新开会话。
+  - Scope：`workspace_protocol_update` 工具执行成功后，Runtime 自动 rotate main session（复用现有 rotate_session 逻辑）；新 session 第一条消息由 Koda 确认"已更新 XXX.md，新设定从现在开始生效。"
+  - Modules：`src/KodaClaw.Runtime`、`src/KodaClaw.Gateway`。
+  - Verification：`dotnet test --filter "WorkspaceRotate"`；L5 dogfood 验证写入后即时生效。
+
+- `KC-2606`：`Completed`。
+  - User Outcome：删除所有与旧 bootstrap 相关的 `data-testid` 和测试，补充新的对话引导路径测试。
+  - Scope：删除 app-shell.spec.tsx 中 bootstrap panel 相关断言；更新 kc0108-smoke.spec.ts；删除 kc0109-bootstrap.spec.ts（如存在）；新增 workspace-readiness API 的集成测试。
+  - Modules：`apps/kodaclaw-web/src/__tests__/`、`apps/kodaclaw-web/tests/`、`tests/KodaClaw.IntegrationTests/`。
+  - Verification：`npm run test`；`dotnet test KodaClaw.sln -m:1`。
+
+## 迭代 27：Settings Desk
+
+范围冻结：见 `docs/ITERATION_27_FREEZE.md`（2026-03-21）。前置依赖：Iter 26 全部完成（KC-2601/2602 PersonaStep/ChannelStep 已迁移）。
+
+- `KC-2701`：`Completed`。
+  - User Outcome：侧边栏第三组新增技能项，底部新增独立的设置入口；布局语义更清晰（能力层 vs 配置层）。
+  - Scope：`Sidebar.tsx` 调整 `NAV_GROUPS`，技能从底组移入第三组（模型/插件/技能），新增第四组（会话诊断/设置）；`MainDesk` 类型新增 `'settings'`；`DESK_CONFIG` / `app-strings.ts` desks 数组同步更新。
+  - Modules：`apps/kodaclaw-web/src/shell/Sidebar.tsx`、`src/shell-shared/types.ts`、`src/i18n/app-strings.ts`。
+  - Verification：`npm run typecheck`；`npm run test`（侧边栏渲染断言更新）。
+
+- `KC-2702`：`Completed`。
+  - User Outcome：点击"设置"进入 Settings Desk，看到四个 section（工作区身份 / 连接 / 偏好 / 系统）的布局框架。
+  - Scope：新建 `src/components/SettingsDesk.tsx`（data-testid=`settings-desk`，4 section 骨架）；`MainContent.tsx` 新增 `mainDesk === 'settings'` 路由；补充 `settings-desk.spec.tsx` 基础渲染测试。
+  - Modules：`apps/kodaclaw-web/src/components/`、`src/shell/MainContent.tsx`。
+  - Verification：`npm run typecheck`；`npm run test`。
+
+- `KC-2703`：`Completed`。
+  - User Outcome：用户在设置页可直接编辑 IDENTITY.md / SOUL.md / USER.md，保存后提示下次 session 生效。
+  - Scope：新建 `src/components/settings/WorkspaceIdentityEditor.tsx`，三个 textarea 分别绑定 `GET/PUT /api/workspace/file?target=identity/soul/user`；高度自适应内容；保存按钮带 loading 态和成功/失败提示；data-testid：`settings-identity-editor`、`settings-soul-editor`、`settings-user-editor`。
+  - Modules：`apps/kodaclaw-web/src/components/settings/`。
+  - Verification：`npm run test`（mock workspace file API）。
+
+- `KC-2704`：`Completed`。
+  - User Outcome：SOUL.md 编辑器旁可展开 Persona 模板卡片网格，选中后内容填入编辑器，用户可进一步修改再保存。
+  - Scope：将 Iter 26 迁移的 `PersonaSelector.tsx` 集成到 `WorkspaceIdentityEditor` 的 SOUL section；点"从模板选择"展开卡片，选中后 `onSelect(soulMarkdown)` 回填 textarea，卡片收起；data-testid：`settings-persona-trigger`。
+  - Modules：`apps/kodaclaw-web/src/components/settings/`。
+  - Verification：`npm run test`（PersonaSelector 展开/收起/选中回填）。
+
+- `KC-2705`：`Completed`。
+  - User Outcome：用户在设置页可直接绑定 Telegram 渠道，体验与 Onboarding 时一致；已绑定账号以列表形式展示。
+  - Scope：将 Iter 26 迁移的 `ChannelSetupWizard.tsx` 集成到 Settings Desk"连接" section；section 顶部显示已绑渠道账号列表（复用 `GET /api/channels/accounts`）；点"绑定新渠道"展开向导；data-testid：`settings-connections-section`。
+  - Modules：`apps/kodaclaw-web/src/components/settings/`。
+  - Verification：`npm run test`（mock accounts API + 向导展开）。
+
+- `KC-2706`：`Completed`。
+  - User Outcome：语言切换从对话 header 移入设置页偏好 section，chat header 不再有工具按钮，界面更干净。
+  - Scope：Settings Desk"偏好" section 直接渲染 `LocaleToggle` 组件；从 `App.tsx` chatHeaderActions 中移除 LocaleToggle；chat header 若无其他 actions 则整个 `kc-chat-header__actions` div 隐藏；data-testid：`settings-preferences-section`。
+  - Modules：`apps/kodaclaw-web/src/App.tsx`、`src/components/SettingsDesk.tsx`。
+  - Verification：`npm run test`（locale 切换测试用例更新到 settings-desk.spec.tsx）。
+
+- `KC-2707`：`Completed`。
+  - User Outcome：系统 section 提供"重新引导"和"清除 workspace 身份"两个操作，均有确认弹框防止误触。
+  - Scope：新建 `src/components/settings/SystemSection.tsx`；"重新引导"：确认后调用 `POST /api/onboarding/reset`，成功后 `window.location.reload()` 触发 OnboardingShell；"清除 workspace 身份"：确认后调用三次 `PUT /api/workspace/file`（content 置空），提示"已清除，Koda 下次会重新引导你配置身份"；data-testid：`settings-system-section`、`settings-reset-onboarding`、`settings-clear-identity`。
+  - Modules：`apps/kodaclaw-web/src/components/settings/`。
+  - Verification：`npm run test`（confirm dialog 交互 + mock API 调用）。
+
+## 迭代 28：前端 UI/UX 统一优化（KC-W3 专项）
+
+范围冻结：见 `docs/ITERATION_28_FREEZE.md`（2026-03-21）。大改，跑 L0 + 单元测试。
+
+- `KC-W3-010`：`Completed`（2026-03-21）。
+  - User Outcome：前端所有间距、圆角、字号、动效统一使用 CSS 变量，视觉一致性提升；Geist 字体替换 Inter/system-ui；统一 `.btn` 按钮体系（5 变体 + 3 尺寸），旧类以别名方式保留。
+  - Scope：`src/index.css` 新增 `--space-*`、`--radius-*`、`--font-size-*`、`--duration-*` token；Geist 字体 Google Fonts import；`.btn` 系统；focus-visible amber ring；Skeleton / EmptyState CSS；暗色主题 `[data-theme="dark"]` 和 `@media prefers-color-scheme: dark` 双轨变量。
+  - Modules：`apps/kodaclaw-web/src/index.css`。
+  - Verification：`npm run build`；`npm run typecheck`。
+
+- `KC-W3-011`：`Completed`（2026-03-21）。
+  - User Outcome：侧边栏导航图标从 emoji 替换为 Lucide SVG，跨平台渲染一致（macOS/Windows/Linux 均为线框风格）。
+  - Scope：`npm install lucide-react`；创建 `src/components/ui/Icon.tsx` wrapper；`Sidebar.tsx` 导航图标 / new-chat 图标 / status 图标全部替换为 Lucide；`MainContent.tsx` `DeskConfig.icon` 类型 `string → ReactNode`；`DeskPageHeader.tsx` `icon: string → ReactNode`。
+  - Modules：`apps/kodaclaw-web/src/shell/`、`src/components/ui/Icon.tsx`。
+  - Verification：`npm run typecheck`；`npm run build`；`npm run test`。
+
+- `KC-W3-012`：`Completed`（2026-03-21）。
+  - User Outcome：消息气泡有方向性（user 右对齐 75% 宽度、assistant 左对齐全宽），扫视效率提升；消息列表自动滚动到最新消息；空状态显示 EmptyState 组件而非纯文字。
+  - Scope：`MessageTimeline.tsx` 添加 `useRef + useEffect` auto-scroll（jsdom guard）；删除顶部 eyebrow/title/streaming header；user/assistant 消息 CSS 对齐方向；空消息用 `EmptyState`；`timeline__body` 改为 flex column。
+  - Modules：`apps/kodaclaw-web/src/components/MessageTimeline.tsx`、`src/index.css`。
+  - Verification：`npm run test`（52 tests pass）。
+
+- `KC-W3-013`：`Completed`（2026-03-21）。
+  - User Outcome：Composer 文本框高度随内容自动伸缩（1行 44px → 最大 160px），短消息不再浪费垂直空间；streaming 状态徽章移至底部操作区，布局更紧凑。
+  - Scope：`ChatComposer.tsx` 添加 `useRef + useEffect` auto-grow textarea（`rows=1`, min 44px, max 160px）；streaming badge 移入 `composer__actions-right`；`src/index.css` 更新 `.composer__input` 删除固定 100px min-height。
+  - Modules：`apps/kodaclaw-web/src/components/ChatComposer.tsx`、`src/index.css`。
+  - Verification：`npm run typecheck`；`npm run test`。
+
+- `KC-W3-014`：`Completed`（2026-03-21）。
+  - User Outcome：用户在模型设置中选择 Light/Dark/System 主题后，界面颜色立即切换；系统暗色偏好也会自动响应。
+  - Scope：新建 `src/hooks/useTheme.ts`（读取 `fetchSettings().theme`，apply `data-theme` 到 `documentElement`）；`App.tsx` 引入 `useTheme()`；`src/index.css` 已包含双轨暗色变量（`[data-theme="dark"]` + `@media prefers-color-scheme: dark`）。
+  - Modules：`apps/kodaclaw-web/src/hooks/useTheme.ts`、`src/App.tsx`。
+  - Verification：`npm run typecheck`；L5 手动验收。
+
+- `KC-W3-015`：`Completed`（2026-03-21）。
+  - User Outcome：宽屏下侧边栏宽度有约束（220~280px）、主内容区有 max-width 1200px；Settings Desk 在宽屏下居中（max-width 720px margin auto）；ConnectionsSection 加载时显示 Skeleton，无账号时显示 EmptyState。
+  - Scope：`app-shell.css` 添加 `min-width/max-width` 约束；`.settings-desk` 添加 `margin: 0 auto`；新建 `src/components/ui/Skeleton.tsx`、`src/components/ui/EmptyState.tsx`；`ConnectionsSection.tsx` 使用两个新组件。
+  - Modules：`apps/kodaclaw-web/src/shell/app-shell.css`、`src/components/ui/`、`src/components/settings/ConnectionsSection.tsx`。
+  - Verification：`npm run build`；`npm run test`。
+
+- `KC-W3-016`：`Completed`（2026-03-21）。
+  - User Outcome：刷新页面后 settings desk 能正确恢复（localStorage `kodaclaw.mainDesk = 'settings'` 不再被 isMainDesk 过滤掉）。
+  - Scope：`App.tsx` `isMainDesk` 函数新增 `value === 'settings'` 判断。
+  - Modules：`apps/kodaclaw-web/src/App.tsx`。
+  - Verification：手动验收（刷新 → 仍在 settings desk）。
+
+## 迭代 29：UI/UX 系统性一致性修复 + Workspace 文件完整性（KC-2901~2906）
+
+范围冻结：见 `docs/ITERATION_29_FREEZE.md`（2026-03-21）。中改，跑 L0 + 单元测试 + L2 后端集成测试。
+
+- `KC-2901`：`Completed`。
+  - User Outcome：Onboarding 界面在暗色模式下颜色正确响应（amber 按钮、绿色成功、红色错误均使用主题变量），视觉与主应用一致。
+  - Scope：`src/onboarding/onboarding.css` 全量替换硬编码颜色（`#D97706 → var(--accent)`、`#b45309 → var(--accent-hover)`、`#f5f5f5 → var(--bg-secondary)`、`#f0fff4 → var(--success-soft)`、`#991b1b/166534 → var(--error)/var(--success)` 等），保持结构不变。
+  - Modules：`apps/kodaclaw-web/src/onboarding/onboarding.css`。
+  - Verification：`npm run build`；L5 切换至暗色模式验收 Onboarding 界面。
+
+- `KC-2902`：`Completed`。
+  - User Outcome：ChannelsDesk / SkillsDesk / CanvasDesk 中的间距和圆角不再使用 inline style 魔法数字，统一受 CSS token 管控。
+  - Scope：`ChannelsDesk.tsx` 移除 `toolbarStyle`、`threadButtonStyle` 等 CSSProperties 对象，改为 `.channels-toolbar`、`.channel-thread-btn` CSS 类；`SkillsDesk.tsx` 同理；`CanvasDesk.tsx` iframe `style={{ height: 500 }}` 改为 `.canvas-preview-frame`；`app-shell.css` 新增对应 CSS 类。
+  - Modules：`apps/kodaclaw-web/src/components/`、`src/shell/app-shell.css`。
+  - Verification：`npm run typecheck`；`npm run build`。
+
+- `KC-2903`：`Completed`。
+  - User Outcome：WorkspaceIdentityEditor 打开 Settings Desk 时显示骨架加载态，避免空白 textarea 闪现。
+  - Scope：`WorkspaceIdentityEditor.tsx` 各文件编辑区初始渲染时显示 `<Skeleton height={80} />` × 3，等待 API 返回后替换为 textarea；使用现有 `<Skeleton />` 组件和 isLoading 状态。
+  - Modules：`apps/kodaclaw-web/src/components/settings/WorkspaceIdentityEditor.tsx`。
+  - Verification：`npm run test`（mock fetch 有延迟时验证 skeleton 显示）。
+
+- `KC-2904`：`Completed`。
+  - User Outcome：Settings Desk 新增 MEMORY.md 编辑区，用户可直接查看和编辑 Koda 的长期记忆索引，无需进入对话或手动编辑文件。
+  - Scope：后端 `ResolveWorkspaceTarget` 新增 `"memory"` → `KodaClawWorkspaceLayout.MemoryFile`；新建 `src/components/settings/MemorySection.tsx`（复用 useWorkspaceFile 模式，含保存按钮和说明文字）；`SettingsDesk.tsx` 在身份文件区后插入 MemorySection。
+  - Modules：`src/KodaClaw.Gateway/Endpoints/GatewayApp.WorkspaceEndpoints.cs`、`apps/kodaclaw-web/src/components/settings/MemorySection.tsx`、`SettingsDesk.tsx`。
+  - Verification：`dotnet build`；`npm run typecheck`；手动验收（保存后 `~/.kodaclaw/workspace/MEMORY.md` 内容更新）。
+
+- `KC-2905`：`Completed`。
+  - User Outcome：Settings Desk 新增 HEARTBEAT.md 只读预览区，用户可查看当前自动化规则，了解后台任务配置，无需手动打开文件。
+  - Scope：后端 `ResolveWorkspaceTarget` 新增 `"heartbeat"` → `KodaClawWorkspaceLayout.HeartbeatFile`；新建 `src/components/settings/HeartbeatSection.tsx`（只读 textarea + 说明文字"由 Koda 自动维护，下方显示当前规则"）；`SettingsDesk.tsx` 在 MemorySection 后插入 HeartbeatSection。
+  - Modules：`src/KodaClaw.Gateway/Endpoints/GatewayApp.WorkspaceEndpoints.cs`（同 KC-2904 一次修改）、`apps/kodaclaw-web/src/components/settings/HeartbeatSection.tsx`、`SettingsDesk.tsx`。
+  - Verification：`dotnet build`；`npm run typecheck`；手动验收（Automations Desk 运行后 HEARTBEAT.md 内容出现在预览区）。
+
+- `KC-2906`：`Completed`。
+  - User Outcome：CLAUDE.md 关键文件表格不再引用已删除的 shell-v2/ 路径，反映当前实际代码结构。
+  - Scope：`CLAUDE.md` 关键文件表格更新 `shell-v2/V2Shell.tsx → shell/AppShell.tsx + shell/Sidebar.tsx + shell/MainContent.tsx`；WIP 区域更新为 Iter 29 进行中。
+  - Modules：`products/KodaClaw/CLAUDE.md`。
+  - Verification：文档审查。
+
+## 迭代 30：Desk 布局/排版全量统一（KC-W4，KC-3001~3004）
+
+范围冻结：见 `docs/ITERATION_30_FREEZE.md`（2026-03-21）。大改（KC-W4 专项）。
+
+- `KC-3001`：`Completed`。
+  - User Outcome：所有 Desk 字号体系统一，消除 section-eyebrow + 旧 section-title 裸浏览器默认值导致的视觉割裂。
+  - Scope：T2 — InboxApprovalDesk / SessionsDiagnosticsDesk / AutomationsDesk / PluginsDesk / ChannelsDesk / ModelsSettingsDesk 移除 `bootstrap-panel`、`section-eyebrow`，替换 `section-title` → `desk-section-title`、`section-copy` → `desk-section-desc`；app-shell.css 新增 `.desk-section-title`/`.desk-section-desc` token 工具类。
+  - Modules：全部 7 个 Desk 组件 + app-shell.css。
+  - Verification：`npm run typecheck`；`npm run test` 52/52 pass。
+
+- `KC-3002`：`Completed`。
+  - User Outcome：SkillsDesk 使用 settings-desk/settings-section 体系，与 SettingsDesk 风格一致。
+  - Scope：SkillsDesk.tsx 外层改为 `settings-desk` + `settings-section`，内部排版类升级。
+  - Modules：`apps/kodaclaw-web/src/components/SkillsDesk.tsx`。
+  - Verification：同 KC-3001。
+
+- `KC-3003`：`Completed`。
+  - User Outcome：canvas-markdown-view 散文排版受 token 系统管控，Markdown h1 不再用浏览器默认 2em，与整体 UI 字号协调。
+  - Scope：ControlPlaneDesk.css 末尾新增 `.canvas-markdown-view` 完整 prose 样式（h1~h3、p、ul、code、pre、blockquote、table），均使用 var(--font-size-*)、var(--space-*) 等 token。
+  - Modules：`apps/kodaclaw-web/src/components/ControlPlaneDesk.css`。
+  - Verification：`npm run typecheck`。
+
+- `KC-3004`：`Completed`。
+  - User Outcome：ModelsSettingsDesk 中 "沙箱与风险简报" 标题从 1.8rem 降为 var(--font-size-xl)，与其他标题协调。
+  - Scope：ControlPlaneDesk.css 中 `.control-plane-card-title` 从 `font-size: 1.8rem` → `var(--font-size-xl)`。
+  - Modules：`apps/kodaclaw-web/src/components/ControlPlaneDesk.css`。
+  - Verification：视觉验收。
+
+## 迭代 31：全量 CSS Token 系统性补全（KC-3101）
+
+范围：优化（大改），不增加新能力。
+
+- `KC-3101`：`Completed`（2026-03-21）。
+  - User Outcome：全站字号/间距视觉完全统一，所有硬编码 rem/px 字号替换为 `var(--font-size-*)` token，所有硬编码间距替换为 `var(--space-*)` token，消除 Sidebar、Settings、ControlPlane 等模块的字号不一致感。
+  - Scope：
+    - `app-shell.css`：Sidebar 所有字号（`0.66rem`/`0.72rem`/`0.875rem`/`0.88rem`/`0.92rem`/`0.78rem`）→ token；chat/desk header 字号 → token；settings-section-title/desc（`15px`/`13px`）→ token；settings-file-* / settings-btn / settings-account-* / settings-action-* / settings-pref-* 全部字号+间距 → token；`settings-btn--primary` hover 颜色 `#b45309` → `var(--accent-hover)`；transition duration 常量 → token。
+    - `ControlPlaneDesk.css`：session-card title/meta 字号 → token；chip 字号+圆角+padding → token；session-card padding+border-radius → token；stage-hero padding → token。
+    - `index.css`：`secondary-button` 字号+padding+border-radius+transition → token；`risk-briefing__title` → token；`risk-briefing__pill` padding+border-radius+字号 → token。
+  - Modules：`apps/kodaclaw-web/src/shell/app-shell.css`、`apps/kodaclaw-web/src/components/ControlPlaneDesk.css`、`apps/kodaclaw-web/src/index.css`。
+  - Verification：`npm run typecheck` pass；`npm run test` 48/48 pass。
+
+## 产品缺口审查（基于 PRODUCT.md，已排期至 Iter 32-33）
+
+以下条目源自对 `docs/PRODUCT.md` 的全面审查，已升级为迭代计划：
+
+- `KC-GAP-001` → **排期 Iter 32（KC-3201~3203）**：Chat 历史会话面板。`GET /api/sessions` + `fetchSessions()` 已存在，后端仅需新增 `POST /api/sessions/{id}/resume`，前端增加 SessionHistoryPanel 组件。
+- `KC-GAP-002`（后续排期）：**Canvas 插件 UI 面板** — CanvasDesk 仅支持 Markdown artifact，插件自定义 UI 渲染留待后续。
+- `KC-GAP-003`（后续排期）：**Webhook 渠道配置 UI** — ChannelsDesk 缺少通用 Webhook 入口配置界面。
+- `KC-GAP-004` → **排期 Iter 33（KC-3302）**：Inbox AutomationResult 专属渲染。AutomationScheduler 已写入 Inbox，`GET /api/inbox` 已支持，仅需前端渲染优化。
+
+## 迭代 32：Chat 历史会话面板（KC-3201~3203）
+
+范围冻结：见 `docs/ITERATION_32_FREEZE.md`（2026-03-21）。新功能，完整 Capability Slice 流程。
+
+- `KC-3201`：`Pending`。
+  - User Outcome：用户可在 Chat 视图中看到最近 20 个历史会话列表，点击"恢复"一键切回历史对话。
+  - Scope：后端新增 `POST /api/sessions/{id}/resume` 端点 + `IMainSessionService.ResumeSessionAsync` 方法；前端新增 `SessionHistoryPanel` 组件 + `useSessionHistory` hook；Chat header 增加历史图标按钮。
+  - Modules：`src/KodaClaw.Runtime/IMainSessionService.cs`、`src/KodaClaw.Runtime/MainSessionService.cs`、`src/KodaClaw.Gateway/Endpoints/GatewayApp.SessionEndpoints.cs`、`apps/kodaclaw-web/src/components/chat/SessionHistoryPanel.tsx`（新增）、`apps/kodaclaw-web/src/hooks/useSessionHistory.ts`（新增）、`apps/kodaclaw-web/src/shell/MainContent.tsx`。
+  - Verification：`dotnet build`；`npm run typecheck`；`npm run test`；L5 人工验收：恢复历史会话后消息历史可见。
+
+- `KC-3202`：`Pending`。
+  - User Outcome：SessionHistoryPanel 中当前 session 显示"当前"标记，非当前 session 显示"恢复"按钮，已删除/不存在 session 显示错误提示。
+  - Scope：SessionHistoryPanel 状态逻辑 + 错误处理 UI。
+  - Modules：同 KC-3201 前端部分。
+  - Verification：`npm run test`（新增 session-history-panel.spec.tsx）。
+
+- `KC-3203`：`Pending`。
+  - User Outcome：后端 `ResumeSessionAsync` 集成测试：恢复存在的 session → 200，恢复不存在的 session → 404，并发请求安全。
+  - Scope：`tests/KodaClaw.IntegrationTests/` 新增 `SessionResumeIntegrationTests.cs`。
+  - Modules：同 KC-3201 后端部分。
+  - Verification：`dotnet test --filter "FullyQualifiedName~SessionResumeTests"`。
+
+## 迭代 33：Automations Toggle + Inbox 自动化结果优化（KC-3301~3302）
+
+范围冻结：见 `docs/ITERATION_33_FREEZE.md`（2026-03-21）。两个已知产品缺口的补全。
+
+- `KC-3301`：`Pending`。
+  - User Outcome：AutomationsDesk 工具栏中有 `automationsEnabled` toggle，切换立即生效并持久化到 `GET/PATCH /api/settings`。解决 CLAUDE.md WIP 中记录的已知缺口。
+  - Scope：`AutomationsDesk.tsx` 增加 toggle 控件，读写 `settings.automationsEnabled`。后端 `PATCH /api/settings` 已支持，无需变更。
+  - Modules：`apps/kodaclaw-web/src/components/AutomationsDesk.tsx`。
+  - Verification：`npm run typecheck`；`npm run test`；L5：toggle 切换后刷新页面状态持久。
+
+- `KC-3302`：`Pending`。
+  - User Outcome：Inbox 中自动化结果条目有专属卡片样式（Zap 图标、状态 badge）；Inbox 列表顶部可按"全部 / 审批 / 自动化结果"过滤。
+  - Scope：`InboxApprovalDesk.tsx` 增加 kind filter tab + AutomationResult 专属渲染；补充 CSS。
+  - Modules：`apps/kodaclaw-web/src/components/InboxApprovalDesk.tsx`；可能 `ControlPlaneDesk.css`。
+  - Verification：`npm run typecheck`；`npm run test`（补充 inbox-desk.spec.tsx）。
+
+## 迭代 34：多模态内容基础层（KC-3401~3408）
+
+范围冻结：见 `docs/ITERATION_34_FREEZE.md`（2026-03-21）。新功能专项，完整 Capability Slice 流程，分 5 个 Phase 按依赖顺序推进。
+
+### Phase 1：ModelCapabilitySet 能力标签系统
+
+- `KC-3401`：`Completed 2026-03-21`。
+  - User Outcome：用户为每个模型 endpoint 显式勾选它支持的能力（文本对话 / 工具调用 / 图片理解 / 图片生成 / 语音合成 / 语音识别 / 嵌入），而不是由系统根据 provider 名称猜测。自定义 base URL 的模型配置能力完全准确。
+  - Scope：新增 `ModelCapabilitySet`（flags enum，7 值）；`ModelEndpoint` 以 `Capabilities` 替换 `SupportsToolCalling`，保留后者为计算属性；`CreateModelEndpointRequest` / `UpdateModelEndpointRequest` 同步替换；`IModelRegistryRepository` 新增 `ResolveDefaultForAsync(ModelCapabilitySet)`。
+  - Modules：`src/KodaClaw.Contracts`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）。
+
+- `KC-3402`：`Completed 2026-03-21`。
+  - User Outcome：已有模型 endpoint 数据在升级后自动保留能力配置，不丢失历史设置；新 endpoint 从创建时即可携带完整 capabilities。
+  - Scope：`SqliteModelRegistryRepository.EnsureDatabaseAsync` 用 `EnsureColumnExistsAsync` 追加 `capabilities INTEGER`（nullable）；`MapEndpoint` 对 NULL 行从 `supports_tool_calling` 自动推导；`BindParameters` / SQL INSERT/UPDATE 同步加 `capabilities` 列；实现 `ResolveDefaultForAsync`（SQL: `WHERE enabled=1 AND (capabilities & $required) = $required ORDER BY is_default DESC`）；更新 Gateway model endpoints 的 request→domain 映射。
+  - Modules：`src/KodaClaw.ModelHub`、`src/KodaClaw.Gateway/Endpoints/GatewayApp.ModelEndpoints.cs`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter "ModelCapability"`（L3）；`dotnet test tests/KodaClaw.IntegrationTests --filter "ModelEndpoint"`（L2）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-3403`：`Completed 2026-03-21`。
+  - User Outcome：Models Desk 中添加/编辑 endpoint 时，`SupportsToolCalling` 单复选框替换为 7 个能力勾选项；现有 endpoint 列表展示 capabilities badge；模型预设携带推荐的默认 capabilities（如 claude-3-5-sonnet 默认勾选 TextChat + ToolCalling + Vision）。
+  - Scope：`ModelsSettingsDesk.tsx` capability 勾选 UI；更新 `Resources/model-presets.json` 为各预设加 `defaultCapabilities` 字段；`ModelPresetService` 透传该字段到 API 响应。
+  - Modules：`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`、`src/KodaClaw.Gateway`（预设资源更新）。
+  - Verification：`npm run typecheck`；`npm run test -- src/__tests__/models-settings-desk.spec.tsx`；`npm run build`。
+
+### Phase 2：SDK 多模态 ContentBlock 扩展
+
+- `KC-3404`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在处理含图片的消息时，图片内容不被丢弃也不报错；Anthropic 和 OpenAI provider 均能正确将 ImageContent 转换为各自 API 的原生图片格式。
+  - Scope：`Kode.Agent.Sdk/Core/Types/Message.cs` 新增 `ImageContent : ContentBlock`（字段：`Source: ImageSource`，`ImageSource` 支持 base64 data 和 URL 两种形式）；加入 `[JsonDerivedType]`；`AnthropicProvider.ConvertContentBlock` 追加 `ImageContent → ImageBlockParam`；`OpenAIProvider.ConvertMessage` user 消息路径支持 `ImageContent → ImageContentPart`；`MessageQueue` 新增 `Send(IReadOnlyList<ContentBlock>, SendOptions?)` 重载，不改动现有 `Send(string)` 签名。
+  - Modules：`src/Kode.Agent.Sdk/Core/Types/Message.cs`、`src/Kode.Agent.Sdk/Core/Agent/MessageQueue.cs`、`src/Kode.Agent.Sdk/Infrastructure/Providers/AnthropicProvider.cs`、`src/Kode.Agent.Sdk/Infrastructure/Providers/OpenAIProvider.cs`。
+  - Verification：`dotnet test tests/Kode.Agent.Tests --filter "ImageContent"`（L1，含 round-trip 序列化 x2、Anthropic 映射 x1、OpenAI 映射 x1）；`dotnet build`。
+
+### Phase 3：媒体文件存储 + Gateway /api/media 服务
+
+- `KC-3405`：`Completed 2026-03-21`。
+  - User Outcome：Agent 生成的图片持久化到本地磁盘，Gateway 提供稳定 URL 供前端展示和 Telegram 发送；路径安全，不允许访问 media 目录以外的文件。
+  - Scope：`WorkspaceService` 初始化时创建 `~/.kodaclaw/media/` 目录；新增 `IMediaStore`（SaveAsync / GetStreamAsync / GetMetaAsync）和 `LocalMediaStore` 实现（文件存 `media/{YYYY-MM}/{uuid}.{ext}`）；新增 `MediaMeta`、`MediaReference` contracts；Gateway 新增 `GatewayApp.MediaEndpoints.cs`：`GET /api/media/{id}` 流式返回文件（path traversal 防护）。
+  - Modules：`src/KodaClaw.Contracts`（2 个新文件）、`src/KodaClaw.Workspace`（2 个新文件 + WorkspaceService 修改）、`src/KodaClaw.Gateway/Endpoints/GatewayApp.MediaEndpoints.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "MediaStore"`（L2，含 save/read round-trip x1、path traversal 拒绝 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+### Phase 4：CanvasArtifact Image kind + generate_image 工具
+
+- `KC-3406`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在会话中说"帮我生成一张 XX 的图"时，Koda 能调用内置工具生成图片并自动写入 Canvas；用户打开 Canvas Desk 可直接看到图片，无需任何额外操作。
+  - Scope：`CanvasArtifactKind` 新增 `Image`；`IGenerationService`（KodaClaw.ModelHub）：`GenerateImageAsync(prompt, endpointId?) → GenerateImageResult`；`OpenAIImageGenerationService`：调用 DALL-E 3，下载结果图到 `IMediaStore`，返回 mediaId；跨模型路由：内部调 `ResolveDefaultForAsync(ImageGeneration)`，与 session chat endpoint 完全隔离；新增内置工具 `GenerateImageTool`（KodaClaw.Runtime）：参数 `prompt(required)`, `style?(optional)`，调用 `IGenerationService`，写入 `CanvasArtifact(kind=Image)`，注册到 `MainSessionOptions.DefaultTools` 和 `AutomationSessionOptions.Tools`。
+  - Modules：`src/KodaClaw.Contracts/CanvasArtifactKind.cs`、`src/KodaClaw.ModelHub/IGenerationService.cs`（新增）、`src/KodaClaw.ModelHub/OpenAIImageGenerationService.cs`（新增）、`src/KodaClaw.Runtime/GenerateImageTool.cs`（新增）、`src/KodaClaw.Runtime/ServiceCollectionExtensions.cs`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "GenerateImage"`（L2，含工具调用 → Canvas artifact 写入 x1、跨模型路由 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-3407`：`Completed 2026-03-21`。
+  - User Outcome：Canvas Desk 中图片类型的 artifact 直接展示为 `<img>` 标签（非 iframe），加载速度更快；空状态和加载态都有正确的骨架占位。
+  - Scope：`CanvasDesk.tsx` detail panel 增加 `kind === Image` 分支：`<img src="/api/media/{entryPath}" />`（entryPath 存 mediaId）；补充 `canvas-artifact-image` CSS 类（max-width 100%，border-radius）；空状态保持现有 EmptyState 组件。
+  - Modules：`apps/kodaclaw-web/src/components/CanvasDesk.tsx`。
+  - Verification：`npm run test -- src/__tests__/canvas-desk.spec.tsx`；`npm run typecheck`；`npm run build`。
+
+### Phase 5：ChannelOutboundDraft 媒体投递 + Telegram sendPhoto
+
+- `KC-3408`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在 Automation 任务中生成图片后，可通过 `channel_send` 将图片发送到 Telegram（如：每日报告附配图）；需要审批的发图请求在 Inbox 中能预览缩略图，用户审批时知道将发送什么内容。
+  - Scope：`ChannelOutboundDraft` 新增 `MediaAttachments: IReadOnlyList<MediaReference>?`；`channel_send` 工具新增可选参数 `mediaId?`（若传入则附到 draft）；`TelegramConnector.SendAsync` 检测 `MediaAttachments`，有图片时调用 Telegram `sendPhoto`（`caption` = text 字段）；`InboxApprovalDesk` 对含 `MediaAttachments` 的 ChannelDelivery 待审批条目显示 `<img src="/api/media/{id}" style="max-width:120px" />` 缩略图。
+  - Modules：`src/KodaClaw.Contracts/ChannelOutboundDraft.cs`、`src/KodaClaw.Runtime/ChannelSendTool.cs`、`src/KodaClaw.ChannelHub/TelegramConnector.cs`（或对应 connector 实现）、`apps/kodaclaw-web/src/components/InboxApprovalDesk.tsx`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ChannelMedia"`（L2，含 sendPhoto 路径 x1、纯文字 channel_send 回归 x1）；`npm run test -- src/__tests__/inbox-approval-desk.spec.tsx`；L5 Dogfood：Automation 任务调用 generate_image + channel_send(mediaId) → Telegram 收到图片。
+
+---
+
+## Iter 32：Chat 历史会话面板（KC-3201~3203）
+
+- `KC-3201`：`Completed 2026-03-21`。
+  - User Outcome：用户可在 Chat 头部点击历史图标，查看最近 20 个 main 类型 session，并一键恢复任意历史会话。
+  - Scope：后端新增 `ResumeSessionAsync(sessionId)` 接口方法（IMainSessionService + MainSessionService），`ResumeSessionResponse` contract，`POST /api/sessions/{id}/resume` 端点（先校验 session 存在，再设置 ActiveMainSessionId）；前端新增 `resumeSession()` API 函数，`useSessionHistory` hook（30s 轮询，过滤 Main 类型），`SessionHistoryPanel` 组件（触发器按钮 + 下拉面板，含 current 标记/恢复按钮/状态 badge），接入 App.tsx `chatHeaderActions`，Session History Panel CSS 追加到 app-shell.css。
+  - Modules：`src/KodaClaw.Contracts/ResumeSessionResponse.cs`（新增）、`src/KodaClaw.Runtime/IMainSessionService.cs`、`src/KodaClaw.Runtime/MainSessionService.cs`、`src/KodaClaw.Gateway/Endpoints/GatewayApp.SessionEndpoints.cs`、`apps/kodaclaw-web/src/lib/api.ts`、`apps/kodaclaw-web/src/types/contracts.ts`、`apps/kodaclaw-web/src/hooks/useSessionHistory.ts`（新增）、`apps/kodaclaw-web/src/components/chat/SessionHistoryPanel.tsx`（新增）、`apps/kodaclaw-web/src/App.tsx`、`apps/kodaclaw-web/src/shell/app-shell.css`。
+  - Verification：`dotnet build KodaClaw.sln`（0 errors）；`npm run typecheck`（0 errors）；`npm run test`（48/48 passed）。
+
+- `KC-3202`：`Completed 2026-03-21`（含在 KC-3201 实现中）。
+  - Scope：SessionHistoryPanel 状态逻辑（当前 session 标记、恢复按钮、错误处理、外部点击关闭）。
+
+- `KC-3203`：`Skipped`（后端集成测试留待 KC-3204 批次补充，非阻塞）。
+
+---
+
+## Iter 33：Automations Toggle + Inbox AutomationResult 渲染（KC-3301~3302）
+
+- `KC-3301`：`Completed 2026-03-21`。
+  - User Outcome：AutomationsDesk 工具栏右侧显示启用/禁用 Toggle，点击立即生效并持久化。
+  - Scope：`AutomationsDesk.tsx` 新增 `isTogglingEngine` 状态，`handleToggleEngine()` handler（read-then-write via `setAutomationsEnabled()` API），工具栏增加 `<label class="automations-engine-toggle">` 复选框；`api.ts` 新增 `setAutomationsEnabled(enabled)` 帮助函数（fetch + PUT）；i18n 增加 `engineEnabled`/`engineDisabled` 字段；CSS 追加 `.automations-engine-toggle` 样式。
+  - Modules：`apps/kodaclaw-web/src/components/AutomationsDesk.tsx`、`apps/kodaclaw-web/src/lib/api.ts`、`apps/kodaclaw-web/src/components/ControlPlaneDesk.css`。
+  - Verification：`npm run typecheck`（0 errors）；`npm run test`（48/48 passed）。
+
+- `KC-3302`：`Completed 2026-03-21`。
+  - User Outcome：Inbox 列表增加"全部/审批/自动化结果"tab 过滤；AutomationResult 条目显示专属卡片（Zap 图标、琥珀色左边框、仅"标为已读"操作）。
+  - Scope：`InboxApprovalDesk.tsx` 新增 `kindFilter` state，`filteredInboxItems` 派生值，tab UI（`.inbox-kind-tabs`），AutomationResult 专属卡片渲染（Zap 图标 + `inbox-automation-result-card` class + 仅显示"标为已读"按钮）；i18n 增加 `inboxKindTabs`/`markRead` 字段；CSS 追加 `.inbox-kind-tabs`、`.inbox-kind-tab`、`.inbox-automation-result-card`、`.inbox-automation-result-kind` 样式。
+  - Modules：`apps/kodaclaw-web/src/components/InboxApprovalDesk.tsx`、`apps/kodaclaw-web/src/components/ControlPlaneDesk.css`。
+  - Verification：`npm run typecheck`（0 errors）；`npm run test`（48/48 passed）。
+
+
+## 迭代 34：多模态内容基础层（KC-3401~3408）
+
+范围冻结：见 `docs/ITERATION_34_FREEZE.md`（2026-03-21）。新功能专项，完整 Capability Slice 流程，分 5 个 Phase 按依赖顺序推进。
+
+### Phase 1：ModelCapabilitySet 能力标签系统
+
+- `KC-3401`：`Completed 2026-03-21`。
+  - User Outcome：用户为每个模型 endpoint 显式勾选它支持的能力（文本对话 / 工具调用 / 图片理解 / 图片生成 / 语音合成 / 语音识别 / 嵌入），而不是由系统根据 provider 名称猜测。自定义 base URL 的模型配置能力完全准确。
+  - Scope：新增 `ModelCapabilitySet`（flags enum，7 值）；`ModelEndpoint` 以 `Capabilities` 替换 `SupportsToolCalling`，保留后者为计算属性；`CreateModelEndpointRequest` / `UpdateModelEndpointRequest` 同步替换；`IModelRegistryRepository` 新增 `ResolveDefaultForAsync(ModelCapabilitySet)`。
+  - Modules：`src/KodaClaw.Contracts`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）。
+
+- `KC-3402`：`Completed 2026-03-21`。
+  - User Outcome：已有模型 endpoint 数据在升级后自动保留能力配置，不丢失历史设置；新 endpoint 从创建时即可携带完整 capabilities。
+  - Scope：`SqliteModelRegistryRepository.EnsureDatabaseAsync` 用 `EnsureColumnExistsAsync` 追加 `capabilities INTEGER`（nullable）；`MapEndpoint` 对 NULL 行从 `supports_tool_calling` 自动推导；`BindParameters` / SQL INSERT/UPDATE 同步加 `capabilities` 列；实现 `ResolveDefaultForAsync`（SQL: `WHERE enabled=1 AND (capabilities & $required) = $required ORDER BY is_default DESC`）；更新 Gateway model endpoints 的 request→domain 映射。
+  - Modules：`src/KodaClaw.ModelHub`、`src/KodaClaw.Gateway/Endpoints/GatewayApp.ModelEndpoints.cs`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter "ModelCapability"`（L3）；`dotnet test tests/KodaClaw.IntegrationTests --filter "ModelEndpoint"`（L2）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-3403`：`Completed 2026-03-21`。
+  - User Outcome：Models Desk 中添加/编辑 endpoint 时，`SupportsToolCalling` 单复选框替换为 7 个能力勾选项；现有 endpoint 列表展示 capabilities badge；模型预设携带推荐的默认 capabilities（如 claude-3-5-sonnet 默认勾选 TextChat + ToolCalling + Vision）。
+  - Scope：`ModelsSettingsDesk.tsx` capability 勾选 UI；更新 `Resources/model-presets.json` 为各预设加 `defaultCapabilities` 字段；`ModelPresetService` 透传该字段到 API 响应。
+  - Modules：`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`、`src/KodaClaw.Gateway`（预设资源更新）。
+  - Verification：`npm run typecheck`；`npm run test -- src/__tests__/models-settings-desk.spec.tsx`；`npm run build`。
+
+### Phase 2：SDK 多模态 ContentBlock 扩展
+
+- `KC-3404`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在处理含图片的消息时，图片内容不被丢弃也不报错；Anthropic 和 OpenAI provider 均能正确将 ImageContent 转换为各自 API 的原生图片格式。
+  - Scope：`Kode.Agent.Sdk/Core/Types/Message.cs` 新增 `ImageContent : ContentBlock`（字段：`Source: ImageSource`，`ImageSource` 支持 base64 data 和 URL 两种形式）；加入 `[JsonDerivedType]`；`AnthropicProvider.ConvertContentBlock` 追加 `ImageContent → ImageBlockParam`；`OpenAIProvider.ConvertMessage` user 消息路径支持 `ImageContent → ImageContentPart`；`MessageQueue` 新增 `Send(IReadOnlyList<ContentBlock>, SendOptions?)` 重载，不改动现有 `Send(string)` 签名。
+  - Modules：`src/Kode.Agent.Sdk/Core/Types/Message.cs`、`src/Kode.Agent.Sdk/Core/Agent/MessageQueue.cs`、`src/Kode.Agent.Sdk/Infrastructure/Providers/AnthropicProvider.cs`、`src/Kode.Agent.Sdk/Infrastructure/Providers/OpenAIProvider.cs`。
+  - Verification：`dotnet test tests/Kode.Agent.Tests --filter "ImageContent"`（L1，含 round-trip 序列化 x2、Anthropic 映射 x1、OpenAI 映射 x1）；`dotnet build`。
+
+### Phase 3：媒体文件存储 + Gateway /api/media 服务
+
+- `KC-3405`：`Completed 2026-03-21`。
+  - User Outcome：Agent 生成的图片持久化到本地磁盘，Gateway 提供稳定 URL 供前端展示和 Telegram 发送；路径安全，不允许访问 media 目录以外的文件。
+  - Scope：`WorkspaceService` 初始化时创建 `~/.kodaclaw/media/` 目录；新增 `IMediaStore`（SaveAsync / GetStreamAsync / GetMetaAsync）和 `LocalMediaStore` 实现（文件存 `media/{YYYY-MM}/{uuid}.{ext}`）；新增 `MediaMeta`、`MediaReference` contracts；Gateway 新增 `GatewayApp.MediaEndpoints.cs`：`GET /api/media/{id}` 流式返回文件（path traversal 防护）。
+  - Modules：`src/KodaClaw.Contracts`（2 个新文件）、`src/KodaClaw.Workspace`（2 个新文件 + WorkspaceService 修改）、`src/KodaClaw.Gateway/Endpoints/GatewayApp.MediaEndpoints.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "MediaStore"`（L2，含 save/read round-trip x1、path traversal 拒绝 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+### Phase 4：CanvasArtifact Image kind + generate_image 工具
+
+- `KC-3406`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在会话中说"帮我生成一张 XX 的图"时，Koda 能调用内置工具生成图片并自动写入 Canvas；用户打开 Canvas Desk 可直接看到图片，无需任何额外操作。
+  - Scope：`CanvasArtifactKind` 新增 `Image`；`IGenerationService`（KodaClaw.ModelHub）：`GenerateImageAsync(prompt, endpointId?) → GenerateImageResult`；`OpenAIImageGenerationService`：调用 DALL-E 3，下载结果图到 `IMediaStore`，返回 mediaId；跨模型路由：内部调 `ResolveDefaultForAsync(ImageGeneration)`，与 session chat endpoint 完全隔离；新增内置工具 `GenerateImageTool`（KodaClaw.Runtime）：参数 `prompt(required)`, `style?(optional)`，调用 `IGenerationService`，写入 `CanvasArtifact(kind=Image)`，注册到 `MainSessionOptions.DefaultTools` 和 `AutomationSessionOptions.Tools`。
+  - Modules：`src/KodaClaw.Contracts/CanvasArtifactKind.cs`、`src/KodaClaw.ModelHub/IGenerationService.cs`（新增）、`src/KodaClaw.ModelHub/OpenAIImageGenerationService.cs`（新增）、`src/KodaClaw.Runtime/GenerateImageTool.cs`（新增）、`src/KodaClaw.Runtime/ServiceCollectionExtensions.cs`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "GenerateImage"`（L2，含工具调用 → Canvas artifact 写入 x1、跨模型路由 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-3407`：`Completed 2026-03-21`。
+  - User Outcome：Canvas Desk 中图片类型的 artifact 直接展示为 `<img>` 标签（非 iframe），加载速度更快；空状态和加载态都有正确的骨架占位。
+  - Scope：`CanvasDesk.tsx` detail panel 增加 `kind === Image` 分支：`<img src="/api/media/{entryPath}" />`（entryPath 存 mediaId）；补充 `canvas-artifact-image` CSS 类（max-width 100%，border-radius）；空状态保持现有 EmptyState 组件。
+  - Modules：`apps/kodaclaw-web/src/components/CanvasDesk.tsx`。
+  - Verification：`npm run test -- src/__tests__/canvas-desk.spec.tsx`；`npm run typecheck`；`npm run build`。
+
+### Phase 5：ChannelOutboundDraft 媒体投递 + Telegram sendPhoto
+
+- `KC-3408`：`Completed 2026-03-21`。
+  - User Outcome：Agent 在 Automation 任务中生成图片后，可通过 `channel_send` 将图片发送到 Telegram（如：每日报告附配图）；需要审批的发图请求在 Inbox 中能预览缩略图，用户审批时知道将发送什么内容。
+  - Scope：`ChannelOutboundDraft` 新增 `MediaAttachments: IReadOnlyList<MediaReference>?`；`channel_send` 工具新增可选参数 `mediaId?`（若传入则附到 draft）；`TelegramConnector.SendAsync` 检测 `MediaAttachments`，有图片时调用 Telegram `sendPhoto`（`caption` = text 字段）；`InboxApprovalDesk` 对含 `MediaAttachments` 的 ChannelDelivery 待审批条目显示 `<img src="/api/media/{id}" style="max-width:120px" />` 缩略图。
+  - Modules：`src/KodaClaw.Contracts/ChannelOutboundDraft.cs`、`src/KodaClaw.Runtime/ChannelSendTool.cs`、`src/KodaClaw.ChannelHub/TelegramConnector.cs`（或对应 connector 实现）、`apps/kodaclaw-web/src/components/InboxApprovalDesk.tsx`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ChannelMedia"`（L2，含 sendPhoto 路径 x1、纯文字 channel_send 回归 x1）；`npm run test -- src/__tests__/inbox-approval-desk.spec.tsx`；L5 Dogfood：Automation 任务调用 generate_image + channel_send(mediaId) → Telegram 收到图片。
+
+## 迭代 35：Registry-First Model Routing（KC-3501~3503）
+
+- 背景：Model Hub Registry 已有完整多 endpoint 存储，但 chat/channel/automation session 仍走 env var 路径，与 Registry 割裂；普通用户无法通过 UI 直接配置 API Key 并让 session 生效。本迭代让 Registry 成为所有 session 的路由来源，env var 降级为首次启动自动种子。详见 `docs/ITERATION_35_FREEZE.md`。
+
+- `KC-3501`：`Completed`。
+  - User Outcome：用户在 Models Desk 填入 API Key 后，Key 安全存入 OS Keychain，无需接触命令行或配置文件；下次 chat 直接生效。
+  - Scope：`CreateModelEndpointRequest`/`UpdateModelEndpointRequest` 新增 `ApiKeyValue?: string`；Gateway POST/PUT 端点：若 `ApiKeyValue` 非空则调用 `ISecretStore.UpsertAsync(new SecretRef("platform", "models", id), value)`，endpoint `ApiKeySecretRef = "platform:models:{id}"`；前端 ModelsSettingsDesk 新增 API Key 密码输入框，已配置时显示"已配置"提示。
+  - Modules：`src/KodaClaw.Contracts`、`src/KodaClaw.Gateway/Endpoints`、`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ModelEndpointApiKey"`；`npm run test -- src/__tests__/models-settings-desk.spec.tsx`。
+
+- `KC-3502`：`Completed`。
+  - User Outcome：用户在 Models Desk 配置并设置默认模型后，所有 chat/channel/automation session 自动使用该 endpoint，无需额外配置环境变量。
+  - Scope：新增 `RegistryAwareModelProvider`（KodaClaw.Runtime），注入 `IModelRegistryRepository` + `ISecretStore` + `IRuntimeModelProviderFactory`；`StreamAsync`/`CompleteAsync` 先查 `ResolveDefaultForAsync(TextChat | ToolCalling)`，若有则解析 key 并构建 provider，若无则 fallback 到 `DynamicModelProvider`；`ServiceCollectionExtensions.cs` 将 `IModelProvider` singleton 由 `DynamicModelProvider` 改为 `RegistryAwareModelProvider`。
+  - Modules：`src/KodaClaw.Runtime/RegistryAwareModelProvider.cs`（新增）、`src/KodaClaw.Runtime/ServiceCollectionExtensions.cs`。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter "RegistryAwareModelProvider"`；`dotnet test KodaClaw.sln -m:1`。
+
+- `KC-3503`：`Completed`。
+  - User Outcome：已有 .env 配置的开发者/高级用户，升级后无需手动在 Models Desk 重新录入模型，Gateway 首次启动时自动将 env var 配置 seed 进 Registry 作为默认 endpoint。
+  - Scope：新增 `ModelRegistrySeedService : IHostedService`（KodaClaw.Gateway）；`StartAsync` 检测 Registry 为空 + env var 有 model config → 构建并插入 `is_default=1` 的 endpoint（`ApiKeyEnvironmentVariable` 照旧）；幂等（Registry 已有 endpoint 则跳过）；注册到 `GatewayApp.Composition.cs`。
+  - Modules：`src/KodaClaw.Gateway/ModelRegistrySeedService.cs`（新增）、`src/KodaClaw.Gateway/Composition/GatewayApp.Composition.cs`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ModelRegistrySeed"`；`dotnet test KodaClaw.sln -m:1`。

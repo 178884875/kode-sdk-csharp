@@ -4,8 +4,7 @@ test("KC-0108 smoke: desk shell is visible and chat input is interactive", async
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   await expect(page).toHaveTitle("KodaClaw 现场中枢");
-  await expect(page.getByRole("heading", { name: "现场中枢" })).toBeVisible();
-  await expect(page.getByTestId(/bootstrap-shell|main-shell/)).toBeVisible();
+  await expect(page.getByTestId("kc-shell")).toBeVisible();
 
   const input = page.getByTestId("chat-input");
   await expect(input).toBeVisible();

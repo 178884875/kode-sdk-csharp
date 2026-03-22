@@ -10,5 +10,6 @@ public sealed record ModelPreset(
     string Tier,            // "Recommended" | "Advanced" | "Fast" | "Reasoning" | "Local"
     string Description,
     string? CostHint,
-    bool RequiresBaseUrl
+    bool RequiresBaseUrl,
+    ModelCapabilitySet DefaultCapabilities = ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling
 );

@@ -44,7 +44,8 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
 
             hosted.Services.GetService<IMainSessionService>().Should().NotBeNull();
             hosted.Services.GetRequiredService<MainSessionOptions>().Model.Should().Be("gpt-4o-mini");
-            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("openai");
+            // RegistryAwareModelProvider is the singleton; ProviderName reflects the registry-first routing layer.
+            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("registry");
         }
         finally
         {
@@ -76,7 +77,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
                 ApiKeyEnvironmentVariable: null,
                 ApiKeySecretRef: new SecretRef("env", "models", environmentKey).ToReferenceString(),
                 Enabled: true,
-                SupportsToolCalling: true,
+                Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
                 IsDefault: true,
                 CreatedAt: now,
                 UpdatedAt: now));
@@ -99,7 +100,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
 
             hosted.Services.GetService<IMainSessionService>().Should().NotBeNull();
             hosted.Services.GetRequiredService<MainSessionOptions>().Model.Should().Be("o3");
-            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("openai");
+            hosted.Services.GetRequiredService<IModelProvider>().ProviderName.Should().Be("registry");
         }
         finally
         {
@@ -151,7 +152,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
                     ModelId: "gpt-4o-mini",
                     ApiKeyEnvironmentVariable: environmentKey,
                     Enabled: true,
-                    SupportsToolCalling: true));
+                    Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling));
             createResponse.EnsureSuccessStatusCode();
 
             var created = await createResponse.Content.ReadFromJsonAsync<ModelEndpoint>();

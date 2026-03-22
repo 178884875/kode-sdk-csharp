@@ -21,6 +21,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMacOsKeychainCommandRunner, MacOsKeychainCommandRunner>();
         services.TryAddSingleton<ISecretStore, PlatformSecretStore>();
         services.TryAddSingleton<IWorkspaceService, WorkspaceService>();
+        services.TryAddSingleton<IMediaStore, LocalMediaStore>();
+        services.TryAddSingleton<IWorkspaceReadinessService, WorkspaceReadinessService>();
         services.TryAddSingleton<IBootstrapService, BootstrapService>();
         services.TryAddSingleton<IHeartbeatAutomationCompiler, HeartbeatAutomationCompiler>();
         services.TryAddSingleton<IHeartbeatSyncService>(provider => new HeartbeatSyncService(

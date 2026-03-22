@@ -45,7 +45,7 @@ public sealed class ModelRegistryRepositoryTests
             Provider = ModelProviderKind.AnthropicCompatible,
             ModelId = "claude-3.7-sonnet",
             BaseUrl = "https://anthropic.proxy.test",
-            SupportsToolCalling = false,
+            Capabilities = ModelCapabilitySet.TextChat,
             UpdatedAt = endpoint.UpdatedAt.AddMinutes(5),
         };
 
@@ -155,7 +155,7 @@ public sealed class ModelRegistryRepositoryTests
             ApiKeyEnvironmentVariable: "MODEL_KEY",
             ApiKeySecretRef: "env:models:MODEL_KEY",
             Enabled: true,
-            SupportsToolCalling: true,
+            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
             IsDefault: isDefault,
             CreatedAt: now,
             UpdatedAt: now);

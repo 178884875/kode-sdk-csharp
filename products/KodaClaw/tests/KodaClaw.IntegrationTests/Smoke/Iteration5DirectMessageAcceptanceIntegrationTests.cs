@@ -423,6 +423,18 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
                 MessageId = 99001,
             });
         }
+
+        public Task<TelegramSendMessageResult> SendPhotoAsync(
+            string botToken,
+            long chatId,
+            Stream photo,
+            string contentType,
+            string? caption,
+            CancellationToken cancellationToken = default)
+        {
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 99002 });
+        }
     }
 
     private sealed record SendCall(string Token, long ChatId, string Text);

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using KodaClaw.Contracts;
+using KodaClaw.Workspace;
 
 namespace KodaClaw.ChannelHub.Connectors.Telegram;
 
@@ -10,15 +11,18 @@ public sealed class TelegramConnector : IChannelConnector
     private readonly ITelegramApiClient _apiClient;
     private readonly TelegramConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
+    private readonly IMediaStore? _mediaStore;
 
     public TelegramConnector(
         ITelegramApiClient? apiClient = null,
         TelegramConnectorOptions? options = null,
-        ISecretStore? secretStore = null)
+        ISecretStore? secretStore = null,
+        IMediaStore? mediaStore = null)
     {
         _apiClient = apiClient ?? new HttpTelegramApiClient();
         _options = options ?? new TelegramConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
+        _mediaStore = mediaStore;
     }
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Telegram;
@@ -114,6 +118,30 @@ public sealed class TelegramConnector : IChannelConnector
         if (string.IsNullOrWhiteSpace(draft.MessageText))
         {
             throw new ArgumentException("Telegram outbound draft message text is required.", nameof(draft));
+        }
+
+        var imageAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase));
+
+        if (imageAttachment is not null && _mediaStore is not null)
+        {
+            var stream = await _mediaStore.OpenReadAsync(imageAttachment.MediaId, cancellationToken)
+                .ConfigureAwait(false);
+            if (stream is not null)
+            {
+                await using (stream.ConfigureAwait(false))
+                {
+                    await _apiClient.SendPhotoAsync(
+                        startedAccount.Configuration.BotToken,
+                        chatId,
+                        stream,
+                        imageAttachment.ContentType,
+                        caption: draft.MessageText,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                return;
+            }
         }
 
         await _apiClient.SendMessageAsync(

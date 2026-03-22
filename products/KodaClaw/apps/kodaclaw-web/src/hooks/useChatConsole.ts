@@ -1,11 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { streamChatEvents } from "../lib/api";
 import type { ChatMessage } from "../types/chat";
-import type { ShellMode } from "./useGatewaySnapshot";
 
 export type ChatConsoleCopy = {
   initialSystemNote: string;
-  placeholderBootstrap: string;
   placeholderMain: string;
   emptyCompletion: string;
   unknownStreamError: string;
@@ -33,7 +31,7 @@ function createMessage(
   };
 }
 
-export function useChatConsole(mode: ShellMode, copy: ChatConsoleCopy) {
+export function useChatConsole(copy: ChatConsoleCopy) {
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -44,11 +42,7 @@ export function useChatConsole(mode: ShellMode, copy: ChatConsoleCopy) {
     ),
   ]);
 
-  const placeholder = useMemo(() => {
-    return mode === "bootstrap"
-      ? copy.placeholderBootstrap
-      : copy.placeholderMain;
-  }, [copy.placeholderBootstrap, copy.placeholderMain, mode]);
+  const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
   const sendMessage = useCallback(async () => {
     const content = draft.trim();
@@ -149,7 +143,7 @@ export function useChatConsole(mode: ShellMode, copy: ChatConsoleCopy) {
     } finally {
       setIsStreaming(false);
     }
-  }, [copy.emptyCompletion, copy.failedToReachStream, copy.initialSystemNote, copy.placeholderBootstrap, copy.placeholderMain, copy.streamClosed, copy.unknownStreamError, draft, isStreaming]);
+  }, [copy.emptyCompletion, copy.failedToReachStream, copy.initialSystemNote, copy.placeholderMain, copy.streamClosed, copy.unknownStreamError, draft, isStreaming]);
 
   const appendSystemNote = useCallback((note: string) => {
     setMessages((current) => [...current, createMessage("system", note, "done")]);

@@ -169,8 +169,6 @@ describe("AutomationsDesk", () => {
 
     renderWithI18n(<AutomationsDesk />);
 
-    expect(screen.getAllByText("正在加载自动化...")).toHaveLength(2);
-
     await waitFor(() => {
       expect(screen.getByTestId("automations-list")).toBeInTheDocument();
     });

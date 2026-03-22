@@ -136,6 +136,7 @@ public sealed class ChannelDeliveryDispatchService
         ChannelAccount account,
         ThreadBinding binding,
         string text,
+        IReadOnlyList<MediaReference>? mediaAttachments = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
@@ -156,7 +157,8 @@ public sealed class ChannelDeliveryDispatchService
             DeliveryMode: DeliveryMode.AutoSend,
             CreatedAt: DateTimeOffset.UtcNow,
             SessionId: binding.SessionId,
-            CorrelationId: _correlationContextAccessor?.CorrelationId);
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
+            MediaAttachments: mediaAttachments);
 
         await SendAsync(account, notificationDraft, cancellationToken);
     }

@@ -56,12 +56,14 @@ public sealed class ChatSessionService : IChatSessionService
 
         var sessionId = handle!.SessionId;
 
+        var workspaceUpdated = false;
+
         var stream = agent.Subscribe(
             channels: ["progress", "monitor"],
             opts: new AgentRuntime.SubscribeOptions
             {
                 Since = agent.EventBus.GetLastBookmark(),
-                Kinds = ["text_chunk", "done", "error"],
+                Kinds = ["text_chunk", "done", "error", "tool:end"],
             },
             cancellationToken: cancellationToken);
 
@@ -111,6 +113,11 @@ public sealed class ChatSessionService : IChatSessionService
                         Delta: textChunk.Delta);
                     break;
 
+                case ToolEndEvent toolEnd
+                    when string.Equals(toolEnd.Call.Name, "workspace_protocol_update", StringComparison.Ordinal):
+                    workspaceUpdated = true;
+                    break;
+
                 case DoneEvent done:
                     yield return new ChatStreamEvent(
                         Type: "done",
@@ -119,6 +126,10 @@ public sealed class ChatSessionService : IChatSessionService
                         Sequence: envelope.Bookmark.Seq,
                         Timestamp: envelope.Bookmark.Timestamp,
                         Reason: done.Reason);
+                    if (workspaceUpdated)
+                    {
+                        _mainSessionService.RequestWorkspaceRotation();
+                    }
                     yield break;
 
                 case ErrorEvent error:

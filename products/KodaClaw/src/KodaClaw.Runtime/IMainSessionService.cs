@@ -15,6 +15,19 @@ public interface IMainSessionService
     /// <returns>The session ID of the session that was rotated out, or null if no active session existed.</returns>
     Task<string?> RotateMainSessionAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Disposes the current main session and sets the active session pointer to the given session ID,
+    /// so the next call to <see cref="EnsureMainSessionAsync"/> resumes from the target session store.
+    /// </summary>
+    /// <returns>Response containing the resumed session ID.</returns>
+    Task<ResumeSessionResponse> ResumeSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Marks that the workspace was updated during the current turn.
+    /// The next call to <see cref="EnsureMainSessionAsync"/> will auto-rotate to reload the workspace.
+    /// </summary>
+    void RequestWorkspaceRotation();
+
     Task<ApprovalDecisionDispatchResult> ApproveApprovalAsync(
         string approvalId,
         CancellationToken cancellationToken = default);

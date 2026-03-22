@@ -11,6 +11,9 @@ public sealed class ChannelSendArgs
 
     [ToolParameter(Description = "The message text to send to the channel thread.")]
     public required string Text { get; init; }
+
+    [ToolParameter(Description = "Optional media ID of an image to attach. The image is sent alongside the text caption.", Required = false)]
+    public string? MediaId { get; init; }
 }
 
 public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
@@ -40,7 +43,7 @@ public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        var result = await _sendService.SendAsync(args.BindingId, args.Text, cancellationToken);
+        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, cancellationToken);
         return ToolResult.Ok(new
         {
             ok = result.Ok,

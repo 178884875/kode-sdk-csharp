@@ -84,7 +84,7 @@ public sealed class ChannelTurnOrchestrator
                     var hint = "多个草稿待审批，请带编号（如 ok A3F9C1）。";
                     try
                     {
-                        await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, hint, cancellationToken);
+                        await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, hint, cancellationToken: cancellationToken);
                     }
                     catch { }
 
@@ -411,7 +411,7 @@ public sealed class ChannelTurnOrchestrator
         try
         {
             await _deliveryDispatchService.SendNotificationAsync(
-                account, processing.Binding, confirmationText, cancellationToken);
+                account, processing.Binding, confirmationText, cancellationToken: cancellationToken);
         }
         catch { }
 

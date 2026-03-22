@@ -11,6 +11,84 @@ public static partial class GatewayApp
     {
         var workspace = app.MapGroup("/api/workspace");
 
+        workspace.MapGet("/readiness", async (
+            HttpContext context,
+            IConfiguration configuration,
+            IWorkspaceReadinessService readinessService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to workspace readiness endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var readiness = await readinessService.GetReadinessAsync(cancellationToken);
+            return Results.Ok(readiness);
+        });
+
+        workspace.MapGet("/file", async (
+            HttpContext context,
+            string target,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
+                    eventType: "gateway.auth.failed", level: "warning",
+                    message: "Unauthorized access to workspace file endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var (fileName, error) = ResolveWorkspaceTarget(target);
+            if (error is not null) return Results.BadRequest(new ErrorResponse(Code: "workspace.invalid_target", Message: error));
+
+            var filePath = Path.Combine(workspaceService.RootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, fileName!);
+            var content = File.Exists(filePath) ? await File.ReadAllTextAsync(filePath, cancellationToken) : string.Empty;
+            return Results.Ok(new WorkspaceFileResponse(Target: target, Content: content));
+        });
+
+        workspace.MapPut("/file", async (
+            HttpContext context,
+            string target,
+            WorkspaceFileUpdateRequest body,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
+                    eventType: "gateway.auth.failed", level: "warning",
+                    message: "Unauthorized access to workspace file update endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var (fileName, error) = ResolveWorkspaceTarget(target);
+            if (error is not null) return Results.BadRequest(new ErrorResponse(Code: "workspace.invalid_target", Message: error));
+
+            var dirPath = Path.Combine(workspaceService.RootPath, KodaClawWorkspaceLayout.WorkspaceDirectory);
+            Directory.CreateDirectory(dirPath);
+            var filePath = Path.Combine(dirPath, fileName!);
+            await File.WriteAllTextAsync(filePath, body.Content ?? string.Empty, cancellationToken);
+            RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.workspace",
+                eventType: "gateway.workspace.file_updated", level: "info",
+                message: $"Workspace file updated: {target}.",
+                attributes: new Dictionary<string, string?> { ["target"] = target });
+            return Results.Ok(new WorkspaceFileResponse(Target: target, Content: body.Content ?? string.Empty));
+        });
+
         workspace.MapGet("/persona-presets", (
             HttpContext context,
             IConfiguration configuration,
@@ -169,6 +247,16 @@ public static partial class GatewayApp
                 message: "Onboarding state reset.");
             return Results.Ok(state);
         });
+
+        static (string? FileName, string? Error) ResolveWorkspaceTarget(string target) => target switch
+        {
+            "identity"  => (KodaClawWorkspaceLayout.IdentityFile, null),
+            "soul"      => (KodaClawWorkspaceLayout.SoulFile, null),
+            "user"      => (KodaClawWorkspaceLayout.UserFile, null),
+            "memory"    => (KodaClawWorkspaceLayout.MemoryFile, null),
+            "heartbeat" => (KodaClawWorkspaceLayout.HeartbeatFile, null),
+            _           => (null, $"Unknown workspace target '{target}'. Allowed: identity, soul, user, memory, heartbeat."),
+        };
 
         onboarding.MapPost("/apply-persona", async (
             HttpContext context,

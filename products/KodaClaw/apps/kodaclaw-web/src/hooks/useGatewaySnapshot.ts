@@ -1,24 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocaleText } from "../i18n/I18nProvider";
-import {
-  fetchBootstrapState,
-  fetchGatewayHealth,
-} from "../lib/api";
-import type {
-  BootstrapStateResponse,
-  GatewayHealthResponse,
-} from "../types/contracts";
-
-export type ShellMode = "bootstrap" | "main";
+import { fetchBootstrapState, fetchGatewayHealth } from "../lib/api";
+import type { BootstrapStateResponse, GatewayHealthResponse } from "../types/contracts";
 
 export function useGatewaySnapshot() {
   const text = useLocaleText({
-    zh: {
-      fetchFailed: "获取 Gateway 快照失败。",
-    },
-    en: {
-      fetchFailed: "Failed to fetch gateway snapshot.",
-    },
+    zh: { fetchFailed: "获取 Gateway 快照失败。" },
+    en: { fetchFailed: "Failed to fetch gateway snapshot." },
   });
   const fallbackErrorTextRef = useRef(text.fetchFailed);
   const [health, setHealth] = useState<GatewayHealthResponse | null>(null);
@@ -40,35 +28,19 @@ export function useGatewaySnapshot() {
         fetchBootstrapState(signal),
       ]);
 
-      if (healthResult.status === "fulfilled") {
-        setHealth(healthResult.value);
-      }
-
-      if (snapshotResult.status === "fulfilled") {
-        setSnapshot(snapshotResult.value);
-      }
+      if (healthResult.status === "fulfilled") setHealth(healthResult.value);
+      if (snapshotResult.status === "fulfilled") setSnapshot(snapshotResult.value);
 
       const errors = [healthResult, snapshotResult]
-        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-        .map((result) => result.reason)
-        .filter((reason) => (reason as Error).name !== "AbortError")
-        .map((reason) =>
-          reason instanceof Error ? reason.message : fallbackErrorTextRef.current,
-        );
+        .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+        .map(r => r.reason)
+        .filter(reason => (reason as Error).name !== "AbortError")
+        .map(reason => reason instanceof Error ? reason.message : fallbackErrorTextRef.current);
 
-      if (errors.length > 0) {
-        setError(errors.join(" | "));
-      }
+      if (errors.length > 0) setError(errors.join(" | "));
     } catch (nextError) {
-      if ((nextError as Error).name === "AbortError") {
-        return;
-      }
-
-      const detail =
-        nextError instanceof Error
-          ? nextError.message
-          : fallbackErrorTextRef.current;
-      setError(detail);
+      if ((nextError as Error).name === "AbortError") return;
+      setError(nextError instanceof Error ? nextError.message : fallbackErrorTextRef.current);
     } finally {
       setIsLoading(false);
     }
@@ -80,20 +52,5 @@ export function useGatewaySnapshot() {
     return () => controller.abort();
   }, [refresh]);
 
-  const mode = useMemo<ShellMode>(() => {
-    if (!snapshot) {
-      return "bootstrap";
-    }
-
-    return snapshot.mode === "Bootstrap" ? "bootstrap" : "main";
-  }, [snapshot]);
-
-  return {
-    health,
-    snapshot,
-    isLoading,
-    error,
-    mode,
-    refresh,
-  };
+  return { health, snapshot, isLoading, error, refresh };
 }

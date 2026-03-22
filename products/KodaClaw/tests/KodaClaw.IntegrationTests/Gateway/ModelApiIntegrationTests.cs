@@ -95,7 +95,7 @@ public sealed class ModelApiIntegrationTests
             ModelId: "claude-3.1",
             BaseUrl: "https://anthropic.proxy.test",
             ApiKeySecretRef: "keychain:models:claude-3.1",
-            SupportsToolCalling: false);
+            Capabilities: ModelCapabilitySet.TextChat);
 
         var response = await hosted.Client.PutAsJsonAsync($"/api/models/{created.Id}", request);
         response.StatusCode.Should().Be(HttpStatusCode.OK);

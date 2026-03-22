@@ -1,6 +1,10 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getGatewayUrl } from "../lib/config";
+import { buildHeaders } from "../lib/api";
 import { useLocaleText } from "../i18n/I18nProvider";
+import { Skeleton } from "./ui/Skeleton";
+import { EmptyState } from "./ui/EmptyState";
+import { Lightbulb } from "lucide-react";
 
 type SkillSource = "built-in" | "global" | "workspace";
 
@@ -12,22 +16,6 @@ type SkillDescriptor = {
   hasResources: boolean;
 };
 
-const toolbarStyle: CSSProperties = {
-  marginTop: 12,
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  gap: 10,
-};
-
-const listStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: 12,
-  marginTop: 16,
-};
 
 const sourceBadgeMap: Record<SkillSource, string> = {
   "built-in": "mode-badge",
@@ -39,7 +27,7 @@ const SOURCE_ORDER: SkillSource[] = ["built-in", "global", "workspace"];
 
 async function fetchSkills(signal?: AbortSignal): Promise<SkillDescriptor[]> {
   const base = getGatewayUrl() || "";
-  const response = await fetch(`${base}/api/skills`, { signal });
+  const response = await fetch(`${base}/api/skills`, { signal, headers: buildHeaders() });
   if (!response.ok) {
     throw new Error(`Failed to load skills: ${response.status} ${response.statusText}`);
   }
@@ -142,70 +130,69 @@ export function SkillsDesk() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <section className="bootstrap-panel" data-testid="skills-desk">
-      <div className="section-eyebrow">{text.eyebrow}</div>
-      <h2 className="section-title">{text.title}</h2>
-      <p className="section-copy">{text.copy}</p>
-
-      <div style={toolbarStyle}>
+    <div className="control-plane-stack" data-testid="skills-desk">
+      <div className="diag-page-header">
+        <div className="diag-page-header__left">
+          <h2 className="desk-section-title">{text.title}</h2>
+          <span className="desk-section-desc diag-page-header__desc">{text.copy}</span>
+        </div>
         <button
           type="button"
           className="secondary-button"
           data-testid="skills-refresh"
           disabled={isLoading || isRefreshing}
-          onClick={() => {
-            void loadSkills("refresh");
-          }}
+          onClick={() => { void loadSkills("refresh"); }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
         </button>
-        <span className="composer__status">
-          {isLoading ? text.loading : text.loaded(skills.length)}
-        </span>
       </div>
 
       {error ? (
-        <p
-          className="bootstrap-panel__feedback bootstrap-panel__feedback--error"
-          data-testid="skills-error"
-        >
+        <p className="desk-feedback desk-feedback--error" data-testid="skills-error">
           {error}
         </p>
       ) : null}
 
+      {isLoading ? <Skeleton height={56} count={4} /> : null}
+
       {!isLoading && skills.length === 0 && !error ? (
-        <p className="timeline__empty" data-testid="skills-empty">{text.empty}</p>
+        <div data-testid="skills-empty">
+          <EmptyState icon={<Lightbulb size={28} strokeWidth={1.5} />} title={text.empty} />
+        </div>
       ) : null}
 
       {groupedSkills.map(({ source, items }) => (
         <section key={source} data-testid={`skills-group-${source}`}>
-          <p className="metric-label" style={{ marginTop: 16, marginBottom: 8 }}>
+          <p className="metric-label" style={{ marginBottom: 'var(--space-2)' }}>
             {text.sourceLabels[source]}
           </p>
-          <ul style={listStyle}>
+          <div className="skills-list">
             {items.map((skill) => (
-              <li
+              <div
                 key={`${source}-${skill.name}`}
-                className="message message--assistant"
+                className="skill-card"
                 data-testid={`skill-item-${skill.name}`}
               >
-                <div className="message__meta">
-                  <span className={sourceBadgeMap[skill.source]}>
-                    {text.sourceLabels[skill.source]}
-                  </span>
-                  {skill.hasResources ? (
-                    <span className="mode-badge">{text.hasResources}</span>
-                  ) : null}
+                <div className="skill-card__header">
+                  <strong className="skill-card__name">{skill.name}</strong>
+                  <div className="skill-card__badges">
+                    <span className={sourceBadgeMap[skill.source]}>
+                      {text.sourceLabels[skill.source]}
+                    </span>
+                    {skill.hasResources ? (
+                      <span className="mode-badge">{text.hasResources}</span>
+                    ) : null}
+                  </div>
                 </div>
-                <strong>{skill.name}</strong>
-                <span className="section-copy">
+                <p className="skill-card__desc">
                   {skill.description ?? text.noDescription}
-                </span>
-              </li>
+                </p>
+                <p className="skill-card__path">{skill.path}</p>
+              </div>
             ))}
-          </ul>
+          </div>
         </section>
       ))}
-    </section>
+    </div>
   );
 }

@@ -200,6 +200,7 @@ public static partial class GatewayApp
             CreateModelEndpointRequest request,
             IConfiguration configuration,
             IModelRegistryRepository modelRegistryRepository,
+            ISecretStore secretStore,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
@@ -228,16 +229,26 @@ public static partial class GatewayApp
             }
 
             var now = DateTimeOffset.UtcNow;
+            var endpointId = $"model-{Guid.NewGuid():N}";
+
+            var resolvedSecretRef = validatedRequest.ApiKeySecretRef;
+            if (!string.IsNullOrWhiteSpace(request.ApiKeyValue))
+            {
+                var secretRef = new SecretRef("keychain", "models", endpointId);
+                await secretStore.UpsertAsync(secretRef, request.ApiKeyValue, cancellationToken);
+                resolvedSecretRef = secretRef.ToReferenceString();
+            }
+
             var endpoint = new ModelEndpoint(
-                Id: $"model-{Guid.NewGuid():N}",
+                Id: endpointId,
                 DisplayName: validatedRequest.DisplayName,
                 Provider: validatedRequest.Provider,
                 ModelId: validatedRequest.ModelId,
                 BaseUrl: validatedRequest.BaseUrl,
                 ApiKeyEnvironmentVariable: validatedRequest.ApiKeyEnvironmentVariable,
-                ApiKeySecretRef: validatedRequest.ApiKeySecretRef,
+                ApiKeySecretRef: resolvedSecretRef,
                 Enabled: validatedRequest.Enabled,
-                SupportsToolCalling: validatedRequest.SupportsToolCalling,
+                Capabilities: validatedRequest.Capabilities,
                 IsDefault: false,
                 CreatedAt: now,
                 UpdatedAt: now,
@@ -266,6 +277,7 @@ public static partial class GatewayApp
             UpdateModelEndpointRequest request,
             IConfiguration configuration,
             IModelRegistryRepository modelRegistryRepository,
+            ISecretStore secretStore,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
@@ -323,6 +335,19 @@ public static partial class GatewayApp
                     Message: "The default model endpoint must remain enabled."));
             }
 
+            var resolvedSecretRef = validatedRequest.ApiKeySecretRef;
+            if (!string.IsNullOrWhiteSpace(request.ApiKeyValue))
+            {
+                var secretRef = new SecretRef("keychain", "models", id);
+                await secretStore.UpsertAsync(secretRef, request.ApiKeyValue, cancellationToken);
+                resolvedSecretRef = secretRef.ToReferenceString();
+            }
+            else if (string.IsNullOrWhiteSpace(validatedRequest.ApiKeySecretRef))
+            {
+                // preserve existing secret ref if client didn't send a new key or explicit ref
+                resolvedSecretRef = existing.ApiKeySecretRef;
+            }
+
             var updated = existing with
             {
                 DisplayName = validatedRequest.DisplayName,
@@ -330,9 +355,9 @@ public static partial class GatewayApp
                 ModelId = validatedRequest.ModelId,
                 BaseUrl = validatedRequest.BaseUrl,
                 ApiKeyEnvironmentVariable = validatedRequest.ApiKeyEnvironmentVariable,
-                ApiKeySecretRef = validatedRequest.ApiKeySecretRef,
+                ApiKeySecretRef = resolvedSecretRef,
                 Enabled = validatedRequest.Enabled,
-                SupportsToolCalling = validatedRequest.SupportsToolCalling,
+                Capabilities = validatedRequest.Capabilities,
                 ContextWindowSize = validatedRequest.ContextWindowSize,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };

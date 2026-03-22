@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { ModelPreset, ModelConnectionTestResponse } from '../../types/contracts';
-import { fetchModelPresets, testModelConnection, createModelEndpoint } from '../../lib/api';
+import { fetchModelPresets, testModelConnection, createModelEndpoint, setDefaultModelEndpoint } from '../../lib/api';
 
 interface Props {
   onNext: (presetId: string) => void;
@@ -30,6 +30,7 @@ export function ModelStep({ onNext, onSkip }: Props) {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<ModelConnectionTestResponse | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchModelPresets().then(setPresets).catch(() => {});
@@ -69,8 +70,9 @@ export function ModelStep({ onNext, onSkip }: Props) {
   const handleSaveAndNext = async () => {
     if (!selectedPreset || !testResult?.ok) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      await createModelEndpoint({
+      const created = await createModelEndpoint({
         displayName: customModelId.trim()
           ? `${selectedPreset.displayName} (${customModelId.trim()})`
           : selectedPreset.displayName,
@@ -78,12 +80,16 @@ export function ModelStep({ onNext, onSkip }: Props) {
         modelId: effectiveModelId,
         baseUrl: effectiveBaseUrl ?? null,
         apiKeyEnvironmentVariable: null,
+        apiKeyValue: apiKey || null,
         enabled: true,
-        supportsToolCalling: true,
+        capabilities: selectedPreset.defaultCapabilities,
       });
+      // Set as default so RegistryAwareModelProvider routes all sessions to it immediately.
+      await setDefaultModelEndpoint(created.id);
       onNext(selectedPreset.presetId);
-    } catch {
-      onNext(selectedPreset.presetId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '保存模型配置失败，请重试';
+      setSaveError(msg);
     } finally {
       setSaving(false);
     }
@@ -263,6 +269,12 @@ export function ModelStep({ onNext, onSkip }: Props) {
                 ? `✅ 连接成功（${testResult.latencyMs}ms）`
                 : `❌ ${testResult.error === 'authentication_error' ? '认证失败，请检查 Key 是否正确' : `连接失败：${testResult.error}`}`
               }
+            </div>
+          )}
+
+          {saveError && (
+            <div className="connection-result is-error" data-testid="save-error">
+              ❌ {saveError}
             </div>
           )}
 

@@ -53,6 +53,45 @@ public sealed class MessageQueue
         _options = options;
     }
 
+    /// <summary>
+    /// Sends a multi-modal user message (text + images).
+    /// </summary>
+    public string Send(IReadOnlyList<ContentBlock> parts, SendOptions? opts = null)
+    {
+        opts ??= new SendOptions();
+        var id = $"msg-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{Guid.NewGuid():N}";
+
+        var pending = new PendingMessage
+        {
+            Id = id,
+            Message = new Message
+            {
+                Role = MessageRole.User,
+                Content = parts
+            },
+            Kind = opts.Kind,
+            Metadata = opts.Metadata is null
+                ? new Dictionary<string, object?> { ["id"] = id }
+                : new Dictionary<string, object?>(opts.Metadata) { ["id"] = id }
+        };
+
+        lock (_lock)
+        {
+            if (_completed)
+            {
+                throw new InvalidOperationException("MessageQueue is completed");
+            }
+            _pending.Add(pending);
+        }
+
+        if (opts.Kind == PendingKind.User)
+        {
+            _options.EnsureProcessing();
+        }
+
+        return id;
+    }
+
     public string Send(string text, SendOptions? opts = null)
     {
         opts ??= new SendOptions();

@@ -38,7 +38,8 @@ export type CanvasArtifactKind =
   | "Board"
   | "TaskList"
   | "PluginPanel"
-  | "Html";
+  | "Html"
+  | "Image";
 
 export type SessionKind = "Main" | "ChannelDirectMessage" | "ChannelGroup" | "Automation" | "Plugin";
 
@@ -520,6 +521,11 @@ export interface RotateSessionResponse {
   previousSessionId?: string | null;
 }
 
+export interface ResumeSessionResponse {
+  ok: boolean;
+  resumedSessionId: string;
+}
+
 export interface DiagnosticEvent {
   id: string;
   source: string;
@@ -588,7 +594,10 @@ export interface ModelEndpoint {
   modelId: string;
   baseUrl?: string | null;
   apiKeyEnvironmentVariable?: string | null;
+  apiKeySecretRef?: string | null;
   enabled: boolean;
+  capabilities: number;
+  /** @deprecated computed from capabilities; kept for backward compat */
   supportsToolCalling: boolean;
   isDefault: boolean;
   createdAt: string;
@@ -923,8 +932,10 @@ export interface CreateModelEndpointRequest {
   modelId: string;
   baseUrl?: string | null;
   apiKeyEnvironmentVariable?: string | null;
+  apiKeySecretRef?: string | null;
   enabled?: boolean;
-  supportsToolCalling?: boolean;
+  capabilities?: number;
+  apiKeyValue?: string | null;
 }
 
 export interface UpdateModelEndpointRequest {
@@ -933,8 +944,11 @@ export interface UpdateModelEndpointRequest {
   modelId: string;
   baseUrl?: string | null;
   apiKeyEnvironmentVariable?: string | null;
+  apiKeySecretRef?: string | null;
   enabled?: boolean;
-  supportsToolCalling?: boolean;
+  capabilities?: number;
+  contextWindowSize?: number;
+  apiKeyValue?: string | null;
 }
 
 export interface KodaClawSettings {
@@ -1043,6 +1057,7 @@ export interface ModelPreset {
   description: string;
   costHint?: string;
   requiresBaseUrl: boolean;
+  defaultCapabilities: number;
 }
 
 export interface ModelConnectionTestRequest {

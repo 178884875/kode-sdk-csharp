@@ -98,6 +98,65 @@ public static partial class GatewayApp
             return Results.Ok(new RotateSessionResponse(Ok: true, PreviousSessionId: previousSessionId));
         });
 
+        sessions.MapPost("/{id}/resume", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IMainSessionService mainSessionService,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to session resume endpoint.");
+                return Results.Unauthorized();
+            }
+
+            await workspaceService.EnsureInitializedAsync(cancellationToken);
+            var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+
+            var session = await LoadSessionDetailAsync(
+                workspaceService.RootPath,
+                id,
+                appConfig.ActiveMainSessionId,
+                cancellationToken);
+
+            if (session is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.sessions",
+                    eventType: "gateway.sessions.resume.not_found",
+                    level: "warning",
+                    message: "Requested session for resume was not found.",
+                    attributes: new Dictionary<string, string?> { ["sessionId"] = id });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "session.not_found",
+                    Message: "Session was not found."));
+            }
+
+            var response = await mainSessionService.ResumeSessionAsync(id, cancellationToken);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.sessions",
+                eventType: "gateway.sessions.resumed",
+                level: "info",
+                message: "Main session resumed.",
+                attributes: new Dictionary<string, string?> { ["resumedSessionId"] = id });
+
+            return Results.Ok(response);
+        });
+
         sessions.MapGet("/{id}", async (
             HttpContext context,
             string id,

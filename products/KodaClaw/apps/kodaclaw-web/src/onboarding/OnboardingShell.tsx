@@ -1,10 +1,7 @@
 import { useState, useCallback } from 'react';
 import type { OnboardingState } from '../types/contracts';
 import { updateOnboardingState, completeOnboarding } from '../lib/api';
-import { LanguageStep } from './steps/LanguageStep';
 import { ModelStep } from './steps/ModelStep';
-import { PersonaStep } from './steps/PersonaStep';
-import { ChannelStep } from './steps/ChannelStep';
 import { DoneStep } from './steps/DoneStep';
 import './onboarding.css';
 
@@ -13,37 +10,30 @@ interface Props {
   onComplete: () => void;
 }
 
-type StepId = 'language' | 'model' | 'persona' | 'channel' | 'done';
+type StepId = 'model' | 'done';
 
-const STEPS: StepId[] = ['language', 'model', 'persona', 'channel', 'done'];
+const STEPS: StepId[] = ['model', 'done'];
 
 const STEP_LABELS: Record<StepId, string> = {
-  language: '语言',
   model: '模型',
-  persona: '风格',
-  channel: '渠道',
   done: '完成',
 };
 
 export function OnboardingShell({ initialState, onComplete }: Props) {
+  const resolveInitialStep = (s: string | undefined): StepId => {
+    if (s === 'model' || s === 'done') return s;
+    return 'model';
+  };
+
   const [currentStep, setCurrentStep] = useState<StepId>(
-    (initialState.currentStepId as StepId) || 'language'
+    resolveInitialStep(initialState.currentStepId)
   );
   const [state, setState] = useState<OnboardingState>(initialState);
 
-  const goToStep = useCallback(async (targetStep: StepId) => {
-    const newState: OnboardingState = { ...state, currentStepId: targetStep };
-    setState(newState);
-    await updateOnboardingState(newState).catch(() => {});
-    setCurrentStep(targetStep);
-  }, [state]);
-
   const advance = useCallback(async (nextStep: StepId, updates?: Partial<OnboardingState>) => {
-    const prevStep = currentStep;
-    const prevCompleted = state.completedSteps ?? [];
-    const newCompleted = prevCompleted.includes(prevStep)
-      ? prevCompleted
-      : [...prevCompleted, prevStep];
+    const newCompleted = (state.completedSteps ?? []).includes(currentStep)
+      ? (state.completedSteps ?? [])
+      : [...(state.completedSteps ?? []), currentStep];
 
     const newState: OnboardingState = {
       ...state,
@@ -87,13 +77,12 @@ export function OnboardingShell({ initialState, onComplete }: Props) {
           const idx = STEPS.indexOf(step);
           const isCurrent = step === currentStep;
           const isDone = stepIndex > idx;
-          const isClickable = isDone;
           return (
             <button
               key={step}
               className={`onboarding-stepper-item ${isCurrent ? 'is-current' : ''} ${isDone ? 'is-done' : ''}`}
-              disabled={!isClickable}
-              onClick={isClickable ? () => void goToStep(step) : undefined}
+              disabled={!isDone}
+              onClick={isDone ? () => void advance(step) : undefined}
               title={isDone ? `返回「${STEP_LABELS[step]}」步骤` : undefined}
             >
               <span className="onboarding-stepper-dot">{isDone ? '✓' : i + 1}</span>
@@ -104,25 +93,10 @@ export function OnboardingShell({ initialState, onComplete }: Props) {
       </div>
 
       <div className="onboarding-content">
-        {currentStep === 'language' && (
-          <LanguageStep onNext={(lang) => void advance('model', { selectedLanguage: lang })} />
-        )}
         {currentStep === 'model' && (
           <ModelStep
-            onNext={(presetId) => void advance('persona', { selectedPresetId: presetId })}
-            onSkip={() => void advance('persona')}
-          />
-        )}
-        {currentStep === 'persona' && (
-          <PersonaStep
-            onNext={(presetId) => void advance('channel', { selectedPersonaPresetId: presetId })}
-            onSkip={() => void advance('channel')}
-          />
-        )}
-        {currentStep === 'channel' && (
-          <ChannelStep
-            onNext={() => void advance('done')}
-            onSkip={() => void advance('done', { channelStepSkipped: true })}
+            onNext={(presetId) => void advance('done', { selectedPresetId: presetId })}
+            onSkip={() => void advance('done')}
           />
         )}
         {currentStep === 'done' && (

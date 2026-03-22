@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 
@@ -16,15 +17,18 @@ public sealed class BootstrapDraftService : IBootstrapDraftService
     private readonly IModelProvider _modelProvider;
     private readonly BootstrapDraftOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
+    private readonly IModelRegistryRepository? _modelRegistryRepository;
 
     public BootstrapDraftService(
         IModelProvider modelProvider,
         BootstrapDraftOptions? options = null,
-        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null)
+        IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
+        IModelRegistryRepository? modelRegistryRepository = null)
     {
         _modelProvider = modelProvider ?? throw new ArgumentNullException(nameof(modelProvider));
         _options = options ?? new BootstrapDraftOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
+        _modelRegistryRepository = modelRegistryRepository;
     }
 
     public async Task<BootstrapDraftResult> GenerateDraftAsync(
@@ -72,7 +76,7 @@ public sealed class BootstrapDraftService : IBootstrapDraftService
         var response = await _modelProvider.CompleteAsync(
             new ModelRequest
             {
-                Model = ResolveConfiguredModel(),
+                Model = await ResolveConfiguredModelAsync(cancellationToken),
                 SystemPrompt = prompt.SystemPrompt,
                 Messages =
                 [
@@ -102,17 +106,12 @@ public sealed class BootstrapDraftService : IBootstrapDraftService
                 : payload.Summary.Trim());
     }
 
-    private string ResolveConfiguredModel()
-    {
-        if (!string.IsNullOrWhiteSpace(_options.Model))
-        {
-            return _options.Model.Trim();
-        }
-
-        return RuntimeProviderSelector.ResolveModelOrThrow(
+    private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
+        RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
-            _options.Model);
-    }
+            _options.Model,
+            _modelRegistryRepository,
+            cancellationToken);
 
     private static string BuildTranscript(IReadOnlyList<BootstrapDraftMessage>? conversation)
     {

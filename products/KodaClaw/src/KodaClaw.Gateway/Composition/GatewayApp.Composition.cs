@@ -57,6 +57,7 @@ public static partial class GatewayApp
         {
             builder.Services.AddHostedService<StartupRepairHostedService>();
         }
+        builder.Services.AddHostedService<ModelRegistrySeedService>();
         builder.Services.AddSingleton<ChannelConnectorHostedService>();
         builder.Services.AddHostedService(provider => provider.GetRequiredService<ChannelConnectorHostedService>());
         builder.Services.AddSingleton<IChannelConnectorRegistry>(
@@ -119,6 +120,7 @@ public static partial class GatewayApp
         MapInboxEndpoints(app);
         MapChannelEndpoints(app);
         MapWorkspaceEndpoints(app);
+        MapMediaEndpoints(app);
         MapRootEndpoint(app);
     }
 

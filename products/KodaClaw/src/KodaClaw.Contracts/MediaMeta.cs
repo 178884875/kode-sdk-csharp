@@ -1,0 +1,11 @@
+namespace KodaClaw.Contracts;
+
+/// <summary>
+/// Metadata for a stored media file.
+/// </summary>
+public record MediaMeta(
+    string Id,
+    string FileName,
+    string ContentType,
+    long SizeBytes,
+    DateTimeOffset StoredAt);

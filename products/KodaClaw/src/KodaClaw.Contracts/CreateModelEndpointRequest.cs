@@ -8,5 +8,6 @@ public sealed record CreateModelEndpointRequest(
     string? ApiKeyEnvironmentVariable = null,
     string? ApiKeySecretRef = null,
     bool Enabled = true,
-    bool SupportsToolCalling = true,
-    int ContextWindowSize = 128_000);
+    ModelCapabilitySet Capabilities = ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+    int ContextWindowSize = 128_000,
+    string? ApiKeyValue = null);

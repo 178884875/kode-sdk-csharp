@@ -104,8 +104,10 @@ Kode.Agent SDK（父仓库 /src/Kode.Agent.Sdk/）
 | `src/KodaClaw.Runtime/BootstrapDraftService.cs` | Bootstrap 引导草稿生成 |
 | `src/KodaClaw.Workspace/WorkspaceService.cs` | Workspace 文件协议 |
 | `src/KodaClaw.ChannelHub/ChannelTurnOrchestrator.cs` | 渠道 turn 执行管道 |
-| `apps/kodaclaw-web/src/App.tsx` | Web 入口，shell 变体选择（v1/v2） |
-| `apps/kodaclaw-web/src/shell-v2/` | V2 三段式壳（GlobalRail + MainStage + ContextRail） |
+| `apps/kodaclaw-web/src/App.tsx` | Web 入口，挂载 AppShell |
+| `apps/kodaclaw-web/src/shell/AppShell.tsx` | 二栏布局壳（Sidebar + MainContent） |
+| `apps/kodaclaw-web/src/shell/Sidebar.tsx` | 左侧导航栏（Lucide 图标 + desk 列表） |
+| `apps/kodaclaw-web/src/shell/MainContent.tsx` | 主内容区（DeskPageHeader + desk 路由） |
 
 ## 配置
 
@@ -232,14 +234,45 @@ ACCEPTANCE_PACK 验收矩阵
 
 ## 当前进行中工作（WIP）
 
-以下工作已有代码但尚未完成 KC 条目或验收：
+无进行中条目。
 
-| 工作 | 文件 | 状态 |
-|------|------|------|
-| Web V2 conversation-first 重构 | `shell-v2/`, `App.tsx` | KC-W2-004/005/006 In Progress |
+**近期完成**（Iter 34，2026-03-21）：
+- 多模态内容基础层（KC-3401~3408）
+  - ModelCapabilitySet flags enum（TextChat/ToolCalling/Vision/ImageGeneration/TTS/STT/Embeddings），替换 `SupportsToolCalling: bool`（KC-3401）
+  - SQLite 迁移追加 `capabilities` 列，`ResolveDefaultForAsync(ModelCapabilitySet)` 接口及实现（KC-3402）
+  - Frontend Models Desk 7 项能力勾选 UI + 预设携带推荐 capabilities（KC-3403）
+  - SDK `ImageContent : ContentBlock`（base64/URL），AnthropicProvider / OpenAIProvider 映射，MessageQueue 多模态重载（KC-3404）
+  - `IMediaStore` / `LocalMediaStore`，`MediaMeta` / `MediaReference` contracts，`GET /api/media/{id}` 端点（KC-3405）
+  - `IGenerationService` / `OpenAIImageGenerationService`（DALL-E 3），`GenerateImageTool`，`CanvasArtifactKind.Image`（KC-3406）
+  - Frontend CanvasDesk Image kind 渲染（`<img>` 替代 iframe），`canvas-preview-image` CSS（KC-3407）
+  - `ChannelOutboundDraft.MediaAttachments`，`channel_send` 工具新增 `mediaId?`，`TelegramConnector` sendPhoto 路径，InboxApprovalDesk 缩略图预览（KC-3408）
 
-**已知产品缺口**（实现存在但功能不完整）：
-- Automations Desk：`automationsEnabled` 开关（Iter 14）可通过 API 设置，但前端无可见的启用/禁用 toggle（Iter 22 已加"立即执行"按钮，toggle 留待后续）
+**近期完成**（Iter 32-33，2026-03-21）：
+- Chat 历史会话面板（KC-3201~3202）：后端 `POST /api/sessions/{id}/resume` 端点 + 前端 SessionHistoryPanel（历史列表、恢复按钮、30s 轮询）
+- Automations 启用/禁用 Toggle（KC-3301）：AutomationsDesk 工具栏 toggle，实时 read-then-write 写入 settings
+- Inbox AutomationResult 专属渲染（KC-3302）：tab 过滤（全部/审批/自动化结果）+ AutomationResult 卡片（Zap 图标、仅"标为已读"操作）
+
+**近期完成**（Iter 31，2026-03-21）：
+- CSS Token 系统性补全（KC-3101）：app-shell.css / ControlPlaneDesk.css / index.css 所有硬编码字号/间距全量替换为 token，48/48 测试通过。
+
+**近期完成**（Iter 26-27，2026-03-21）：
+- 自然语言 workspace 引导 + Settings Desk（KC-2601~2707）
+  - 删除 BootstrapPanel + bootstrap mode，前端简化为单一 main 模式
+  - 后端 workspace readiness API（`GET /api/workspace/readiness`）
+  - WorkspaceReadinessService：检测 IDENTITY/SOUL/USER.md 是否仍为默认内容
+  - 主 session system prompt 自动注入引导 section（当 hasAnyGap=true）
+  - `workspace_protocol_update` 完成后自动轮转 session（`RequestWorkspaceRotation`）
+  - Settings Desk：工作区身份编辑（GET/PUT /api/workspace/file）+ PersonaSelector 集成
+  - Settings Desk：连接 section（ChannelSetupWizard）+ 偏好 section（LocaleToggle 从 header 移入）+ 系统 section（重新引导 / 清除身份）
+  - Sidebar 重组：技能移入"能力层"组，新增"设置"独立入口
+
+**近期完成**（Iter 25，2026-03-21）：
+- 前端全面重构（Claude Desktop 风格）（KC-W2-010~014）
+  - 新 CSS Design System：amber 品牌色 + 中性背景，移除 grain/glass 纹理
+  - 新二栏布局：Sidebar 240px + 全宽 MainContent，替代三栏 V2Shell
+  - App.tsx 瘦身：981 行 → ~238 行（抽取 app-strings.ts + useBootstrap hook）
+  - Onboarding CSS 对齐 amber 品牌色
+  - 删除 shell-v1/、shell-v2/、DeskHeader、SystemStatusCard、shell-variant
 
 **近期完成**（Iter 22-24，2026-03-21）：
 - Canvas Desk UI：`react-markdown` 渲染面板已完成（KC-2207）
