@@ -7,8 +7,6 @@ import {
   deleteModelEndpoint,
   fetchModelPresets,
   fetchModels,
-  fetchSettings,
-  saveSettings,
   setDefaultModelEndpoint,
   testModelConnection,
   updateModelEndpoint,
@@ -16,12 +14,10 @@ import {
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import type {
   CreateModelEndpointRequest,
-  KodaClawSettings,
   ModelConnectionTestResponse,
   ModelEndpoint,
   ModelPreset,
   ModelProviderKind,
-  ThemeMode,
   UpdateModelEndpointRequest,
 } from "../types/contracts";
 import "./ControlPlaneDesk.css";
@@ -114,22 +110,20 @@ export function ModelsSettingsDesk() {
         refresh: "刷新面板",
         refreshing: "正在刷新…",
       },
-      title: "模型与设置工坊",
-      intro: "在同一块可审计工作台中维护模型端点、运行时偏好、升级提示与风险简报。",
+      title: "模型工坊",
+      intro: "在可审计工作台中管理模型端点——注册、切换默认、配置 API Key 与能力标签。",
       notes: {
         modelCreated: "模型端点已创建。",
         modelUpdated: "模型端点已更新。",
         modelDefaultSwitched: "默认模型已切换。",
         modelDeleted: "模型端点已删除。",
-        settingsSaved: "设置已保存。",
       },
       errors: {
-        loadDesk: "加载模型/设置失败。",
+        loadDesk: "加载模型端点失败。",
         createModel: "创建模型端点失败。",
         updateModel: "更新模型端点失败。",
         setDefault: "设置默认模型端点失败。",
         deleteModel: "删除模型端点失败。",
-        saveSettings: "保存设置失败。",
       },
       sections: {
         modelRegistryEyebrow: "模型注册表",
@@ -139,9 +133,6 @@ export function ModelsSettingsDesk() {
         modelComposerEyebrow: "模型编辑器",
         modelComposerCreate: "创建端点",
         modelComposerEdit: "编辑端点",
-        settingsEyebrow: "工作区设置",
-        settingsTitle: "运行时偏好",
-        settingsLoading: "正在加载设置…",
       },
       stageNav: {
         modelSummary: "创建端点、切换默认模型，或编辑选中的 endpoint。",
@@ -183,28 +174,11 @@ export function ModelsSettingsDesk() {
         save: "保存端点修改",
         reset: "重置编辑器",
       },
-      settings: {
-        defaultLandingRoute: "默认落地路由",
-        theme: "主题",
-        requireApproval: "外部动作需要审批",
-        notificationsEnabled: "启用通知",
-        quietHoursEnabled: "启用静默时段",
-        quietStart: "静默开始（HH:mm）",
-        quietEnd: "静默结束（HH:mm）",
-        automationsEnabled: "启用自动化引擎",
-        save: "保存设置",
-        lastPersisted: "最近持久化",
-      },
       providerLabels: {
         OpenAI: "OpenAI",
         Anthropic: "Anthropic",
         OpenAICompatible: "OpenAI 兼容",
         AnthropicCompatible: "Anthropic 兼容",
-      },
-      themeLabels: {
-        System: "跟随系统",
-        Light: "浅色",
-        Dark: "深色",
       },
     },
     en: {
@@ -217,22 +191,20 @@ export function ModelsSettingsDesk() {
         refresh: "Refresh desk",
         refreshing: "Refreshing...",
       },
-      title: "Models & Settings Atelier",
-      intro: "Curate model endpoints, runtime preferences, update posture, and risk signals from one inspectable desk.",
+      title: "Models Atelier",
+      intro: "Manage model endpoints — register, set defaults, configure API keys and capability flags.",
       notes: {
         modelCreated: "Model endpoint created.",
         modelUpdated: "Model endpoint updated.",
         modelDefaultSwitched: "Default model switched.",
         modelDeleted: "Model endpoint deleted.",
-        settingsSaved: "Settings saved.",
       },
       errors: {
-        loadDesk: "Failed to load models/settings.",
+        loadDesk: "Failed to load model endpoints.",
         createModel: "Failed to create model endpoint.",
         updateModel: "Failed to update model endpoint.",
         setDefault: "Failed to set default model endpoint.",
         deleteModel: "Failed to delete model endpoint.",
-        saveSettings: "Failed to save settings.",
       },
       sections: {
         modelRegistryEyebrow: "Model Registry",
@@ -242,9 +214,6 @@ export function ModelsSettingsDesk() {
         modelComposerEyebrow: "Model Composer",
         modelComposerCreate: "Create Endpoint",
         modelComposerEdit: "Edit Endpoint",
-        settingsEyebrow: "Workspace Settings",
-        settingsTitle: "Runtime Preferences",
-        settingsLoading: "Loading settings...",
       },
       stageNav: {
         modelSummary: "Create endpoints, switch the default, or edit the selected endpoint.",
@@ -286,35 +255,16 @@ export function ModelsSettingsDesk() {
         save: "Save endpoint edits",
         reset: "Reset composer",
       },
-      settings: {
-        defaultLandingRoute: "Default landing route",
-        theme: "Theme",
-        requireApproval: "Require approval for external actions",
-        notificationsEnabled: "Notifications enabled",
-        quietHoursEnabled: "Quiet hours enabled",
-        quietStart: "Quiet start (HH:mm)",
-        quietEnd: "Quiet end (HH:mm)",
-        automationsEnabled: "Automations engine enabled",
-        save: "Save settings",
-        lastPersisted: "Last persisted",
-      },
       providerLabels: {
         OpenAI: "OpenAI",
         Anthropic: "Anthropic",
         OpenAICompatible: "OpenAI Compatible",
         AnthropicCompatible: "Anthropic Compatible",
       },
-      themeLabels: {
-        System: "System",
-        Light: "Light",
-        Dark: "Dark",
-      },
     },
   });
 
   const [models, setModels] = useState<ModelEndpoint[]>([]);
-  const [settings, setSettings] = useState<KodaClawSettings | null>(null);
-  const [settingsDraft, setSettingsDraft] = useState<KodaClawSettings | null>(null);
   const [modelDraft, setModelDraft] = useState<ModelDraft>(DEFAULT_MODEL_DRAFT);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -343,28 +293,13 @@ export function ModelsSettingsDesk() {
     setError(null);
 
     try {
-      const [modelsResult, settingsResult] = await Promise.allSettled([
-        fetchModels(),
-        fetchSettings(),
-      ]);
-
-      if (modelsResult.status === "rejected") {
-        throw modelsResult.reason;
-      }
-
-      if (settingsResult.status === "rejected") {
-        throw settingsResult.reason;
-      }
-
-      const nextModels = modelsResult.value.items;
+      const { items: nextModels } = await fetchModels();
       const nextSelectedModelId =
         selectedModelId && nextModels.some((item) => item.id === selectedModelId)
           ? selectedModelId
           : nextModels.find((item) => item.isDefault)?.id ?? nextModels[0]?.id ?? null;
 
       setModels(nextModels);
-      setSettings(settingsResult.value);
-      setSettingsDraft(settingsResult.value);
       setSelectedModelId(nextSelectedModelId);
 
       const nextSelectedModel = nextModels.find((item) => item.id === nextSelectedModelId) ?? null;
@@ -499,29 +434,6 @@ export function ModelsSettingsDesk() {
     }
   }
 
-  async function handleSaveSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!settingsDraft) {
-      return;
-    }
-
-    setNote(null);
-    setError(null);
-    setIsMutating(true);
-
-    try {
-      const saved = await saveSettings(settingsDraft);
-      setSettings(saved);
-      setSettingsDraft(saved);
-      setNote(text.notes.settingsSaved);
-    } catch (nextError) {
-      const detail = nextError instanceof Error ? nextError.message : text.errors.saveSettings;
-      setError(detail);
-    } finally {
-      setIsMutating(false);
-    }
-  }
-
   function handleSelectModel(endpoint: ModelEndpoint) {
     setSelectedModelId(endpoint.id);
     setModelDraft(toDraft(endpoint));
@@ -535,7 +447,7 @@ export function ModelsSettingsDesk() {
   }
 
   return (
-    <section className="desk-column" data-testid="models-settings-desk">
+    <section data-testid="models-settings-desk">
       <h2 className="desk-section-title">{text.title}</h2>
       <p className="desk-section-desc">{text.intro}</p>
 
@@ -948,184 +860,6 @@ export function ModelsSettingsDesk() {
               </button>
             </div>
             </form>
-          </section>
-
-          <section
-            className="status-card status-card--normal control-plane-stage-panel"
-            data-testid="settings-form"
-          >
-            <h3 className="desk-section-title">{text.sections.settingsTitle}</h3>
-            {settingsDraft ? (
-              <form className="bootstrap-form" onSubmit={handleSaveSettings}>
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.settings.defaultLandingRoute}</span>
-              <input
-                data-testid="settings-route"
-                className="bootstrap-form__textarea control-plane-input"
-                value={settingsDraft.defaultLandingRoute}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          defaultLandingRoute: event.target.value,
-                        }
-                      : current,
-                  )
-                }
-              />
-            </label>
-
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.settings.theme}</span>
-              <select
-                data-testid="settings-theme"
-                className="bootstrap-form__textarea control-plane-select"
-                value={settingsDraft.theme}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          theme: event.target.value as ThemeMode,
-                        }
-                      : current,
-                  )
-                }
-              >
-                <option value="System">{text.themeLabels.System}</option>
-                <option value="Light">{text.themeLabels.Light}</option>
-                <option value="Dark">{text.themeLabels.Dark}</option>
-              </select>
-            </label>
-
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="settings-require-approval"
-                type="checkbox"
-                checked={settingsDraft.requireApprovalForExternalActions}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          requireApprovalForExternalActions: event.target.checked,
-                        }
-                      : current,
-                  )
-                }
-              />
-              <span>{text.settings.requireApproval}</span>
-            </label>
-
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="settings-notifications"
-                type="checkbox"
-                checked={settingsDraft.notificationsEnabled}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          notificationsEnabled: event.target.checked,
-                        }
-                      : current,
-                  )
-                }
-              />
-              <span>{text.settings.notificationsEnabled}</span>
-            </label>
-
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="settings-quiet-hours"
-                type="checkbox"
-                checked={settingsDraft.quietHoursEnabled}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          quietHoursEnabled: event.target.checked,
-                        }
-                      : current,
-                  )
-                }
-              />
-              <span>{text.settings.quietHoursEnabled}</span>
-            </label>
-
-            <div className="control-plane-quiet-hours-grid">
-              <label className="bootstrap-form__field">
-                <span className="bootstrap-form__label">{text.settings.quietStart}</span>
-                <input
-                  data-testid="settings-quiet-start"
-                  className="bootstrap-form__textarea control-plane-input"
-                  value={settingsDraft.quietHoursStartLocalTime ?? ""}
-                  onChange={(event) =>
-                    setSettingsDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            quietHoursStartLocalTime: toOptionalText(event.target.value),
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-              <label className="bootstrap-form__field">
-                <span className="bootstrap-form__label">{text.settings.quietEnd}</span>
-                <input
-                  data-testid="settings-quiet-end"
-                  className="bootstrap-form__textarea control-plane-input"
-                  value={settingsDraft.quietHoursEndLocalTime ?? ""}
-                  onChange={(event) =>
-                    setSettingsDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            quietHoursEndLocalTime: toOptionalText(event.target.value),
-                          }
-                        : current,
-                    )
-                  }
-                />
-              </label>
-            </div>
-
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="settings-automations-enabled-toggle"
-                type="checkbox"
-                checked={settingsDraft.automationsEnabled}
-                onChange={(event) =>
-                  setSettingsDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          automationsEnabled: event.target.checked,
-                        }
-                      : current,
-                  )
-                }
-              />
-              <span>{text.settings.automationsEnabled}</span>
-            </label>
-
-            <div className="control-plane-inline-actions">
-              <button className="bootstrap-form__submit" data-testid="settings-save" type="submit" disabled={isMutating}>
-                {text.settings.save}
-              </button>
-              <span className="metric-label">
-                {text.settings.lastPersisted}: {formatDateTime(settings?.updatedAt, text.common.none)}
-              </span>
-            </div>
-              </form>
-            ) : (
-              <Skeleton height={40} count={4} />
-            )}
           </section>
 
         </div>

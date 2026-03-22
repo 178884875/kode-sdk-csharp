@@ -206,4 +206,73 @@ public sealed class ChannelContractsTests
         roundTrip.Items[0].LastTurnOutcome!.ReasonCode.Should().Be("approval_requested");
         roundTrip.Items[0].LastTurnOutcome!.HasExplicitMention.Should().BeTrue();
     }
+
+    [Fact]
+    public void Feishu_channel_account_should_json_round_trip()
+    {
+        var payload = new ChannelAccount(
+            Id: "feishu-main",
+            ConnectorKind: ChannelConnectorKind.Feishu,
+            DisplayName: "飞书 Bot",
+            State: ChannelAccountState.Connected,
+            CreatedAt: new DateTimeOffset(2026, 3, 22, 0, 0, 0, TimeSpan.Zero),
+            UpdatedAt: new DateTimeOffset(2026, 3, 22, 0, 5, 0, TimeSpan.Zero),
+            ExternalAccountId: "cli_abc123",
+            CredentialReference: "env:FEISHU_APP_SECRET",
+            ConfigurationJson: """{"appId":"cli_abc123","defaultDeliveryMode":"RequireApproval"}""",
+            InboundEnabled: true);
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<ChannelAccount>(json, JsonOptions);
+
+        json.Should().Contain("\"connectorKind\":\"Feishu\"");
+        json.Should().Contain("\"state\":\"Connected\"");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.ConnectorKind.Should().Be(ChannelConnectorKind.Feishu);
+        roundTrip.State.Should().Be(ChannelAccountState.Connected);
+        roundTrip.ExternalAccountId.Should().Be("cli_abc123");
+        roundTrip.CredentialReference.Should().Be("env:FEISHU_APP_SECRET");
+    }
+
+    [Fact]
+    public void Feishu_upsert_request_should_json_round_trip()
+    {
+        var payload = new UpsertChannelAccountRequest(
+            Id: "feishu-main",
+            ConnectorKind: ChannelConnectorKind.Feishu,
+            DisplayName: "飞书 Bot",
+            ConfigurationJson: """{"appId":"cli_abc","credentialReference":"env:FEISHU_APP_SECRET"}""",
+            InboundEnabled: true);
+
+        var json = JsonSerializer.Serialize(payload, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<UpsertChannelAccountRequest>(json, JsonOptions);
+
+        json.Should().Contain("\"connectorKind\":\"Feishu\"");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.ConnectorKind.Should().Be(ChannelConnectorKind.Feishu);
+        roundTrip.Id.Should().Be("feishu-main");
+    }
+
+    [Fact]
+    public void TestFeishuCredentials_response_should_json_round_trip()
+    {
+        var ok = new TestFeishuCredentialsResponse(Ok: true, AppName: "MyFeishuBot");
+        var err = new TestFeishuCredentialsResponse(Ok: false, Error: "invalid app credentials");
+
+        var okJson = JsonSerializer.Serialize(ok, JsonOptions);
+        var errJson = JsonSerializer.Serialize(err, JsonOptions);
+        var okRound = JsonSerializer.Deserialize<TestFeishuCredentialsResponse>(okJson, JsonOptions);
+        var errRound = JsonSerializer.Deserialize<TestFeishuCredentialsResponse>(errJson, JsonOptions);
+
+        okJson.Should().Contain("\"ok\":true");
+        okJson.Should().Contain("\"appName\":\"MyFeishuBot\"");
+        okRound.Should().NotBeNull();
+        okRound!.Ok.Should().BeTrue();
+        okRound.AppName.Should().Be("MyFeishuBot");
+
+        errJson.Should().Contain("\"ok\":false");
+        errRound.Should().NotBeNull();
+        errRound!.Ok.Should().BeFalse();
+        errRound.Error.Should().Be("invalid app credentials");
+    }
 }

@@ -61,6 +61,15 @@ public static partial class GatewayApp
                     SupportsOutbound = true,
                     ProductOwned = true,
                 },
+                new
+                {
+                    Kind = ChannelConnectorKind.Feishu,
+                    DisplayName = "飞书 / Lark",
+                    Implemented = true,
+                    SupportsInbound = true,
+                    SupportsOutbound = true,
+                    ProductOwned = true,
+                },
             });
         });
 
@@ -826,6 +835,128 @@ public static partial class GatewayApp
                 return Results.Ok(new TestTelegramTokenResponse(
                     Ok: false,
                     Error: ex.Message));
+            }
+        });
+
+        channels.MapPost("/test-feishu-credentials", async (
+            HttpContext context,
+            TestFeishuCredentialsRequest request,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            IHttpClientFactory httpClientFactory,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to test feishu credentials endpoint.");
+                return Results.Unauthorized();
+            }
+
+            if (string.IsNullOrWhiteSpace(request.AppId) || string.IsNullOrWhiteSpace(request.AppSecret))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "validation.feishu_credentials_required",
+                    Message: "App ID and App Secret are required."));
+            }
+
+            try
+            {
+                var httpClient = httpClientFactory.CreateClient();
+                using var tokenRequest = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal");
+                tokenRequest.Content = JsonContent.Create(
+                    new { app_id = request.AppId.Trim(), app_secret = request.AppSecret.Trim() });
+
+                using var tokenResponse = await httpClient.SendAsync(tokenRequest, cancellationToken);
+                var responseBody = await tokenResponse.Content.ReadAsStringAsync(cancellationToken);
+
+                using var doc = JsonDocument.Parse(responseBody);
+                var root = doc.RootElement;
+
+                if (!root.TryGetProperty("code", out var codeProp) || codeProp.GetInt32() != 0)
+                {
+                    var errorMsg = root.TryGetProperty("msg", out var msgProp)
+                        ? msgProp.GetString()
+                        : "Invalid Feishu credentials.";
+                    return Results.Ok(new TestFeishuCredentialsResponse(Ok: false, Error: errorMsg));
+                }
+
+                // 尝试获取应用名称（通过 app_access_token 查应用信息）
+                string? appName = null;
+                try
+                {
+                    using var appTokenRequest = new HttpRequestMessage(
+                        HttpMethod.Post,
+                        "https://open.feishu.cn/open-apis/auth/v3/app_access_token/internal");
+                    appTokenRequest.Content = JsonContent.Create(
+                        new { app_id = request.AppId.Trim(), app_secret = request.AppSecret.Trim() });
+
+                    using var appTokenResponse = await httpClient.SendAsync(appTokenRequest, cancellationToken);
+                    var appTokenBody = await appTokenResponse.Content.ReadAsStringAsync(cancellationToken);
+                    using var appTokenDoc = JsonDocument.Parse(appTokenBody);
+                    var appTokenRoot = appTokenDoc.RootElement;
+
+                    if (appTokenRoot.TryGetProperty("code", out var appCode) && appCode.GetInt32() == 0
+                        && appTokenRoot.TryGetProperty("app_access_token", out var appToken))
+                    {
+                        var appAccessToken = appToken.GetString();
+                        if (!string.IsNullOrWhiteSpace(appAccessToken))
+                        {
+                            using var infoRequest = new HttpRequestMessage(
+                                HttpMethod.Get,
+                                "https://open.feishu.cn/open-apis/application/v6/applications/me");
+                            infoRequest.Headers.Authorization =
+                                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", appAccessToken);
+                            using var infoResponse = await httpClient.SendAsync(infoRequest, cancellationToken);
+                            if (infoResponse.IsSuccessStatusCode)
+                            {
+                                var infoBody = await infoResponse.Content.ReadAsStringAsync(cancellationToken);
+                                using var infoDoc = JsonDocument.Parse(infoBody);
+                                var infoRoot = infoDoc.RootElement;
+                                if (infoRoot.TryGetProperty("data", out var data)
+                                    && data.TryGetProperty("app", out var app)
+                                    && app.TryGetProperty("app_name", out var name))
+                                {
+                                    appName = name.GetString();
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception)
+                {
+                    // 获取应用名称失败不影响连通性验证结果
+                }
+
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.channels",
+                    eventType: "gateway.channels.feishu_credentials_verified",
+                    level: "info",
+                    message: $"Feishu credentials verified for app {request.AppId}.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["appId"] = request.AppId,
+                        ["appName"] = appName,
+                    });
+
+                return Results.Ok(new TestFeishuCredentialsResponse(Ok: true, AppName: appName));
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                return Results.Ok(new TestFeishuCredentialsResponse(Ok: false, Error: ex.Message));
             }
         });
 

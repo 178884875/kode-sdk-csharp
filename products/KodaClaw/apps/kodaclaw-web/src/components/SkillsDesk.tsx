@@ -131,11 +131,10 @@ export function SkillsDesk() {
 
   return (
     <div className="control-plane-stack" data-testid="skills-desk">
-      <div className="diag-page-header">
-        <div className="diag-page-header__left">
-          <h2 className="desk-section-title">{text.title}</h2>
-          <span className="desk-section-desc diag-page-header__desc">{text.copy}</span>
-        </div>
+      <div>
+        <h2 className="desk-section-title">{text.title}</h2>
+        <p className="desk-section-desc">{text.copy}</p>
+        <div className="control-plane-toolbar">
         <button
           type="button"
           className="secondary-button"
@@ -145,6 +144,7 @@ export function SkillsDesk() {
         >
           {isRefreshing ? text.refreshing : text.refresh}
         </button>
+        </div>
       </div>
 
       {error ? (

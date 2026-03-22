@@ -393,6 +393,85 @@ public sealed class ChannelApiIntegrationTests
         detail.LastTurnOutcome!.ReasonCode.Should().Be("full_agent_mode");
     }
 
+    [Fact]
+    public async Task Feishu_account_create_should_persist_and_appear_in_list()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var accountRequest = new UpsertChannelAccountRequest(
+            Id: "feishu-main",
+            ConnectorKind: ChannelConnectorKind.Feishu,
+            DisplayName: "飞书 Bot",
+            ConfigurationJson: """{"appId":"cli_abc123","appSecret":"inline-secret","defaultDeliveryMode":"RequireApproval"}""",
+            InboundEnabled: false);
+
+        var createResponse = await hosted.Client.PostAsJsonAsync("/api/channels/accounts", accountRequest);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var created = await createResponse.Content.ReadFromJsonAsync<ChannelAccount>();
+        created.Should().NotBeNull();
+        created!.Id.Should().Be("feishu-main");
+        created.ConnectorKind.Should().Be(ChannelConnectorKind.Feishu);
+        created.DisplayName.Should().Be("飞书 Bot");
+
+        var listResponse = await hosted.Client.GetAsync("/api/channels/accounts?connectorKind=Feishu");
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var accounts = await listResponse.Content.ReadFromJsonAsync<List<ChannelAccount>>();
+        accounts.Should().NotBeNull();
+        accounts!.Should().ContainSingle(a => a.Id == "feishu-main");
+    }
+
+    [Fact]
+    public async Task Feishu_account_update_should_persist_display_name_change()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var createRequest = new UpsertChannelAccountRequest(
+            Id: "feishu-update",
+            ConnectorKind: ChannelConnectorKind.Feishu,
+            DisplayName: "Initial Name",
+            ConfigurationJson: """{"appId":"cli_update","appSecret":"inline-secret"}""",
+            InboundEnabled: false);
+
+        await hosted.Client.PostAsJsonAsync("/api/channels/accounts", createRequest);
+
+        var updateRequest = createRequest with { DisplayName = "Updated Name" };
+        var updateResponse = await hosted.Client.PostAsJsonAsync("/api/channels/accounts", updateRequest);
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var updated = await updateResponse.Content.ReadFromJsonAsync<ChannelAccount>();
+        updated.Should().NotBeNull();
+        updated!.DisplayName.Should().Be("Updated Name");
+    }
+
+    [Fact]
+    public async Task Feishu_account_create_should_reject_missing_display_name()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var badRequest = new UpsertChannelAccountRequest(
+            Id: "feishu-bad",
+            ConnectorKind: ChannelConnectorKind.Feishu,
+            DisplayName: "  ",
+            ConfigurationJson: """{"appId":"cli_bad","appSecret":"s3cr3t"}""");
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/channels/accounts", badRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+        error.Should().NotBeNull();
+        error!.Code.Should().Be("validation.channel_account_display_name_required");
+    }
+
     private static Task<HostedGateway> StartGatewayAsync(
         string workspaceRoot,
         IModelProvider? modelProvider = null,

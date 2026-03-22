@@ -97,8 +97,8 @@ export function ModelStep({ onNext, onSkip }: Props) {
 
   return (
     <div className="onboarding-step" data-testid="onboarding-step-model">
-      <h1 className="onboarding-step-title">配置 AI 模型</h1>
-      <p className="onboarding-step-desc">选择一个模型 provider 并填入 API Key</p>
+      <h2 className="desk-section-title">配置 AI 模型</h2>
+      <p className="desk-section-desc">选择一个模型 provider 并填入 API Key</p>
 
       {phase === 'provider' && (
         <div className="provider-grid">

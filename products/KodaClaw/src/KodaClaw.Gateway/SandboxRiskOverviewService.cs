@@ -334,7 +334,7 @@ internal sealed class SandboxRiskOverviewService
 
     private static bool SupportsOutbound(ChannelConnectorKind connectorKind)
     {
-        return connectorKind == ChannelConnectorKind.Telegram;
+        return connectorKind is ChannelConnectorKind.Telegram or ChannelConnectorKind.Feishu;
     }
 
     private static IReadOnlyList<string> BuildOperatorWarnings(

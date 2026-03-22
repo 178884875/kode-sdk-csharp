@@ -57,6 +57,8 @@ import {
   type TriggerAutomationResponse,
   type TestTelegramTokenRequest,
   type TestTelegramTokenResponse,
+  type TestFeishuCredentialsRequest,
+  type TestFeishuCredentialsResponse,
   type CreateChannelAccountRequest,
   type PatchChannelAccountRequest,
   type UpdateCheckRequest,
@@ -556,6 +558,20 @@ export async function testTelegramToken(
 ): Promise<TestTelegramTokenResponse> {
   const payload: TestTelegramTokenRequest = { botToken };
   return requestJson<TestTelegramTokenResponse>("/api/channels/test-telegram-token", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify(payload),
+    signal,
+  });
+}
+
+export async function testFeishuCredentials(
+  appId: string,
+  appSecret: string,
+  signal?: AbortSignal,
+): Promise<TestFeishuCredentialsResponse> {
+  const payload: TestFeishuCredentialsRequest = { appId, appSecret };
+  return requestJson<TestFeishuCredentialsResponse>("/api/channels/test-feishu-credentials", {
     method: "POST",
     headers: buildHeaders(true),
     body: JSON.stringify(payload),

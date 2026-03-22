@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChannelAccount,
   deleteChannelAccount,
@@ -7,6 +7,7 @@ import {
   fetchChannelThreadAudit,
   fetchChannelThreadDetail,
   fetchChannelThreads,
+  testFeishuCredentials,
   testTelegramToken,
   updateChannelAccount,
   updateThreadSettings,
@@ -35,39 +36,6 @@ const THREAD_LIMIT = 80;
 const AUDIT_LIMIT = 20;
 
 
-const connectorSelectStyle: CSSProperties = {
-  minWidth: 180,
-};
-
-const accountSelectStyle: CSSProperties = {
-  minWidth: 240,
-};
-
-const splitLayoutStyle: CSSProperties = {
-  display: "grid",
-  gap: 18,
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.15fr)",
-  marginTop: 16,
-};
-
-const connectorsBodyStyle: CSSProperties = {
-  maxHeight: "min(50vh, 620px)",
-};
-
-const threadListStyle: CSSProperties = {
-  marginTop: 12,
-  display: "grid",
-  gap: 10,
-  maxHeight: "min(42vh, 420px)",
-  overflow: "auto",
-};
-
-
-const detailPanelStyle: CSSProperties = {
-  marginTop: 16,
-  display: "grid",
-  gap: 10,
-};
 
 export function ChannelsDesk() {
   const { formatDateTime } = useI18n();
@@ -332,6 +300,9 @@ export function ChannelsDesk() {
   const [addFormWebhookPath, setAddFormWebhookPath] = useState("");
   const [addFormDeliveryMode, setAddFormDeliveryMode] = useState<DeliveryMode>("RequireApproval");
   const [addFormTelegramTestResult, setAddFormTelegramTestResult] = useState<string | null>(null);
+  const [addFormFeishuAppId, setAddFormFeishuAppId] = useState("");
+  const [addFormFeishuAppSecret, setAddFormFeishuAppSecret] = useState("");
+  const [addFormFeishuTestResult, setAddFormFeishuTestResult] = useState<string | null>(null);
   const [addFormTesting, setAddFormTesting] = useState(false);
   const [addFormSaving, setAddFormSaving] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
@@ -617,6 +588,9 @@ export function ChannelsDesk() {
     setAddFormDisplayName("");
     setAddFormBotToken("");
     setAddFormWebhookPath("");
+    setAddFormFeishuAppId("");
+    setAddFormFeishuAppSecret("");
+    setAddFormFeishuTestResult(null);
     setAddFormDeliveryMode("RequireApproval");
     setAddFormTelegramTestResult(null);
     setAddFormTesting(false);
@@ -652,6 +626,30 @@ export function ChannelsDesk() {
     }
   }
 
+  async function handleTestFeishuCredentials() {
+    if (!addFormFeishuAppId.trim() || !addFormFeishuAppSecret.trim()) {
+      return;
+    }
+
+    setAddFormTesting(true);
+    setAddFormFeishuTestResult(null);
+    setAddFormError(null);
+
+    try {
+      const result = await testFeishuCredentials(addFormFeishuAppId.trim(), addFormFeishuAppSecret.trim());
+      if (result.ok) {
+        setAddFormFeishuTestResult(result.appName ?? addFormFeishuAppId.trim());
+        setAddFormStep(3);
+      } else {
+        setAddFormError(result.error ?? "Feishu credentials verification failed.");
+      }
+    } catch (nextError) {
+      setAddFormError(nextError instanceof Error ? nextError.message : "Feishu credentials verification failed.");
+    } finally {
+      setAddFormTesting(false);
+    }
+  }
+
   async function handleSaveChannelAccount() {
     setAddFormSaving(true);
     setAddFormError(null);
@@ -664,12 +662,22 @@ export function ChannelsDesk() {
         configurationJson = JSON.stringify({ botToken: addFormBotToken.trim() });
       } else if (addFormConnectorKind === "GenericWebhook" && addFormWebhookPath.trim()) {
         configurationJson = JSON.stringify({ webhookPath: addFormWebhookPath.trim() });
+      } else if (addFormConnectorKind === "Feishu" && addFormFeishuAppId.trim()) {
+        configurationJson = JSON.stringify({
+          appId: addFormFeishuAppId.trim(),
+          appSecret: addFormFeishuAppSecret.trim(),
+        });
       }
+
+      const defaultDisplayName =
+        addFormConnectorKind === "Telegram" ? "Telegram Bot"
+        : addFormConnectorKind === "Feishu" ? "飞书 Bot"
+        : "Webhook";
 
       const request: CreateChannelAccountRequest = {
         id: accountId,
         connectorKind: addFormConnectorKind,
-        displayName: addFormDisplayName.trim() || (addFormConnectorKind === "Telegram" ? `Telegram Bot` : `Webhook`),
+        displayName: addFormDisplayName.trim() || defaultDisplayName,
         configurationJson,
         inboundEnabled: true,
       };
@@ -759,14 +767,13 @@ export function ChannelsDesk() {
         </label>
         <select
           id="channels-connector-filter"
-          className="bootstrap-form__textarea"
+          className="bootstrap-form__textarea control-plane-filter control-plane-select channels-connector-select"
           data-testid="channels-connector-filter"
           value={connectorFilter}
           onChange={(event) => {
             setConnectorFilter(event.target.value as ConnectorFilter);
             setAccountFilter("all");
           }}
-          style={connectorSelectStyle}
         >
           <option value="all">{text.allConnectors}</option>
           {connectors.map((connector) => (
@@ -781,11 +788,10 @@ export function ChannelsDesk() {
         </label>
         <select
           id="channels-account-filter"
-          className="bootstrap-form__textarea"
+          className="bootstrap-form__textarea control-plane-filter control-plane-select channels-account-select"
           data-testid="channels-account-filter"
           value={accountFilter}
           onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
-          style={accountSelectStyle}
         >
           <option value="all">{text.allAccounts}</option>
           {visibleAccounts.map((account) => (
@@ -806,13 +812,13 @@ export function ChannelsDesk() {
         </p>
       ) : null}
 
-      <div className="channels-desk__layout" style={splitLayoutStyle}>
+      <div className="channels-desk__layout">
         <section className="timeline" data-testid="channels-connectors-accounts">
           <div className="timeline__header">
             <h3 className="desk-section-title">{text.connectorsTitle}</h3>
             <span className="composer__status">{text.connectorsCount(connectors.length)}</span>
           </div>
-          <div className="timeline__body" style={connectorsBodyStyle}>
+          <div className="timeline__body channels-desk__connectors-body">
             {connectors.map((connector) => (
               <article className="message message--assistant" key={connector.kind}>
                 <div className="message__meta">
@@ -876,6 +882,7 @@ export function ChannelsDesk() {
                       onChange={(e) => setAddFormConnectorKind(e.target.value as ChannelConnectorKind)}
                     >
                       <option value="Telegram">Telegram</option>
+                      <option value="Feishu">飞书 / Lark</option>
                       <option value="GenericWebhook">Generic Webhook</option>
                     </select>
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
@@ -911,6 +918,31 @@ export function ChannelsDesk() {
                           placeholder="123456789:ABC..."
                         />
                       </>
+                    ) : addFormConnectorKind === "Feishu" ? (
+                      <>
+                        <label className="metric-label" htmlFor="channel-form-feishu-app-id">
+                          App ID
+                        </label>
+                        <input
+                          id="channel-form-feishu-app-id"
+                          className="bootstrap-form__textarea"
+                          type="text"
+                          value={addFormFeishuAppId}
+                          onChange={(e) => setAddFormFeishuAppId(e.target.value)}
+                          placeholder="cli_xxxxxxxxxxxxxxxx"
+                        />
+                        <label className="metric-label" htmlFor="channel-form-feishu-app-secret">
+                          App Secret
+                        </label>
+                        <input
+                          id="channel-form-feishu-app-secret"
+                          className="bootstrap-form__textarea"
+                          type="password"
+                          value={addFormFeishuAppSecret}
+                          onChange={(e) => setAddFormFeishuAppSecret(e.target.value)}
+                          placeholder="App Secret"
+                        />
+                      </>
                     ) : (
                       <>
                         <label className="metric-label" htmlFor="channel-form-webhook-path">
@@ -941,6 +973,15 @@ export function ChannelsDesk() {
                         >
                           {addFormTesting ? "Verifying..." : "Verify Token"}
                         </button>
+                      ) : addFormConnectorKind === "Feishu" ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={addFormTesting || !addFormFeishuAppId.trim() || !addFormFeishuAppSecret.trim()}
+                          onClick={() => { void handleTestFeishuCredentials(); }}
+                        >
+                          {addFormTesting ? "Verifying..." : "Verify Credentials"}
+                        </button>
                       ) : (
                         <button
                           type="button"
@@ -967,6 +1008,8 @@ export function ChannelsDesk() {
                     </div>
                     {addFormTelegramTestResult ? (
                       <span className="metric-value">{addFormTelegramTestResult}</span>
+                    ) : addFormFeishuTestResult ? (
+                      <span className="metric-value">{addFormFeishuTestResult}</span>
                     ) : null}
                   </>
                 ) : addFormStep === 3 ? (
@@ -1061,7 +1104,7 @@ export function ChannelsDesk() {
         <section className="status-card status-card--normal" data-testid="channels-threads">
           <h3 className="desk-section-title">{text.threadTitle}</h3>
 
-          <div className="channels-desk__thread-list" style={threadListStyle}>
+          <div className="channels-desk__thread-list">
             {threads.map((thread) => {
               const selected = selectedBindingId === thread.bindingId;
               return (
@@ -1093,7 +1136,7 @@ export function ChannelsDesk() {
             ) : null}
           </div>
 
-          <div className="channels-desk__detail-panel" style={detailPanelStyle} data-testid="channel-thread-detail">
+          <div className="channels-desk__detail-panel" data-testid="channel-thread-detail">
             {isLoadingDetail ? (
               <Skeleton height={52} count={3} />
             ) : threadDetail && selectedThread ? (

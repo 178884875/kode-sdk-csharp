@@ -1118,3 +1118,77 @@
   - Scope：新增 `ModelRegistrySeedService : IHostedService`（KodaClaw.Gateway）；`StartAsync` 检测 Registry 为空 + env var 有 model config → 构建并插入 `is_default=1` 的 endpoint（`ApiKeyEnvironmentVariable` 照旧）；幂等（Registry 已有 endpoint 则跳过）；注册到 `GatewayApp.Composition.cs`。
   - Modules：`src/KodaClaw.Gateway/ModelRegistrySeedService.cs`（新增）、`src/KodaClaw.Gateway/Composition/GatewayApp.Composition.cs`。
   - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ModelRegistrySeed"`；`dotnet test KodaClaw.sln -m:1`。
+
+## 迭代 36：飞书 / Lark Channel 连接器（KC-3601~3609）
+
+范围冻结：见 `docs/ITERATION_36_FREEZE.md`（2026-03-22）。新功能专项，完整 Capability Slice 流程。飞书企业自建应用机器人，通过 WebSocket 长连接（`wss://open.feishu.cn/event_bus`）接收消息，REST API 发送回复，完全契合 local-first 无公网 IP 架构。
+
+### Phase 1：Contracts & 枚举扩展
+
+- `KC-3601`：`Completed`（2026-03-22）。
+  - User Outcome：系统识别飞书为独立渠道类型，API 层面区分 Feishu 与 Telegram / GenericWebhook。
+  - Scope：`ChannelConnectorKind.Feishu = 2`；新增 `FeishuApiContracts.cs`（WS 事件信封 `FeishuWsEventEnvelope`、消息体 `FeishuImMessage`/`FeishuSender`/`FeishuMention`、Token 响应 DTO）。
+  - Modules：`src/KodaClaw.Contracts/ChannelConnectorKind.cs`、`src/KodaClaw.ChannelHub/Connectors/Feishu/FeishuApiContracts.cs`（新增）。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.ContractTests --filter "Channel"`（L3，ChannelContractsTests 新增 Feishu 序列化 fixture）。
+
+### Phase 2：HTTP API Client
+
+- `KC-3602`：`Completed`（2026-03-22）。
+  - User Outcome：连接器能向飞书发送文本消息和图片消息；连通性测试端点可验证 appId/appSecret 有效性。
+  - Scope：`IFeishuApiClient`（`GetTenantAccessTokenAsync`、`GetAppAccessTokenAsync`、`SendTextMessageAsync`、`SendImageMessageAsync`）；`HttpFeishuApiClient` 实现，内部缓存 token（2h 有效期，提前 5 分钟刷新）；两种 token 用途区分（WS 建连 → `app_access_token`，发消息 → `tenant_access_token`）。
+  - Modules：`src/KodaClaw.ChannelHub/Connectors/Feishu/IFeishuApiClient.cs`（新增）、`src/KodaClaw.ChannelHub/Connectors/Feishu/HttpFeishuApiClient.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter "FeishuApiClient"`（L1，含 token 缓存刷新 x2、发文本 x1、发图片 x1）；`dotnet build`。
+
+### Phase 3：WebSocket 长连接客户端
+
+- `KC-3603`：`Completed`（2026-03-22）。
+  - User Outcome：连接器在 Gateway 启动后自动建立 WS 长连接，断线后自动重连，3 秒内完成 ACK 不触发重推。
+  - Scope：`FeishuWebSocketClient`（连接 `wss://open.feishu.cn/event_bus` → 发 `registerApp` 认证 → 30s 心跳 ping/pong → 事件接收回调 → 立即 WSS ACK + fire-and-forget 处理 → 事件去重 LRU 近 500 条 event_id → 指数退避重连最大 60s）。
+  - Modules：`src/KodaClaw.ChannelHub/Connectors/Feishu/FeishuWebSocketClient.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter "FeishuWebSocket"`（L1，含事件去重 x2、ACK 模式 x1、重连逻辑 x1）；`dotnet build`。
+
+### Phase 4：FeishuConnector 核心实现
+
+- `KC-3604`：`Completed`（2026-03-22）。
+  - User Outcome：飞书账号 Start 后能收取消息并触发 turn 执行；Send 后飞书用户收到文字或图片回复；群组 @ 提及被正确识别。
+  - Scope：`FeishuConnectorConfiguration`（解析 appId、appSecret、`credentialReference` via `ChannelSecretResolver`、`defaultDeliveryMode`）；`FeishuConnectorOptions`（WS 重连 / 心跳 / 去重配置）；`FeishuConnector : IChannelConnector`（`StartAsync` / `StopAsync` / `SendAsync`）；群组消息 `mentions` 字段解析 → 剥离 `@_user_x` 标签 → `ChannelEventEnvelope.Text` 净化；`ExternalThreadId` 映射规则（DM → `open_id`，Group → `chat_id`）。
+  - Modules：`src/KodaClaw.ChannelHub/Connectors/Feishu/FeishuConnector.cs`（新增）、`FeishuConnectorConfiguration.cs`（新增）、`FeishuConnectorOptions.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter "FeishuConnector"`（L1，含配置解析 x3、@ 提及解析 x2、SendAsync 文本路径 x1、SendAsync 图片路径 x1）；`dotnet build`。
+
+### Phase 5：Gateway 入站路由扩展
+
+- `KC-3605`：`Completed`（2026-03-22）。
+  - User Outcome：Gateway 启动时自动加载已配置的飞书账号并建立长连接；通过 API 更新飞书账号后，连接立即重新协商。
+  - Scope：`ChannelInboundGatewayService` 注入 `FeishuConnector`，新增 `StartFeishuAccountAsync` / `StopFeishuAccountAsync`；`ChannelConnectorHostedService.StartAsync` 同时查并启动 Feishu 账号；`StopAsync` 同时停止；`ReloadAccountAsync` / `StopAccountAsync` 按 `account.ConnectorKind` 路由到对应 connector。
+  - Modules：`src/KodaClaw.Gateway/Channels/ChannelInboundGatewayService.cs`（修改）、`src/KodaClaw.Gateway/Channels/ChannelConnectorHostedService.cs`（修改）、`src/KodaClaw.ChannelHub/ServiceCollectionExtensions.cs`（注册 `IFeishuApiClient` + `FeishuConnector`）。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "FeishuChannel"`（L2，含账号 upsert → Connected 状态 x1、reload 触发重连 x1、stop 清理 x1）；`dotnet test KodaClaw.sln -m:1`。
+
+### Phase 6：Gateway 配套端点与诊断修复
+
+- `KC-3606`：`Completed`（2026-03-22）。
+  - User Outcome：连接器列表显示飞书为可用连接器；测试端点快速验证凭证有效性；诊断面板正确显示飞书出站能力；Keychain 迁移报告正确识别飞书的 appSecret。
+  - Scope：`GatewayApp.ChannelEndpoints.cs` 连接器描述符新增 Feishu 条目（`SupportsInbound: true`，`SupportsOutbound: true`）；新增 `POST /api/channels/test/feishu`（`{ appId, appSecret }` → `GetTenantAccessTokenAsync` → `{ appName }` 或错误）；`GatewayApp.ChannelValidation.cs` `ReconcileChannelAccountRuntimeAsync` 扩展 Feishu 分支、`ResolveChannelAccountState` switch 显式加 Feishu；`SandboxRiskOverviewService.SupportsOutbound` 加 Feishu；`SecretMigrationReportService` switch 加 `BuildFeishuChannelItemAsync`（解析 appSecret）。
+  - Modules：`src/KodaClaw.Gateway/Endpoints/GatewayApp.ChannelEndpoints.cs`、`src/KodaClaw.Gateway/Validation/GatewayApp.ChannelValidation.cs`、`src/KodaClaw.Gateway/SandboxRiskOverviewService.cs`、`src/KodaClaw.Gateway/SecretMigrationReportService.cs`。
+  - Verification：`dotnet test tests/KodaClaw.IntegrationTests --filter "ChannelApi"`（L2）；`dotnet test KodaClaw.sln -m:1`。
+
+### Phase 7：测试补全
+
+- `KC-3607`：`Completed`（2026-03-22）。
+  - User Outcome：枚举变更、连接器配置解析、入站 API 生命周期均有测试覆盖，防止回归。
+  - Scope：`ChannelContractsTests.cs` 新增 Feishu `ChannelConnectorKind` JSON 序列化断言（`"connectorKind":"Feishu"` 路径）；`ChannelApiIntegrationTests.cs` 新增飞书账号 upsert → state 验证集成测试（mock `IFeishuApiClient`）；独立 `FeishuConnectorConfigurationTests.cs`（配置解析、凭证引用）；`FeishuConnectorTests.cs`（事件去重、@ 提及解析）。
+  - Modules：`tests/KodaClaw.ContractTests/Channels/ChannelContractsTests.cs`、`tests/KodaClaw.IntegrationTests/Gateway/ChannelApiIntegrationTests.cs`、`tests/KodaClaw.UnitTests/ChannelHub/FeishuConnectorConfigurationTests.cs`（新增）、`tests/KodaClaw.UnitTests/ChannelHub/FeishuConnectorTests.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.UnitTests --filter "Feishu"`；`dotnet test tests/KodaClaw.ContractTests --filter "Channel"`；`dotnet test KodaClaw.sln -m:1`。
+
+### Phase 8：前端集成
+
+- `KC-3608`：`Completed`（2026-03-22）。
+  - User Outcome：用户可以在 Channels Desk 添加飞书账号，输入 appId + appSecret，一键测试连通性并保存。
+  - Scope：`types/contracts.ts` `ChannelConnectorKind` 新增 `"Feishu"`；`lib/api.ts` 新增 `testFeishuCredentials(appId, appSecret): Promise<{ appName: string }>`；`ChannelsDesk.tsx` 添加账号表单中，选择飞书时展示 `appId` + `appSecret`（密码型）+ 连通性测试按钮（成功显示应用名，失败显示错误）；i18n 补充飞书相关文案。
+  - Modules：`apps/kodaclaw-web/src/types/contracts.ts`、`apps/kodaclaw-web/src/lib/api.ts`、`apps/kodaclaw-web/src/components/ChannelsDesk.tsx`。
+  - Verification：`npm run typecheck`（0 errors）；`npm run test`（全通过）；`npm run build`。
+
+- `KC-3609`：`Completed`（2026-03-22）。
+  - User Outcome：首次设置向导中提供飞书接入引导，用户跟着步骤 5 分钟内完成飞书机器人配置并连接到 KodaClaw。
+  - Scope：`ChannelSetupWizard.tsx` 新增飞书选项卡，包含：引导说明（飞书开发者后台创建企业自建应用 → 开启机器人能力 → 在事件订阅中添加 `im.message.receive_v1` → 订阅范围勾选接收群聊/私聊消息 → 复制 App ID 和 App Secret）；appId / appSecret 输入框 + 连通性测试按钮；成功后调 `createChannelAccount`。
+  - Modules：`apps/kodaclaw-web/src/components/settings/ChannelSetupWizard.tsx`。
+  - Verification：`npm run typecheck`；`npm run test`；L5 Dogfood 人工走通飞书引导全流程。

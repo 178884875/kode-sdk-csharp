@@ -454,11 +454,10 @@ export function SessionsDiagnosticsDesk({
 
   return (
     <section className="control-plane-stack" data-testid="sessions-diagnostics-desk">
-      <div className="diag-page-header">
-        <div className="diag-page-header__left">
-          <h2 className="desk-section-title">{text.title}</h2>
-          <span className="desk-section-desc diag-page-header__desc">{summaryLine}</span>
-        </div>
+      <div>
+        <h2 className="desk-section-title">{text.title}</h2>
+        <p className="desk-section-desc">{summaryLine}</p>
+        <div className="control-plane-toolbar">
         <button
           type="button"
           className="secondary-button"
@@ -468,6 +467,7 @@ export function SessionsDiagnosticsDesk({
         >
           {isLoadingList || isLoadingDetail ? text.common.refreshing : text.refresh}
         </button>
+        </div>
       </div>
 
       {error ? (
@@ -673,7 +673,7 @@ export function SessionsDiagnosticsDesk({
                             </MetricRow>
                           </div>
                         ) : (
-                          <p className="desk-section-desc" style={{ margin: 0 }}>
+                          <p className="desk-section-desc desk-section-desc--flush">
                             {text.sessionDetail.noPromptDelta}
                           </p>
                         )}
@@ -690,7 +690,7 @@ export function SessionsDiagnosticsDesk({
                             ))}
                           </div>
                         ) : (
-                          <p className="desk-section-desc" style={{ margin: 0 }}>{text.sessionDetail.none}</p>
+                          <p className="desk-section-desc desk-section-desc--flush">{text.sessionDetail.none}</p>
                         )}
                       </CollapsibleSection>
 
@@ -755,7 +755,7 @@ export function SessionsDiagnosticsDesk({
                 </MetricRow>
               </div>
 
-              <div style={{ marginTop: 'var(--space-3)' }}>
+              <div className="diag-bundle-action">
                 <button
                   type="button"
                   className="secondary-button"
@@ -780,7 +780,7 @@ export function SessionsDiagnosticsDesk({
               ) : null}
 
               {bundleExport ? (
-                <div className="control-plane-stack" data-testid="diagnostic-bundle-export-result" style={{ marginTop: 'var(--space-3)' }}>
+                <div className="control-plane-stack diag-bundle-result" data-testid="diagnostic-bundle-export-result">
                   <div className="control-plane-summary-grid">
                     <MetricRow label={text.bundle.bundlePath}>
                       <span className="metric-value--path">{bundleExport.bundlePath}</span>

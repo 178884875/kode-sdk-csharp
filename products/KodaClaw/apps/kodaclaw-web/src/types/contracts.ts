@@ -56,7 +56,7 @@ export type PluginTrustState = "Untrusted" | "Trusted" | "Signed";
 export type PluginTrustEvidenceSource = "LocalDigest" | "SignatureSidecar";
 export type PluginTrustVerificationState = "DigestOnly" | "Verified" | "Mismatch" | "Invalid";
 export type PluginRuntimeState = "Stopped" | "Starting" | "Running" | "Degraded";
-export type ChannelConnectorKind = "Telegram" | "GenericWebhook";
+export type ChannelConnectorKind = "Telegram" | "GenericWebhook" | "Feishu";
 export type ChannelAccountState = "Disconnected" | "Connecting" | "Connected" | "Degraded";
 export type ChannelThreadType = "DirectMessage" | "Group";
 export type ChannelTurnOutcomeKind = "NoAction" | "DraftCreated" | "ApprovalRequested" | "Delivered" | "Failed";
@@ -906,6 +906,17 @@ export interface TestTelegramTokenResponse {
   ok: boolean;
   botName?: string | null;
   botUsername?: string | null;
+  error?: string | null;
+}
+
+export interface TestFeishuCredentialsRequest {
+  appId: string;
+  appSecret: string;
+}
+
+export interface TestFeishuCredentialsResponse {
+  ok: boolean;
+  appName?: string | null;
   error?: string | null;
 }
 

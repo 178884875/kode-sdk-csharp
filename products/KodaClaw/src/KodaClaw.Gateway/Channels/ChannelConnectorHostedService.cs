@@ -21,41 +21,17 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var telegramAccounts = await _channelAccountRepository.ListAsync(
-            new ChannelAccountQuery(
-                ConnectorKind: ChannelConnectorKind.Telegram,
-                State: ChannelAccountState.Connected,
-                Limit: 200),
-            cancellationToken);
-
-        foreach (var account in telegramAccounts.Where(static item => item.InboundEnabled))
-        {
-            try
-            {
-                await _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex,
-                    "Channel account '{AccountId}' failed to start; skipping.",
-                    account.Id);
-            }
-        }
+        await StartAccountsByKindAsync(ChannelConnectorKind.Telegram, cancellationToken);
+        await StartAccountsByKindAsync(ChannelConnectorKind.Feishu, cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        IReadOnlyList<ChannelAccount> telegramAccounts;
+        IReadOnlyList<ChannelAccount> allAccounts;
         try
         {
-            telegramAccounts = await _channelAccountRepository.ListAsync(
-                new ChannelAccountQuery(
-                    ConnectorKind: ChannelConnectorKind.Telegram,
-                    Limit: 200),
+            allAccounts = await _channelAccountRepository.ListAsync(
+                new ChannelAccountQuery(Limit: 200),
                 cancellationToken);
         }
         catch (Exception ex)
@@ -66,11 +42,11 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
             return;
         }
 
-        foreach (var account in telegramAccounts)
+        foreach (var account in allAccounts)
         {
             try
             {
-                await _channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+                await StopAccountByKindAsync(account.Id, account.ConnectorKind, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -89,10 +65,17 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
 
+        var account = await _channelAccountRepository.GetByIdAsync(accountId, cancellationToken);
+        if (account is null)
+        {
+            _logger.LogWarning("Channel account '{AccountId}' not found during reload.", accountId);
+            return;
+        }
+
         // Stop first (best-effort) then re-start.
         try
         {
-            await _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken);
+            await StopAccountByKindAsync(accountId, account.ConnectorKind, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -105,13 +88,6 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 accountId);
         }
 
-        var account = await _channelAccountRepository.GetByIdAsync(accountId, cancellationToken);
-        if (account is null)
-        {
-            _logger.LogWarning("Channel account '{AccountId}' not found during reload.", accountId);
-            return;
-        }
-
         if (!account.InboundEnabled || account.State != ChannelAccountState.Connected)
         {
             return;
@@ -119,7 +95,7 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
 
         try
         {
-            await _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+            await StartAccountByKindAsync(account, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -137,9 +113,12 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
 
+        var account = await _channelAccountRepository.GetByIdAsync(accountId, cancellationToken);
+        var kind = account?.ConnectorKind ?? ChannelConnectorKind.Telegram;
+
         try
         {
-            await _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken);
+            await StopAccountByKindAsync(accountId, kind, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -151,5 +130,62 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 "Channel account '{AccountId}' failed to stop.",
                 accountId);
         }
+    }
+
+    private async Task StartAccountsByKindAsync(
+        ChannelConnectorKind kind,
+        CancellationToken cancellationToken)
+    {
+        var accounts = await _channelAccountRepository.ListAsync(
+            new ChannelAccountQuery(
+                ConnectorKind: kind,
+                State: ChannelAccountState.Connected,
+                Limit: 200),
+            cancellationToken);
+
+        foreach (var account in accounts.Where(static item => item.InboundEnabled))
+        {
+            try
+            {
+                await StartAccountByKindAsync(account, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Channel account '{AccountId}' failed to start; skipping.",
+                    account.Id);
+            }
+        }
+    }
+
+    private Task StartAccountByKindAsync(ChannelAccount account, CancellationToken cancellationToken)
+    {
+        return account.ConnectorKind switch
+        {
+            ChannelConnectorKind.Telegram =>
+                _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.Feishu =>
+                _channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
+            _ => Task.CompletedTask,
+        };
+    }
+
+    private Task StopAccountByKindAsync(
+        string accountId,
+        ChannelConnectorKind kind,
+        CancellationToken cancellationToken)
+    {
+        return kind switch
+        {
+            ChannelConnectorKind.Telegram =>
+                _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken),
+            ChannelConnectorKind.Feishu =>
+                _channelInboundGatewayService.StopFeishuAccountAsync(accountId, cancellationToken),
+            _ => Task.CompletedTask,
+        };
     }
 }

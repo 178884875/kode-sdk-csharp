@@ -236,6 +236,18 @@ ACCEPTANCE_PACK 验收矩阵
 
 无进行中条目。
 
+**近期完成**（Iter 36，2026-03-22）：
+- 飞书 / Lark Channel 连接器（KC-3601~3609）
+  - `ChannelConnectorKind.Feishu = 2`，`FeishuApiContracts.cs` 全套 WS/REST DTO（KC-3601）
+  - `IFeishuApiClient` / `HttpFeishuApiClient`：双 token 缓存（app/tenant，5 分钟提前刷新），文本 + 图片发送（KC-3602）
+  - `FeishuWebSocketClient`：长连接 + 30s 心跳 + 500 条 LRU 去重 + 指数退避重连 + 3s 内即时 ACK（KC-3603）
+  - `FeishuConnector` + `FeishuConnectorConfiguration` + `FeishuConnectorOptions`：StartAsync/StopAsync/SendAsync；@ 提及解析；ExternalThreadId `{type}:{id}` 格式（KC-3604）
+  - `ChannelInboundGatewayService` + `ChannelConnectorHostedService` 路由泛化：Start/Stop/Reload 全部按 ConnectorKind switch（KC-3605）
+  - Gateway 端点：Feishu 连接器描述符、`POST /api/channels/test-feishu-credentials`；`ReconcileChannelAccountRuntimeAsync` / `SandboxRiskOverviewService.SupportsOutbound` / `SecretMigrationReportService.BuildFeishuChannelItemAsync` 补齐（KC-3606）
+  - 测试：10 个单元测试（FeishuConnectorConfigurationTests）+ 3 个契约测试（Feishu JSON 序列化）+ 3 个集成测试（Feishu CRUD API）+ KodaClaw.ChannelHub `InternalsVisibleTo`（KC-3607）
+  - 前端：`contracts.ts` 加 `"Feishu"`；`api.ts` 加 `testFeishuCredentials()`；`ChannelsDesk.tsx` 飞书账号表单（AppId + AppSecret + 测试按钮）（KC-3608）
+  - 前端 onboarding：`ChannelSetupWizard.tsx` 重构为连接器选择 → Telegram/飞书分支流程（引导 + 凭证输入 + 测试 + 交付模式）（KC-3609）
+
 **近期完成**（Iter 34，2026-03-21）：
 - 多模态内容基础层（KC-3401~3408）
   - ModelCapabilitySet flags enum（TextChat/ToolCalling/Vision/ImageGeneration/TTS/STT/Embeddings），替换 `SupportsToolCalling: bool`（KC-3401）

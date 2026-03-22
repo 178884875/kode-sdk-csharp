@@ -74,6 +74,7 @@ public static partial class GatewayApp
         {
             ChannelConnectorKind.GenericWebhook => ChannelAccountState.Connected,
             ChannelConnectorKind.Telegram => existing?.State ?? ChannelAccountState.Disconnected,
+            ChannelConnectorKind.Feishu => existing?.State ?? ChannelAccountState.Disconnected,
             _ => existing?.State ?? ChannelAccountState.Disconnected,
         };
     }
@@ -101,7 +102,8 @@ public static partial class GatewayApp
         ArgumentNullException.ThrowIfNull(channelAccountRepository);
         ArgumentNullException.ThrowIfNull(channelInboundGatewayService);
 
-        if (account.ConnectorKind != ChannelConnectorKind.Telegram)
+        if (account.ConnectorKind is not ChannelConnectorKind.Telegram
+            and not ChannelConnectorKind.Feishu)
         {
             await channelAccountRepository.UpsertAsync(account, cancellationToken);
             return account;
@@ -109,7 +111,7 @@ public static partial class GatewayApp
 
         if (!account.InboundEnabled)
         {
-            await channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
+            await StopConnectorAccountAsync(account, channelInboundGatewayService, cancellationToken);
             var disconnected = account with
             {
                 State = ChannelAccountState.Disconnected,
@@ -122,8 +124,8 @@ public static partial class GatewayApp
 
         try
         {
-            await channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken);
-            await channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken);
+            await StopConnectorAccountAsync(account, channelInboundGatewayService, cancellationToken);
+            await StartConnectorAccountAsync(account, channelInboundGatewayService, cancellationToken);
 
             var connectedAt = DateTimeOffset.UtcNow;
             var connected = account with
@@ -148,5 +150,35 @@ public static partial class GatewayApp
             await channelAccountRepository.UpsertAsync(degraded, cancellationToken);
             return degraded;
         }
+    }
+
+    private static Task StopConnectorAccountAsync(
+        ChannelAccount account,
+        ChannelInboundGatewayService channelInboundGatewayService,
+        CancellationToken cancellationToken)
+    {
+        return account.ConnectorKind switch
+        {
+            ChannelConnectorKind.Telegram =>
+                channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken),
+            ChannelConnectorKind.Feishu =>
+                channelInboundGatewayService.StopFeishuAccountAsync(account.Id, cancellationToken),
+            _ => Task.CompletedTask,
+        };
+    }
+
+    private static Task StartConnectorAccountAsync(
+        ChannelAccount account,
+        ChannelInboundGatewayService channelInboundGatewayService,
+        CancellationToken cancellationToken)
+    {
+        return account.ConnectorKind switch
+        {
+            ChannelConnectorKind.Telegram =>
+                channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.Feishu =>
+                channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
+            _ => Task.CompletedTask,
+        };
     }
 }

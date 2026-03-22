@@ -1,4 +1,5 @@
 using KodaClaw.ChannelHub;
+using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -10,6 +11,7 @@ internal sealed class ChannelInboundGatewayService
     private readonly ChannelEventIngestionService _channelEventIngestionService;
     private readonly ChannelTurnOrchestrator _channelTurnOrchestrator;
     private readonly TelegramConnector _telegramConnector;
+    private readonly FeishuConnector _feishuConnector;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IDiagnosticsService? _diagnosticsService;
 
@@ -17,12 +19,14 @@ internal sealed class ChannelInboundGatewayService
         ChannelEventIngestionService channelEventIngestionService,
         ChannelTurnOrchestrator channelTurnOrchestrator,
         TelegramConnector telegramConnector,
+        FeishuConnector feishuConnector,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IDiagnosticsService? diagnosticsService = null)
     {
         _channelEventIngestionService = channelEventIngestionService ?? throw new ArgumentNullException(nameof(channelEventIngestionService));
         _channelTurnOrchestrator = channelTurnOrchestrator ?? throw new ArgumentNullException(nameof(channelTurnOrchestrator));
         _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
+        _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _diagnosticsService = diagnosticsService;
     }
@@ -91,6 +95,36 @@ internal sealed class ChannelInboundGatewayService
         CancellationToken cancellationToken = default)
     {
         return _telegramConnector.StopAsync(accountId, cancellationToken);
+    }
+
+    public async Task StartFeishuAccountAsync(
+        ChannelAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        if (account.ConnectorKind != ChannelConnectorKind.Feishu)
+        {
+            return;
+        }
+
+        try
+        {
+            await _feishuConnector.StartAsync(
+                account,
+                async (envelope, token) => await ProcessAsync(envelope, token),
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
+        {
+            // 账号已在运行，保持现有连接
+        }
+    }
+
+    public Task StopFeishuAccountAsync(
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        return _feishuConnector.StopAsync(accountId, cancellationToken);
     }
 
     private void RecordRuntimeSkipped(ThreadBinding binding, string message)

@@ -7,4 +7,5 @@ public enum ChannelConnectorKind
 {
     Telegram = 0,
     GenericWebhook = 1,
+    Feishu = 2,
 }

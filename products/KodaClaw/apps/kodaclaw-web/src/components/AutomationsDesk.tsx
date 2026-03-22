@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchAutomationRuns,
   fetchAutomations,
@@ -26,60 +26,6 @@ type SourceFilter = "all" | AutomationDefinitionSource;
 const SOURCE_FILTER_OPTIONS: AutomationDefinitionSource[] = ["Manual", "Heartbeat"];
 
 
-const selectStyle: CSSProperties = {
-  minWidth: 160,
-};
-
-const splitLayoutStyle: CSSProperties = {
-  display: "grid",
-  gap: 18,
-  gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 1fr)",
-  marginTop: 16,
-};
-
-const listBodyStyle: CSSProperties = {
-  maxHeight: "min(52vh, 680px)",
-};
-
-const selectedAutomationStyle: CSSProperties = {
-  borderColor: "rgba(47, 90, 72, 0.4)",
-  boxShadow: "0 12px 24px rgba(41, 26, 12, 0.12)",
-};
-
-const compactMetricStyle: CSSProperties = {
-  gap: 2,
-};
-
-const detailToolbarStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const detailMetricStyle: CSSProperties = {
-  marginBottom: 10,
-};
-
-const detailErrorStyle: CSSProperties = {
-  marginBottom: 14,
-};
-
-const listWithBulletsStyle: CSSProperties = {
-  margin: 0,
-  paddingLeft: 18,
-  display: "grid",
-  gap: 4,
-};
-
-const runsListStyle: CSSProperties = {
-  listStyle: "none",
-  margin: 0,
-  padding: 0,
-  display: "grid",
-  gap: 10,
-};
 
 function summarizePrompt(prompt: string, maxLength = 180): string {
   const normalized = prompt.replace(/\s+/g, " ").trim();
@@ -665,10 +611,9 @@ export function AutomationsDesk() {
         <select
           id="automations-enabled-filter"
           data-testid="automations-enabled-filter"
-          className="bootstrap-form__textarea"
+          className="bootstrap-form__textarea control-plane-filter control-plane-select"
           value={enabledFilter}
           onChange={(event) => setEnabledFilter(event.target.value as EnabledFilter)}
-          style={selectStyle}
         >
           <option value="all">{text.enabledFilter.all}</option>
           <option value="enabled">{text.enabledFilter.enabled}</option>
@@ -680,10 +625,9 @@ export function AutomationsDesk() {
         <select
           id="automations-source-filter"
           data-testid="automations-source-filter"
-          className="bootstrap-form__textarea"
+          className="bootstrap-form__textarea control-plane-filter control-plane-select"
           value={sourceFilter}
           onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
-          style={selectStyle}
         >
           <option value="all">{text.sourceFilterAll}</option>
           {SOURCE_FILTER_OPTIONS.map((source) => (
@@ -718,7 +662,7 @@ export function AutomationsDesk() {
         </p>
       ) : null}
 
-      <div className="automations-desk__layout" style={splitLayoutStyle}>
+      <div className="automations-desk__layout">
         <section className="timeline" data-testid="automations-list">
           <div className="timeline__header">
             <h3 className="desk-section-title">{text.indexTitle}</h3>
@@ -727,7 +671,7 @@ export function AutomationsDesk() {
             </span>
           </div>
 
-          <div className="timeline__body automations-desk__list-body" style={listBodyStyle}>
+          <div className="timeline__body automations-desk__list-body">
             {isLoadingList ? <Skeleton height={52} count={3} /> : null}
             {!isLoadingList && automations.length === 0 ? (
               <EmptyState icon={<Zap size={28} strokeWidth={1.5} />} title={text.emptyList} />
@@ -739,11 +683,8 @@ export function AutomationsDesk() {
               return (
                 <article
                   key={automation.id}
-                  className={
-                    automation.enabled ? "message message--assistant" : "message message--system"
-                  }
+                  className={`${automation.enabled ? "message message--assistant" : "message message--system"}${isSelected ? " automation-item--selected" : ""}`}
                   data-testid={`automation-item-${automation.id}`}
-                  style={isSelected ? selectedAutomationStyle : undefined}
                 >
                   <div className="message__meta">
                     <span className="message__role">{resolveSourceLabel(automation.source)}</span>
@@ -753,7 +694,7 @@ export function AutomationsDesk() {
                   </div>
                   <strong>{automation.title}</strong>
                   <span>{formatSchedule(automation.schedule)}</span>
-                  <div className="metric-item" style={compactMetricStyle}>
+                  <div className="metric-item metric-item--compact">
                     <span className="metric-label">{text.nextRun}</span>
                     <span className="metric-value">
                       {formatDateTime(automation.nextRunAt, text.unavailable)}
@@ -763,7 +704,7 @@ export function AutomationsDesk() {
                       {resolveRunStatusLabel(automation.lastRunStatus)}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 8 }}>
+                  <div className="automation-item-actions">
                     <button
                       type="button"
                       className="secondary-button"
@@ -805,7 +746,7 @@ export function AutomationsDesk() {
                 )}
               </p>
 
-              <div className="automations-desk__detail-toolbar" style={detailToolbarStyle}>
+              <div className="automations-desk__detail-toolbar">
                 <span
                   className={selectedAutomation.enabled ? "mode-badge mode-badge--main" : "mode-badge"}
                   data-testid="automation-enabled-chip"
@@ -832,19 +773,18 @@ export function AutomationsDesk() {
                 </span>
               </div>
 
-              <div className="metric-item" data-testid="automation-detail-prompt" style={detailMetricStyle}>
+              <div className="metric-item automation-detail-metric" data-testid="automation-detail-prompt">
                 <span className="metric-label">{text.promptSummary}</span>
                 <span className="metric-value">{summarizePrompt(selectedAutomation.prompt)}</span>
               </div>
 
               <div
-                className="metric-item"
+                className="metric-item automation-detail-metric"
                 data-testid="automation-detail-input-paths"
-                style={detailMetricStyle}
               >
                 <span className="metric-label">{text.inputPaths}</span>
                 {selectedAutomation.inputPaths?.length ? (
-                  <ul style={listWithBulletsStyle}>
+                  <ul className="automation-bullets-list">
                     {selectedAutomation.inputPaths.map((path) => (
                       <li key={path} className="metric-value metric-value--path">
                         {path}
@@ -857,9 +797,8 @@ export function AutomationsDesk() {
               </div>
 
               <div
-                className="metric-item"
+                className="metric-item automation-detail-error"
                 data-testid="automation-detail-last-error"
-                style={detailErrorStyle}
               >
                 <span className="metric-label">{text.lastError}</span>
                 <span className="metric-value">
@@ -874,7 +813,7 @@ export function AutomationsDesk() {
                   <p className="desk-section-desc">{text.emptyRuns}</p>
                 ) : null}
                 {!isLoadingRuns && recentRuns.length > 0 ? (
-                  <ul style={runsListStyle}>
+                  <ul className="automation-runs-list">
                     {recentRuns.map((run) => (
                       <li key={run.runId} className="metric-item" data-testid={`automation-run-${run.runId}`}>
                         <span className="metric-label">
@@ -891,9 +830,8 @@ export function AutomationsDesk() {
               </div>
 
               <div
-                className="metric-item"
+                className="metric-item automation-detail-metric"
                 data-testid="automation-prompt-diagnostics"
-                style={detailMetricStyle}
               >
                 <span className="metric-label">{text.promptDiagnostics}</span>
                 {isLoadingPromptDiagnostics ? (
@@ -928,7 +866,7 @@ export function AutomationsDesk() {
                     </span>
                     <span className="metric-label">{text.loadedContextFiles}</span>
                     {latestPromptReport.loadedContextFiles.length > 0 ? (
-                      <ul style={listWithBulletsStyle}>
+                      <ul className="automation-bullets-list">
                         {latestPromptReport.loadedContextFiles.map((path) => (
                           <li key={path} className="metric-value metric-value--path">
                             {path}
@@ -942,7 +880,7 @@ export function AutomationsDesk() {
                       <>
                         <span className="metric-label">{text.truncatedContextFiles}</span>
                         {(latestPromptReport.truncatedContextFiles?.length ?? 0) > 0 ? (
-                          <ul style={listWithBulletsStyle}>
+                          <ul className="automation-bullets-list">
                             {latestPromptReport.truncatedContextFiles!.map((path) => (
                               <li key={path} className="metric-value metric-value--path">
                                 {path}
@@ -954,7 +892,7 @@ export function AutomationsDesk() {
                         )}
                         <span className="metric-label">{text.truncationNotes}</span>
                         {(latestPromptReport.truncationNotes?.length ?? 0) > 0 ? (
-                          <ul style={listWithBulletsStyle}>
+                          <ul className="automation-bullets-list">
                             {latestPromptReport.truncationNotes!.map((note) => (
                               <li key={note} className="metric-value">
                                 {note}

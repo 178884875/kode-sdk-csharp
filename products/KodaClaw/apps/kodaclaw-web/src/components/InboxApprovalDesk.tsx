@@ -58,7 +58,6 @@ export function InboxApprovalDesk() {
         all: "全部",
         items: (count: number) => `${count} 项`,
       },
-      eyebrow: "控制平面",
       title: "收件 / 审批中枢",
       intro: "把待办收件、审批决策与操作员注释收拢到一个可追溯界面里，避免动作在工作流之外失焦。",
       refresh: "刷新工作台",
@@ -145,7 +144,6 @@ export function InboxApprovalDesk() {
         all: "All",
         items: (count: number) => `${count} items`,
       },
-      eyebrow: "Control Plane",
       title: "Inbox / Approval Console",
       intro: "Keep inbox signals, approval decisions, and operator notes on one inspectable surface so actions never fall out of view.",
       refresh: "Refresh desk",
@@ -429,10 +427,11 @@ export function InboxApprovalDesk() {
 
   return (
     <section data-testid="inbox-approval-desk" className="control-plane-stack">
-      <h2 className="desk-section-title">{text.title}</h2>
-      <p className="desk-section-desc">{text.intro}</p>
+      <div>
+        <h2 className="desk-section-title">{text.title}</h2>
+        <p className="desk-section-desc">{text.intro}</p>
 
-      <div className="control-plane-toolbar">
+        <div className="control-plane-toolbar">
         <button
           type="button"
           className="secondary-button"
@@ -478,6 +477,7 @@ export function InboxApprovalDesk() {
             </option>
           ))}
         </select>
+        </div>
       </div>
 
       {error ? (

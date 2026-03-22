@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,6 +29,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ITelegramApiClient, HttpTelegramApiClient>();
         services.TryAddSingleton<TelegramConnector>();
         services.TryAddSingleton<GenericWebhookConnector>();
+        services.TryAddSingleton<IFeishuApiClient, HttpFeishuApiClient>();
+        services.TryAddSingleton<FeishuConnector>();
         return services;
     }
 }

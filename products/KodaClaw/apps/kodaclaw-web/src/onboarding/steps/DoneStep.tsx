@@ -9,8 +9,8 @@ export function DoneStep({ state, onComplete }: Props) {
   return (
     <div className="onboarding-step onboarding-step--done" data-testid="onboarding-step-done">
       <div className="done-checkmark">✓</div>
-      <h1 className="onboarding-step-title">Koda 已就绪</h1>
-      <p className="onboarding-step-desc">模型已配置，开始和 Koda 对话吧</p>
+      <h2 className="desk-section-title">Koda 已就绪</h2>
+      <p className="desk-section-desc">模型已配置，开始和 Koda 对话吧</p>
 
       {state.selectedPresetId && (
         <div className="done-summary">

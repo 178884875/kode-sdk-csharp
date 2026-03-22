@@ -286,8 +286,8 @@ export function CanvasDesk() {
   const metadataSummary = selectedArtifact?.summary ?? text.defaultSummary;
 
   return (
-    <section data-testid="canvas-desk" className="desk-column canvas-desk canvas-root-layout">
-      <section className="status-card status-card--normal">
+    <section data-testid="canvas-desk" className="canvas-desk canvas-root-layout">
+      <div className="canvas-desk__header">
         <h2 className="desk-section-title">{text.title}</h2>
         <p className="desk-section-desc">{text.copy}</p>
         <div className="canvas-desk__toolbar canvas-toolbar">
@@ -308,6 +308,7 @@ export function CanvasDesk() {
           <select
             id="canvas-kind-filter"
             data-testid="canvas-kind-filter"
+            className="bootstrap-form__textarea control-plane-filter control-plane-select"
             value={kindFilter}
             onChange={(event) => setKindFilter(event.target.value as CanvasKindFilter)}
           >
@@ -322,7 +323,7 @@ export function CanvasDesk() {
             {isLoading ? text.loading : text.artifactCount(artifacts.length)}
           </span>
         </div>
-      </section>
+      </div>
 
       {error ? (
         <section className="status-card status-card--error" data-testid="canvas-error">
