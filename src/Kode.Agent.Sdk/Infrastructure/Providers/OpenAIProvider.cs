@@ -139,6 +139,9 @@ public sealed class OpenAIProvider : IModelProvider
             if (!hasImages)
             {
                 var text = string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
+                // Skip empty user messages (e.g. messages that contain only ToolResultContent —
+                // those are added separately as ToolChatMessage entries below).
+                if (string.IsNullOrEmpty(text)) return null;
                 return new UserChatMessage(text);
             }
 
