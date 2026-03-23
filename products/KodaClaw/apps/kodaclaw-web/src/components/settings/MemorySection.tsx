@@ -97,7 +97,7 @@ export function MemorySection() {
           {success && <span className="settings-file-success">{text.saved}</span>}
           <button
             type="button"
-            className="settings-btn settings-btn--primary"
+            className="btn btn--primary"
             disabled={!isDirty || saving || loading}
             onClick={save}
           >

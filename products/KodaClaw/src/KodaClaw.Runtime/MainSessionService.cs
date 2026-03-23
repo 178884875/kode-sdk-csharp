@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.McpHub;
 using KodaClaw.PluginHost.Hosting;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
@@ -35,6 +36,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IWorkspaceReadinessService? _workspaceReadinessService;
     private readonly KodaClaw.Contracts.IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IMcpHubService? _mcpHubService;
+    private readonly ISettingsRepository? _settingsRepository;
     private volatile bool _pendingWorkspaceRotation;
 
     public MainSessionService(
@@ -49,7 +52,9 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IPluginLifecycleHost? pluginLifecycleHost = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IWorkspaceReadinessService? workspaceReadinessService = null,
-        KodaClaw.Contracts.IModelRegistryRepository? modelRegistryRepository = null)
+        KodaClaw.Contracts.IModelRegistryRepository? modelRegistryRepository = null,
+        IMcpHubService? mcpHubService = null,
+        ISettingsRepository? settingsRepository = null)
     {
         _workspaceService = workspaceService;
         _dependenciesFactory = dependenciesFactory;
@@ -63,6 +68,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _workspaceReadinessService = workspaceReadinessService;
         _modelRegistryRepository = modelRegistryRepository;
+        _mcpHubService = mcpHubService;
+        _settingsRepository = settingsRepository;
     }
 
     public async Task<MainSessionHandle> EnsureMainSessionAsync(CancellationToken cancellationToken = default)
@@ -170,6 +177,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     public void RequestWorkspaceRotation()
     {
         _pendingWorkspaceRotation = true;
+    }
+
+    public string? TryGetApprovalIdForCall(string callId)
+    {
+        return _liveApprovals.TryGetValue(callId, out var ctx) ? ctx.ApprovalId : null;
     }
 
     public Task<ApprovalDecisionDispatchResult> ApproveApprovalAsync(
@@ -434,6 +446,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         if (await dependencies.Store.ExistsAsync(sessionId, cancellationToken))
         {
             var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+            var permissions = await ResolvePermissionsAsync(cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
@@ -446,10 +459,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         Model = configuredModel,
                         SystemPrompt = prompt.SystemPrompt,
                         Tools = _options.Tools,
-                        Permissions = _options.Permissions,
+                        Permissions = permissions,
                         SandboxOptions = new SandboxOptions
                         {
-                            WorkingDirectory = sessionDirectory,
+                            WorkingDirectory = _workspaceService.RootPath,
                             EnforceBoundary = true,
                             AllowPaths = skillsPaths,
                         },
@@ -501,9 +514,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+        var permissions = await ResolvePermissionsAsync(cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt),
+            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt, permissions),
             dependencies,
             cancellationToken);
 
@@ -535,51 +549,25 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var tools = new List<string>(_options.Tools);
-        if (_pluginRegistryRepository == null || _pluginLifecycleHost == null || toolRegistry == null)
+        if (toolRegistry == null)
         {
-            return tools;
-        }
-
-        IReadOnlyList<PluginRecord> candidates;
-        try
-        {
-            candidates = await _pluginRegistryRepository.ListAsync(
-                new PluginQuery(
-                    Type: PluginType.Tool,
-                    Enabled: true,
-                    RuntimeState: PluginRuntimeState.Running,
-                    Limit: MaxPluginInjectionCandidates),
-                cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
-        {
-            RecordDiagnosticEvent(
-                eventType: "main_session.plugin_tools.query_failed",
-                level: "warning",
-                message: ex.GetBaseException().Message,
-                sessionId: sessionId);
             return tools;
         }
 
         var merged = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
-        var injectedPluginCount = 0;
-        var injectedToolCount = 0;
 
-        foreach (var candidate in candidates)
+        if (_pluginRegistryRepository != null && _pluginLifecycleHost != null)
         {
-            if (candidate.TrustState is not (PluginTrustState.Trusted or PluginTrustState.Signed))
-            {
-                continue;
-            }
-
-            IReadOnlyList<ITool> pluginTools;
+            IReadOnlyList<PluginRecord> candidates;
             try
             {
-                pluginTools = await _pluginLifecycleHost.GetToolsAsync(candidate.Id, cancellationToken);
+                candidates = await _pluginRegistryRepository.ListAsync(
+                    new PluginQuery(
+                        Type: PluginType.Tool,
+                        Enabled: true,
+                        RuntimeState: PluginRuntimeState.Running,
+                        Limit: MaxPluginInjectionCandidates),
+                    cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -588,49 +576,105 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
             {
                 RecordDiagnosticEvent(
-                    eventType: "main_session.plugin_tools.fetch_failed",
+                    eventType: "main_session.plugin_tools.query_failed",
                     level: "warning",
                     message: ex.GetBaseException().Message,
-                    sessionId: sessionId,
-                    attributes: new Dictionary<string, string?>
-                    {
-                        ["pluginId"] = candidate.Id,
-                    });
-                continue;
+                    sessionId: sessionId);
+                candidates = [];
             }
 
-            var injectedForCurrentPlugin = false;
-            foreach (var pluginTool in pluginTools)
+            var injectedPluginCount = 0;
+            var injectedToolCount = 0;
+
+            foreach (var candidate in candidates)
             {
-                if (string.IsNullOrWhiteSpace(pluginTool.Name) || !merged.Add(pluginTool.Name))
+                if (candidate.TrustState is not (PluginTrustState.Trusted or PluginTrustState.Signed))
                 {
                     continue;
                 }
 
-                toolRegistry.Register(pluginTool);
-                tools.Add(pluginTool.Name);
-                injectedToolCount++;
-                injectedForCurrentPlugin = true;
+                IReadOnlyList<ITool> pluginTools;
+                try
+                {
+                    pluginTools = await _pluginLifecycleHost.GetToolsAsync(candidate.Id, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
+                {
+                    RecordDiagnosticEvent(
+                        eventType: "main_session.plugin_tools.fetch_failed",
+                        level: "warning",
+                        message: ex.GetBaseException().Message,
+                        sessionId: sessionId,
+                        attributes: new Dictionary<string, string?>
+                        {
+                            ["pluginId"] = candidate.Id,
+                        });
+                    continue;
+                }
+
+                var injectedForCurrentPlugin = false;
+                foreach (var pluginTool in pluginTools)
+                {
+                    if (string.IsNullOrWhiteSpace(pluginTool.Name) || !merged.Add(pluginTool.Name))
+                    {
+                        continue;
+                    }
+
+                    toolRegistry.Register(pluginTool);
+                    tools.Add(pluginTool.Name);
+                    injectedToolCount++;
+                    injectedForCurrentPlugin = true;
+                }
+
+                if (injectedForCurrentPlugin)
+                {
+                    injectedPluginCount++;
+                }
             }
 
-            if (injectedForCurrentPlugin)
+            if (injectedToolCount > 0)
             {
-                injectedPluginCount++;
+                RecordDiagnosticEvent(
+                    eventType: "main_session.plugin_tools.injected",
+                    level: "info",
+                    message: $"Injected {injectedToolCount} plugin tool(s) into a new main session.",
+                    sessionId: sessionId,
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["pluginCount"] = injectedPluginCount.ToString(),
+                        ["toolCount"] = injectedToolCount.ToString(),
+                    });
             }
         }
 
-        if (injectedToolCount > 0)
+        if (_mcpHubService is not null)
         {
-            RecordDiagnosticEvent(
-                eventType: "main_session.plugin_tools.injected",
-                level: "info",
-                message: $"Injected {injectedToolCount} plugin tool(s) into a new main session.",
-                sessionId: sessionId,
-                attributes: new Dictionary<string, string?>
+            var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, toolRegistry, cancellationToken);
+            foreach (var toolName in mcpResult.InjectedToolNames)
+            {
+                if (merged.Add(toolName))
                 {
-                    ["pluginCount"] = injectedPluginCount.ToString(),
-                    ["toolCount"] = injectedToolCount.ToString(),
-                });
+                    tools.Add(toolName);
+                }
+            }
+
+            if (mcpResult.ToolCount > 0)
+            {
+                RecordDiagnosticEvent(
+                    eventType: "main_session.workspace_mcp.injected",
+                    level: "info",
+                    message: $"McpHub injected {mcpResult.ToolCount} tool(s) from {mcpResult.ServerCount} server(s).",
+                    sessionId: sessionId,
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["serverCount"] = mcpResult.ServerCount.ToString(),
+                        ["toolCount"] = mcpResult.ToolCount.ToString(),
+                    });
+            }
         }
 
         return tools;
@@ -640,7 +684,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         string sessionDirectory,
         IReadOnlyList<string> tools,
         string model,
-        string systemPrompt)
+        string systemPrompt,
+        PermissionConfig? permissions = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
@@ -649,10 +694,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
             Tools = tools,
-            Permissions = _options.Permissions,
+            Permissions = permissions ?? _options.Permissions,
             SandboxOptions = new SandboxOptions
             {
-                WorkingDirectory = sessionDirectory,
+                WorkingDirectory = _workspaceService.RootPath,
                 EnforceBoundary = true,
                 AllowPaths = skillsPaths,
             },
@@ -669,6 +714,28 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         };
     }
 
+    private async Task<PermissionConfig> ResolvePermissionsAsync(CancellationToken cancellationToken)
+    {
+        if (_settingsRepository != null)
+        {
+            try
+            {
+                var settings = await _settingsRepository.GetAsync(cancellationToken);
+                if (settings.AutoApproveToolCalls)
+                {
+                    return _options.Permissions with { Mode = "auto" };
+                }
+                return _options.Permissions with { Mode = "approval" };
+            }
+            catch
+            {
+                // Fall through to default if settings can't be read
+            }
+        }
+
+        return _options.Permissions;
+    }
+
     private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
         RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
@@ -681,6 +748,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         KodaClawWorkspaceLayout.AgentsFile,
         KodaClawWorkspaceLayout.IdentityFile,
         KodaClawWorkspaceLayout.SoulFile,
+        KodaClawWorkspaceLayout.OntologyFile,
         KodaClawWorkspaceLayout.UserFile,
         KodaClawWorkspaceLayout.MemoryFile,
     ];
@@ -704,9 +772,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         await TryAddContextDocumentAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
         await TryAddContextDocumentAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
 
+        var sessionStartedAt = DateTimeOffset.Now;
         var builder = new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)
-            .AddBody("Keep actions observable, local-first, and approval-aware.");
+            .AddBody("Keep actions observable, local-first, and approval-aware.")
+            .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}). Use get_current_datetime tool for a precise timestamp if the user asks later in the session.");
 
         if (_workspaceReadinessService is not null)
         {

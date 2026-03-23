@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KodaClaw.McpHub</AssemblyName>
+    <RootNamespace>KodaClaw.McpHub</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Mcp\Kode.Agent.Mcp.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
+  </ItemGroup>
+</Project>

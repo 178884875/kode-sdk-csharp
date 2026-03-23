@@ -114,6 +114,10 @@ public sealed class WorkspaceService : IWorkspaceService
             DefaultWorkspaceTemplates.Soul(),
             cancellationToken);
         await WriteTextIfMissingAsync(
+            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.OntologyFile),
+            DefaultWorkspaceTemplates.Ontology(),
+            cancellationToken);
+        await WriteTextIfMissingAsync(
             GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.UserFile),
             DefaultWorkspaceTemplates.User(),
             cancellationToken);
@@ -190,6 +194,35 @@ public sealed class WorkspaceService : IWorkspaceService
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".agents", "skills"),
             Path.Combine(RootPath, KodaClawWorkspaceLayout.WorkspaceSkillsDirectory),
         ];
+    }
+
+    public async Task<WorkspaceMcpConfig> ReadMcpConfigAsync(CancellationToken cancellationToken = default)
+    {
+        var path = GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.McpConfigFile);
+        if (!File.Exists(path))
+        {
+            return new WorkspaceMcpConfig();
+        }
+
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            var config = await JsonSerializer.DeserializeAsync<WorkspaceMcpConfig>(stream, WorkspaceJson.Default, cancellationToken);
+            return config ?? new WorkspaceMcpConfig();
+        }
+        catch (JsonException)
+        {
+            return new WorkspaceMcpConfig();
+        }
+    }
+
+    public async Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        await WriteJsonAsync(
+            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.McpConfigFile),
+            config,
+            cancellationToken);
     }
 
     private bool IsInitialized()

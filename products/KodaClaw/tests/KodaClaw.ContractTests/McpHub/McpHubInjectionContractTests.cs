@@ -1,0 +1,155 @@
+using FluentAssertions;
+using KodaClaw.Contracts;
+using KodaClaw.McpHub;
+using Kode.Agent.Mcp;
+using Kode.Agent.Sdk.Core.Abstractions;
+using Moq;
+using Xunit;
+
+namespace KodaClaw.ContractTests.McpHub;
+
+/// <summary>
+/// Contract tests for McpHubService injection behavior.
+/// These tests validate the service's filtering and isolation logic
+/// without establishing real MCP connections.
+/// </summary>
+public sealed class McpHubInjectionContractTests
+{
+    [Fact]
+    public async Task InjectToolsAsync_returns_empty_when_config_has_no_servers()
+    {
+        var workspaceService = CreateWorkspaceServiceWithConfig(new WorkspaceMcpConfig());
+        var toolRegistry = new Mock<IToolRegistry>().Object;
+        var service = new McpHubService(workspaceService, mcpClientManager: new McpClientManager());
+
+        var result = await service.InjectToolsAsync("session-001", toolRegistry);
+
+        result.Should().Be(McpHubInjectionResult.Empty);
+    }
+
+    [Fact]
+    public async Task InjectToolsAsync_returns_empty_when_mcpClientManager_is_null()
+    {
+        var config = new WorkspaceMcpConfig
+        {
+            McpServers = new Dictionary<string, WorkspaceMcpServerEntry>
+            {
+                ["server-a"] = new WorkspaceMcpServerEntry { Command = "npx" }
+            }
+        };
+        var workspaceService = CreateWorkspaceServiceWithConfig(config);
+        var toolRegistry = new Mock<IToolRegistry>().Object;
+        var service = new McpHubService(workspaceService, mcpClientManager: null);
+
+        var result = await service.InjectToolsAsync("session-001", toolRegistry);
+
+        result.Should().Be(McpHubInjectionResult.Empty);
+    }
+
+    [Fact]
+    public async Task InjectToolsAsync_skips_disabled_entries_and_records_zero_for_them()
+    {
+        // Only enabled=false entries — with a real McpClientManager, the service
+        // should skip them all and return zero tools injected (not attempt to connect).
+        var config = new WorkspaceMcpConfig
+        {
+            McpServers = new Dictionary<string, WorkspaceMcpServerEntry>
+            {
+                ["disabled-server"] = new WorkspaceMcpServerEntry
+                {
+                    Command = "npx",
+                    Args = ["-y", "some-server@latest"],
+                    Enabled = false,
+                }
+            }
+        };
+        var workspaceService = CreateWorkspaceServiceWithConfig(config);
+        var toolRegistry = new Mock<IToolRegistry>().Object;
+        // Use a real McpClientManager — with enabled=false, it should never be called
+        var service = new McpHubService(workspaceService, mcpClientManager: new McpClientManager());
+
+        var result = await service.InjectToolsAsync("session-001", toolRegistry);
+
+        result.ToolCount.Should().Be(0);
+        result.FailedServerCount.Should().Be(0);
+        result.InjectedToolNames.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task InjectToolsAsync_skips_entries_with_enabled_null_treated_as_enabled()
+    {
+        // enabled=null means "not specified" → treated as enabled=true (Claude Desktop compat)
+        // With a real but unconnectable command, it should fail the server (not skip it)
+        var config = new WorkspaceMcpConfig
+        {
+            McpServers = new Dictionary<string, WorkspaceMcpServerEntry>
+            {
+                ["null-enabled-server"] = new WorkspaceMcpServerEntry
+                {
+                    Command = "nonexistent-command-that-will-fail",
+                    Enabled = null,
+                }
+            }
+        };
+        var workspaceService = CreateWorkspaceServiceWithConfig(config);
+        var toolRegistry = new Mock<IToolRegistry>().Object;
+        var service = new McpHubService(workspaceService, mcpClientManager: new McpClientManager());
+
+        var result = await service.InjectToolsAsync("session-001", toolRegistry);
+
+        // The server was attempted (not skipped), but failed — so failedServerCount=1
+        result.ToolCount.Should().Be(0);
+        result.FailedServerCount.Should().Be(1);
+        result.FailedServers.Should().ContainSingle("null-enabled-server");
+    }
+
+    [Fact]
+    public async Task InjectToolsAsync_isolates_single_server_failure_from_others()
+    {
+        // Two servers: one that will fail (bad command), one disabled (skipped cleanly)
+        // The disabled one should not increase FailedServerCount
+        var config = new WorkspaceMcpConfig
+        {
+            McpServers = new Dictionary<string, WorkspaceMcpServerEntry>
+            {
+                ["bad-server"] = new WorkspaceMcpServerEntry
+                {
+                    Command = "nonexistent-command-xyz-12345",
+                },
+                ["disabled-server"] = new WorkspaceMcpServerEntry
+                {
+                    Command = "npx",
+                    Enabled = false,
+                }
+            }
+        };
+        var workspaceService = CreateWorkspaceServiceWithConfig(config);
+        var toolRegistry = new Mock<IToolRegistry>().Object;
+        var service = new McpHubService(workspaceService, mcpClientManager: new McpClientManager());
+
+        var result = await service.InjectToolsAsync("session-001", toolRegistry);
+
+        result.ToolCount.Should().Be(0);
+        result.FailedServerCount.Should().Be(1, "only bad-server fails; disabled-server is skipped, not failed");
+        result.FailedServers.Should().ContainSingle("bad-server");
+    }
+
+    [Fact]
+    public async Task McpHubInjectionResult_empty_singleton_has_zero_counts()
+    {
+        McpHubInjectionResult.Empty.ServerCount.Should().Be(0);
+        McpHubInjectionResult.Empty.ToolCount.Should().Be(0);
+        McpHubInjectionResult.Empty.FailedServerCount.Should().Be(0);
+        McpHubInjectionResult.Empty.FailedServers.Should().BeEmpty();
+        McpHubInjectionResult.Empty.InjectedToolNames.Should().BeEmpty();
+        await Task.CompletedTask;
+    }
+
+    private static IWorkspaceService CreateWorkspaceServiceWithConfig(WorkspaceMcpConfig config)
+    {
+        var mock = new Mock<IWorkspaceService>();
+        mock.Setup(s => s.ReadMcpConfigAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(config);
+        return mock.Object;
+    }
+}

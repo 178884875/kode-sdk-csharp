@@ -2,227 +2,414 @@
 
 ## 1. 设计目标
 
-KodaClaw 的插件系统要满足四个要求：
+KodaClaw 的扩展体系分为两个独立模块：
 
-1. 能在不改核心代码的情况下扩展工具、渠道、UI 与自动化能力
-2. 能复用现有 SDK 的 MCP 能力
-3. 能对插件进行权限声明、授权、启停、故障隔离
-4. 能为后续插件市场或私有插件分发留出空间
+| 模块 | 职责 | 协议 |
+|---|---|---|
+| `KodaClaw.PluginHost` | 受管插件生命周期（多类型） | 自定义 HTTP 协议 |
+| `KodaClaw.McpHub` | MCP 生态工具直连 | MCP 协议 |
 
-## 2. 总体策略：MCP-first
+两者**完全独立**，没有依赖关系。PluginHost 不依赖任何 MCP 库；McpHub 不涉及插件安装和生命周期管理。
 
-KodaClaw 初期不采用 CLR 进程内插件，而采用 `MCP-first` 插件策略：
+---
 
-- 每个插件本质上是一个可被宿主发现和管理的 MCP 提供者
-- 宿主通过 stdio、HTTP、websocket 或 webhook 与插件交互
-- 插件工具统一以 namespaced 形式暴露给 Runtime
+## Part 1：PluginHost — 受管插件系统
 
-这样做的原因：
+### 2. 设计原则
 
-- 更贴合现有 SDK 能力
-- 边界清晰，隔离相对容易
-- 更容易做权限、健康检查、重启和日志管理
+PluginHost 是 KodaClaw 的**受管扩展容器**，负责插件的发现、信任审批、进程托管、健康监控和生命周期管理。它不限于某一类型——插件可以同时声明多种能力。
 
-## 3. 插件分类
+设计决策：
 
-KodaClaw 插件至少分为四类：
+- **类型可扩展**：`channel` 是当前主力类型，`tool` / `memory` / `ui` 按需迭代实现，框架设计不预设上限
+- **不基于 MCP**：PluginHost 插件的接口是结构化已知的，不需要动态发现。自定义 HTTP 协议更简单、语言无关、双向通信天然支持
+- **可参考 MCP 理念**：进程隔离、权限声明、manifest 格式、健康检查——思路借鉴，但不走 MCP 协议栈
+- **治理是核心价值**：信任门控 + Keychain secrets + 日志 + 重启，这是 PluginHost 区别于 workspace/mcp.json 的根本价值
 
-- `tool`：提供工具能力
-- `channel`：提供外部消息接入能力
-- `memory`：提供记忆或知识接入能力
-- `ui`：提供 Canvas 面板或设置面板
+### 3. 插件类型
 
-一个插件可以同时属于多个类型。
+一个插件可以同时声明多个类型（如一个 Notion 插件同时提供工具和记忆能力）：
 
-## 4. 插件目录布局
+| 类型 | 说明 | 实现状态 |
+|---|---|---|
+| `channel` | 接入外部消息平台（入站 + 出站） | 主力，当前迭代重点 |
+| `tool` | 向 Agent session 注入工具（需治理/Keychain 的工具） | 待实现 |
+| `memory` | 记忆或知识接入（向量库、外部知识库） | 🔮 未来 |
+| `ui` | Canvas 面板或设置页注入 | 🔮 未来 |
 
-推荐布局：
+> **`tool` 类型的两条路径**：
+> - 社区/第三方 MCP server → **McpHub**（workspace/mcp.json，无安装流程）
+> - 需要信任审批 / Keychain secrets 的自研工具 → **PluginHost tool 插件**
 
-```text
-~/.kodaclaw/workspace/plugins/<pluginId>/
-  plugin.json
-  assets/
-  ui/
-  logs/
+### 4. Plugin HTTP 协议
+
+#### 4.1 通信方式
+
+PluginHost 通过环境变量告知插件进程监听端口，插件暴露 HTTP server，PluginHost 用 HttpClient 调用：
+
+```
+KODACLAW_PLUGIN_PORT   插件应监听的端口
+KODACLAW_PLUGIN_TOKEN  双向认证 token
+KODACLAW_HOST_URL      KodaClaw Gateway base URL（用于插件主动回调）
+KODACLAW_PLUGIN_ID     插件 ID
++ 用户 secrets（从 Keychain 解析后注入）
 ```
 
-若是产品内安装的插件，也可放到：
+所有请求携带 `Authorization: Bearer {KODACLAW_PLUGIN_TOKEN}`。
 
-```text
-~/.kodaclaw/config/plugins/<pluginId>/
+#### 4.2 共用端点（所有类型必须）
+
+| 端点 | 说明 |
+|---|---|
+| `GET /health` | 健康检查 |
+| `GET /capabilities` | 返回插件实际支持的 capability 列表（运行时确认） |
+
+**`GET /health`**
+```json
+// 200
+{ "status": "ok" }
+// 500
+{ "status": "error", "message": "数据库连接失败" }
 ```
 
-具体选型由安装器决定，但运行时需要统一映射成插件注册记录。
+**`GET /capabilities`**
+```json
+// 200
+{
+  "types": ["channel", "tool"],
+  "channel": { "kind": "Discord", "inboundMode": "push" },
+  "tool": { "tools": ["search_messages", "list_members"] }
+}
+```
 
-## 5. Manifest 草案
+#### 4.3 Channel 能力端点（`types` 含 `channel` 时实现）
 
-示例：
+| 端点 | 必须 | 说明 |
+|---|---|---|
+| `POST /channel/start` | ✅ | 启动指定账号的连接 |
+| `POST /channel/stop` | ✅ | 停止指定账号的连接 |
+| `POST /channel/send` | ✅ | 出站消息发送 |
+| `POST /channel/test-creds` | ✅ | 凭证连通性测试 |
+| `POST /channel/register-webhook` | Webhook 模式 | 向平台注册 Webhook URL |
+
+**`POST /channel/start`**
+```json
+// Request
+{
+  "accountId": "acc-xxx",
+  "config": { "botToken": "xxx", "appId": "yyy" },
+  "hostIngestUrl": "http://localhost:5076/api/channels/plugin/ingest",
+  "webhookUrl": "http://localhost:5076/api/channels/plugin/discord/webhook"
+}
+// Response
+{ "ok": true }
+{ "ok": false, "error": "Invalid token." }
+```
+
+**`POST /channel/send`**
+```json
+// Request
+{
+  "accountId": "acc-xxx",
+  "externalThreadId": "channel-123",
+  "text": "Hello!",
+  "mediaUrl": "https://...",      // 可选
+  "replyToMessageId": "msg-id"   // 可选
+}
+// Response
+{ "ok": true, "messageId": "ext-msg-id", "sentAt": "2026-03-22T10:00:00Z" }
+{ "ok": false, "error": "..." }
+```
+
+**`POST /channel/test-creds`**
+```json
+// Request
+{ "config": { "botToken": "xxx", "appId": "yyy" } }
+// Response
+{ "ok": true }
+{ "ok": false, "error": "Invalid bot token." }
+```
+
+**入站事件推送（插件 → KodaClaw）**
+
+插件进程将入站消息 POST 到 KodaClaw：
+
+```
+POST {hostIngestUrl}
+Authorization: Bearer {KODACLAW_PLUGIN_TOKEN}
+
+{
+  "connectorKind": "Discord",
+  "accountId": "acc-xxx",
+  "eventId": "evt-unique-id",
+  "eventType": "MessageReceived",
+  "externalThreadId": "channel-id",
+  "externalMessageId": "msg-id",
+  "threadType": "DirectMessage",
+  "text": "用户发来的消息",
+  "sender": { "id": "user-123", "displayName": "Alice" },
+  "occurredAt": "2026-03-22T10:00:00Z"
+}
+```
+
+三种入站模式均归结到此推送端点：
+- **Push 模式**：插件自维护长连接，收到消息后立即 POST
+- **Webhook 模式**：平台推 Webhook 到 KodaClaw → KodaClaw 转给插件解析后 POST
+- **Poll 模式**：插件自行定时轮询平台后 POST
+
+#### 4.4 Tool 能力端点（`types` 含 `tool` 时实现）
+
+| 端点 | 必须 | 说明 |
+|---|---|---|
+| `GET /tools` | ✅ | 返回工具列表及 JSON Schema |
+| `POST /tools/{name}` | ✅ | 调用指定工具 |
+
+**`GET /tools`**
+```json
+// Response
+{
+  "tools": [
+    {
+      "name": "search_messages",
+      "description": "搜索 Discord 消息",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "limit": { "type": "integer", "default": 20 }
+        },
+        "required": ["query"]
+      }
+    }
+  ]
+}
+```
+
+**`POST /tools/{name}`**
+```json
+// Request
+{ "arguments": { "query": "部署记录", "limit": 10 } }
+// Response
+{ "ok": true, "content": "找到 3 条消息：..." }
+{ "ok": false, "error": "权限不足" }
+```
+
+工具注册到 ToolRegistry 时使用命名空间 `plugin__{pluginId}__{toolName}`，区别于 McpHub 的 `mcp__{serverName}__{toolName}`。
+
+### 5. Manifest 格式（plugin.json）
+
+#### 多类型插件示例（Discord，channel + tool）
 
 ```json
 {
-  "id": "telegram-bridge",
-  "name": "Telegram Bridge",
-  "version": "0.1.0",
+  "id": "discord-connector",
+  "name": "Discord",
+  "version": "1.0.0",
   "types": ["channel", "tool"],
   "runtime": {
-    "transport": "stdio",
     "command": "python3",
-    "args": ["main.py"],
+    "args": ["server.py"],
     "environmentReferences": {
-      "TELEGRAM_BOT_TOKEN": "keychain:plugins:telegram-bot"
+      "DISCORD_BOT_TOKEN": "keychain:plugins:discord-bot-token"
     }
   },
   "permissions": {
     "network": true,
-    "filesystem": ["workspace/channels/telegram"],
-    "notifications": true,
     "background": true,
-    "secrets": ["telegram.botToken"]
+    "secrets": ["discord.botToken"]
   },
   "capabilities": {
-    "tools": ["send_message", "list_updates"],
-    "channels": ["telegram"],
-    "uiPanels": ["telegram-settings"]
+    "channelConnector": {
+      "kind": "Discord",
+      "inboundMode": "push",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "botToken": { "type": "string", "secret": true, "label": "Bot Token" }
+        },
+        "required": ["botToken"]
+      }
+    },
+    "tools": {
+      "expose": ["search_messages", "list_members", "get_channel_info"]
+    }
+  },
+  "display": {
+    "description": "接入 Discord，同时提供消息搜索和成员查询工具",
+    "icon": "discord.png"
+  },
+  "healthcheck": {
+    "intervalSeconds": 30,
+    "timeoutSeconds": 5
   }
 }
 ```
 
-建议字段：
+#### 纯工具插件示例（需要 Keychain 治理的工具）
 
-- `id`
-- `name`
-- `version`
-- `types`
-- `runtime`
-- `permissions`
-- `capabilities`
-- `display`
-- `healthcheck`
-- `configSchema`
-
-其中 `runtime` 在 Iteration 7 Wave 2 之后支持两类并存输入：
-
-- `environment` / `headers`：保留现有 literal 配置，主要用于兼容旧插件或 fixture
-- `environmentReferences` / `headerReferences`：推荐的新入口，值可写 `SecretRef`，也允许迁移期的 `env:` / `inline:` / `value:` 兼容引用；宿主只在运行时解析，不把 resolved secret 回写到 manifest、SQLite 或插件目录
-
-## 6. 插件生命周期
-
-```mermaid
-stateDiagram-v2
-    [*] --> Discovered
-    Discovered --> Installed
-    Installed --> Trusted
-    Trusted --> Enabled
-    Enabled --> Running
-    Running --> Degraded
-    Degraded --> Running
-    Running --> Stopped
-    Enabled --> Disabled
-    Disabled --> Enabled
+```json
+{
+  "id": "github-tools",
+  "name": "GitHub 工具集",
+  "version": "1.0.0",
+  "types": ["tool"],
+  "runtime": {
+    "command": "node",
+    "args": ["dist/server.js"],
+    "environmentReferences": {
+      "GITHUB_TOKEN": "keychain:plugins:github-pat"
+    }
+  },
+  "permissions": {
+    "network": true,
+    "background": false,
+    "secrets": ["github.pat"]
+  },
+  "capabilities": {
+    "tools": {
+      "expose": ["list_prs", "create_issue", "get_repo_info"]
+    }
+  }
+}
 ```
 
-生命周期定义：
+> **何时选 PluginHost tool 插件，何时选 workspace/mcp.json？**
+>
+> - 工具需要 Keychain 保护的 secrets → PluginHost
+> - 工具需要信任审批（企业内部工具） → PluginHost
+> - 工具与 channel 能力打包分发 → PluginHost
+> - 社区 MCP server（直接用 npx/python 启动）→ workspace/mcp.json
 
-- `Discovered`：被宿主发现
-- `Installed`：文件已落地、manifest 通过基本校验
-- `Trusted`：用户已授权该插件可被启动
-- `Enabled`：用户启用，但未必已运行
-- `Running`：插件进程或 endpoint 可用
-- `Degraded`：健康检查失败，但未彻底移除
-- `Disabled`：用户手动停用
-- `Stopped`：运行被停止
+#### 完整 manifest 字段
 
-## 7. 权限模型
+| 字段 | 必须 | 说明 |
+|---|---|---|
+| `id` | ✅ | 全局唯一，kebab-case |
+| `name` | ✅ | 显示名称 |
+| `version` | ✅ | semver |
+| `types` | ✅ | `["channel"]` / `["tool"]` / `["channel","tool"]` 等 |
+| `runtime.command` | ✅ | 可执行文件 |
+| `runtime.args` | 可选 | 命令行参数 |
+| `runtime.environment` | 可选 | 明文环境变量（兼容旧格式） |
+| `runtime.environmentReferences` | 可选 | Keychain 引用（推荐） |
+| `capabilities.channelConnector` | channel 类型必须 | 渠道连接器配置 |
+| `capabilities.tools` | tool 类型必须 | 声明暴露的工具名称列表 |
+| `permissions` | ✅ | 权限声明 |
+| `display` | 可选 | 描述、图标 |
+| `healthcheck` | 建议 | 健康检查间隔与超时 |
 
-插件需要显式声明权限。建议权限类别：
+### 6. PluginHost 内部架构
 
-- `filesystem`
-- `network`
-- `notifications`
-- `background`
-- `channels`
-- `uiPanels`
-- `secrets`
+```
+PluginLifecycleHost
+  ├── 进程管理           System.Diagnostics.Process
+  ├── HTTP 通信          PluginHttpAdapter（HttpClient）
+  │   ├── ChannelAdapter   /channel/* 端点
+  │   └── ToolAdapter      /tools/* 端点
+  ├── 注册表             SqlitePluginRegistryRepository
+  ├── 日志               SqlitePluginLogRepository
+  ├── 向 ChannelHub 注册  PluginChannelConnector（IChannelConnector）
+  └── 向 ToolRegistry 注入  plugin__{id}__{name} 命名空间工具
+```
 
-宿主的责任：
+### 7. 插件生命周期
 
-- 首次安装时展示权限说明
-- 对高风险权限要求额外确认
-- 对 secrets 采用 keychain 注入，而不是写入插件文件夹
-- 优先通过 `runtime.environmentReferences` / `runtime.headerReferences` 解析插件 secrets，并将 resolved 值只保留在进程启动时的内存配置中
-- 在 UI 中持续展示插件拥有的权限
+```
+Discovered → Installed → Trusted → Enabled → Running ⇌ Degraded
+                                            ↓
+                                          Stopped
+```
 
-## 8. 与 Runtime 的关系
+| 状态 | 说明 |
+|---|---|
+| `Discovered` | 目录扫描发现 plugin.json |
+| `Installed` | manifest 通过校验，写入注册表 |
+| `Trusted` | 用户在 UI 确认权限声明 |
+| `Enabled` | 用户启用 |
+| `Running` | 进程启动，`GET /health` 返回 ok |
+| `Degraded` | 健康检查失败，自动重试中 |
+| `Stopped` | 进程退出或用户手动停止 |
 
-插件工具不会直接注入 SDK，而是先经过 PluginHost：
+### 8. 权限模型
 
-1. PluginHost 发现并启动插件
-2. 若插件提供 MCP endpoint，则注册到 MCP 管理器
-3. Runtime 启动 session 时，由 Gateway 根据策略把可用插件工具加入工具视图
-4. tool timeline 中保留插件来源信息
+| 权限 | 说明 |
+|---|---|
+| `network` | 出站 HTTP/WebSocket |
+| `background` | 常驻后台进程 |
+| `filesystem` | 访问指定 workspace 目录 |
+| `notifications` | 写入 Inbox |
+| `secrets` | 声明需要哪些 Keychain secret |
 
-## 9. UI 扩展点
+Secrets 仅在进程启动时通过环境变量注入内存，不落文件。
 
-插件除了工具，还可以向 Canvas / 控制台注入 UI：
+### 9. ConnectorKind 动态注册
 
-- 设置页
-- 状态页
-- 嵌入式面板
-- 认证流程页
+- 内置渠道（Telegram/飞书/Webhook）保留 enum 值，走原有 `IChannelConnector` 实现
+- 插件渠道在 PluginHost 启动时向 ChannelHub 注册 `PluginChannelConnector`
+- `connectorKind` 在 SQLite 存为字符串，向后兼容
+- ChannelsDesk 统一展示内置和插件渠道
 
-但 UI 扩展必须满足：
+### 10. 失败与恢复
 
-- 运行在受限的容器或 iframe 环境
-- 只能通过受控 bridge 与 Gateway 通信
-- 不直接拿到全局 token
+- 独立日志（SQLite，PluginsDesk 可查）
+- 健康检查连续失败 → 自动重启，超限 → `Degraded` + Inbox 告警
+- Process.Exited 事件监听，进程意外退出自动触发重启
+- 单插件崩溃不影响其他插件和主 session
 
-## 10. 安装来源
+---
 
-初期只支持两类：
+## Part 2：McpHub — MCP 生态接入
 
-- 本地目录安装
-- Bundled plugins
+> 详见 `docs/MCP_HUB_SPEC.md`
 
-后期再考虑：
+McpHub（`KodaClaw.McpHub`）是独立模块，专门负责将 MCP 生态的工具接入 KodaClaw session：
 
-- 远程仓库安装
-- 签名校验
-- 版本回滚
+- 读取 `~/.kodaclaw/workspace/mcp.json`（Claude Desktop 兼容格式）
+- 工具命名空间：`mcp__{serverName}__{toolName}`
+- 支持 stdio / http / streamableHttp / sse
+- 单 server 错误隔离，不依赖 PluginHost
 
-## 11. 失败与恢复策略
+---
 
-KodaClaw 不应因为一个插件崩掉而拖垮整个宿主。建议：
+## 11. 两个来源的工具在 session 中共存
 
-- 每个插件有独立日志
-- 有健康检查与自动重启上限
-- 失败记录写入 Inbox / Diagnostics
-- 重复失败时自动标记为 `Degraded`
+session 启动后，ToolRegistry 中可能同时存在：
 
-## 12. 首期范围
+```
+内置工具         fs_read, fs_write, bash_run, ...
+plugin__ 工具    plugin__discord-connector__search_messages
+                 plugin__github-tools__list_prs
+mcp__ 工具       mcp__filesystem__read_file
+                 mcp__postgres__query
+```
 
-首期插件系统只需要做到：
+Agent 可以调用任意工具，来源对 Agent 透明，在 diagnostics 中可追溯。
 
-- 本地插件发现
-- manifest 校验
-- 启停与状态显示
-- MCP tool 接入
-- 基础权限提示
-- 插件日志查看
+---
 
-Iteration 4 v1 范围进一步冻结为：
+## 12. 当前实现状态
 
-- 只有 `tool` 插件要求跑通完整 host -> runtime -> web -> acceptance 链路
-- `channel` / `memory` / `ui` 类型在本期只要求 manifest 可识别、registry / Web 可展示
-- 首期验收只强制 `stdio` transport；HTTP 相关 transport 留作后续扩展
-- 安装来源只包含 bundled plugins 与本地目录安装
+| 功能 | 状态 |
+|---|---|
+| tool 插件（旧 MCP 路径）安装/信任/启停/日志 | ✅ 已实现（Iter 4，保留兼容） |
+| workspace/mcp.json 工具接入（McpHub 前身） | ✅ 已实现（Iter 37，在 Runtime 层） |
+| PluginHost HTTP 协议：channel 适配层 | ⏳ 待实现 |
+| PluginHost HTTP 协议：tool 适配层 | ⏳ 待实现 |
+| channel 插件 manifest 解析与注册 | ⏳ 待实现 |
+| `PluginChannelConnector` 适配器 | ⏳ 待实现 |
+| ConnectorKind 动态注册 | ⏳ 待实现 |
+| McpHub 独立模块提取 | ⏳ 待实现 |
+| McpServersDesk 前端 UI | ⏳ 待实现 |
+| `enabled` 字段支持 | ⏳ 待实现 |
+| memory / ui 插件类型 | 🔮 未来规划 |
 
-暂不要求：
-
-- 远程市场
-- 签名链路
-- 热升级回滚
-- 复杂 UI 扩展沙箱
+---
 
 ## 13. 结论
 
-对 KodaClaw 而言，插件系统不只是“加工具”，而是产品级扩展总线。先把它统一为 MCP-first，能够以最小成本获得最好的扩展边界。
+KodaClaw 的扩展体系由两个职责互补的独立模块构成：
+
+- **PluginHost**：受管插件容器，自有 HTTP 协议，支持 channel / tool / memory / ui 多类型，核心价值是治理（信任、Keychain、日志、重启）
+- **McpHub**：MCP 生态直连，拥抱社区资源，零治理开销，适合快速接入现有 server
+
+选择原则：需要治理 → PluginHost；快速接入社区资源 → McpHub。

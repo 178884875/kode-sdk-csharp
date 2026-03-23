@@ -58,7 +58,8 @@ public static partial class GatewayApp
                         SessionKind: session.SessionKind,
                         Status: session.Status,
                         CreatedAt: session.CreatedAt,
-                        LastEventAt: session.LastEventAt))
+                        LastEventAt: session.LastEventAt,
+                        Title: session.Title))
                     .ToArray()));
         });
 
@@ -153,6 +154,56 @@ public static partial class GatewayApp
                 level: "info",
                 message: "Main session resumed.",
                 attributes: new Dictionary<string, string?> { ["resumedSessionId"] = id });
+
+            return Results.Ok(response);
+        });
+
+        sessions.MapGet("/{id}/messages", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] int? limit,
+            [FromQuery] int? skip,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to session messages endpoint.");
+                return Results.Unauthorized();
+            }
+
+            await workspaceService.EnsureInitializedAsync(cancellationToken);
+            var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+
+            var session = await LoadSessionDetailAsync(
+                workspaceService.RootPath,
+                id,
+                appConfig.ActiveMainSessionId,
+                cancellationToken);
+
+            if (session is null)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "session.not_found",
+                    Message: "Session was not found."));
+            }
+
+            var pageLimit = limit.HasValue ? Math.Clamp(limit.Value, 1, 100) : 20;
+            var pageSkip = skip.HasValue ? Math.Max(skip.Value, 0) : 0;
+            var response = await LoadSessionMessagesAsync(
+                workspaceService.RootPath,
+                id,
+                pageLimit,
+                pageSkip,
+                cancellationToken);
 
             return Results.Ok(response);
         });

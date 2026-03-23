@@ -135,6 +135,7 @@ const defaultSettings = {
   quietHoursEndLocalTime: null,
   updatedAt: "2026-03-18T10:00:00Z",
   automationsEnabled: true,
+  autoApproveToolCalls: false,
 };
 
 describe("AutomationsDesk", () => {

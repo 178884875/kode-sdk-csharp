@@ -72,6 +72,9 @@ import {
   type PersonaPreset,
   type OnboardingState,
   type ApplyPersonaRequest,
+  type WorkspaceMcpConfig,
+  type McpConnectionTestResult,
+  type SessionMessagesResponse,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
@@ -634,6 +637,18 @@ export async function resumeSession(id: string, signal?: AbortSignal): Promise<R
   });
 }
 
+export async function fetchSessionMessages(
+  id: string,
+  limit = 20,
+  skip = 0,
+  signal?: AbortSignal,
+): Promise<SessionMessagesResponse> {
+  return requestJson<SessionMessagesResponse>(
+    `/api/sessions/${id}/messages${buildQueryString({ limit, skip })}`,
+    { headers: buildHeaders(), signal },
+  );
+}
+
 export async function fetchDiagnosticsRecent(
   query?: {
     limit?: number;
@@ -1052,6 +1067,11 @@ function toChatStreamEvent(frame: ParsedSseFrame, request: ChatStreamRequest): C
     delta: payload.delta ?? null,
     reason: payload.reason ?? null,
     error: payload.error ?? null,
+    approvalId: payload.approvalId ?? null,
+    callId: payload.callId ?? null,
+    toolName: payload.toolName ?? null,
+    inputPreview: payload.inputPreview ?? null,
+    decision: payload.decision ?? null,
   };
 }
 
@@ -1103,4 +1123,40 @@ export async function* streamChatEvents(
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function fetchMcpServers(): Promise<WorkspaceMcpConfig> {
+  const response = await fetch(resolveGatewayPath("/api/mcp-servers"), {
+    headers: buildHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch MCP servers: ${await readErrorDetail(response)}`);
+  }
+  return readJson<WorkspaceMcpConfig>(response);
+}
+
+export async function saveMcpServers(config: WorkspaceMcpConfig): Promise<WorkspaceMcpConfig> {
+  const response = await fetch(resolveGatewayPath("/api/mcp-servers"), {
+    method: "PUT",
+    headers: buildHeaders(true),
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to save MCP servers: ${await readErrorDetail(response)}`);
+  }
+  return readJson<WorkspaceMcpConfig>(response);
+}
+
+export async function testMcpServerConnection(name: string): Promise<McpConnectionTestResult> {
+  const response = await fetch(
+    resolveGatewayPath(`/api/mcp-servers/${encodeURIComponent(name)}/test-connection`),
+    {
+      method: "POST",
+      headers: buildHeaders(),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to test MCP server: ${await readErrorDetail(response)}`);
+  }
+  return readJson<McpConnectionTestResult>(response);
 }

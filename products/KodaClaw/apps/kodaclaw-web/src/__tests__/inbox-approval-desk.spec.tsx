@@ -92,12 +92,15 @@ describe("InboxApprovalDesk", () => {
     });
 
     expect(screen.getByTestId("inbox-list")).toBeInTheDocument();
-    expect(screen.getByTestId("approval-list")).toBeInTheDocument();
     expect(screen.getByTestId("inbox-refresh")).toBeInTheDocument();
-    expect(screen.getAllByTestId("approval-approve")[0]).toBeInTheDocument();
-    expect(screen.getAllByTestId("approval-reject")[0]).toBeInTheDocument();
     expect(screen.getByTestId("inbox-item-inbox-001")).toHaveTextContent("Outbound approval");
-    expect(screen.getByTestId("approval-item-approval-001")).toHaveTextContent("Send channel message");
+
+    // Auto-selects first item; linked pending approval renders approve/reject in detail pane
+    await waitFor(() => {
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("Send channel message");
+    });
+    expect(screen.getByTestId("approval-approve")).toBeInTheDocument();
+    expect(screen.getByTestId("approval-reject")).toBeInTheDocument();
   });
 
   it("supports approval decisions and inbox status updates", async () => {
@@ -172,17 +175,16 @@ describe("InboxApprovalDesk", () => {
 
     const user = userEvent.setup();
 
+    // Auto-selects inbox-002; linked approval section appears in detail pane
     await waitFor(() => {
-      expect(screen.getByTestId("approval-item-approval-002")).toHaveTextContent("Call risky tool");
+      expect(screen.getByTestId("approval-note-approval-002")).toBeInTheDocument();
     });
 
     await user.type(screen.getByTestId("approval-note-approval-002"), "ship it");
-    await user.click(screen.getAllByTestId("approval-approve")[0]);
+    await user.click(screen.getByTestId("approval-approve"));
 
     await waitFor(() => {
-      expect(
-        within(screen.getByTestId("approval-item-approval-002")).getByText("已批准"),
-      ).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("已批准");
     });
 
     expect(decisionPayloads).toEqual([{ note: "ship it" }]);
@@ -195,7 +197,7 @@ describe("InboxApprovalDesk", () => {
     });
   });
 
-  it("keeps linked inbox and approval detail panes in sync with selection", async () => {
+  it("keeps inbox detail in sync with selected item and shows linked approval info", async () => {
     vi.mocked(fetch).mockImplementation(async (input) => {
       const url = resolveRequestUrl(input);
 
@@ -269,17 +271,18 @@ describe("InboxApprovalDesk", () => {
 
     const user = userEvent.setup();
 
+    // Auto-selects first item; detail shows inbox title and linked approval title
     await waitFor(() => {
       expect(screen.getByTestId("inbox-detail")).toHaveTextContent("First inbox");
-      expect(screen.getByTestId("approval-detail")).toHaveTextContent("First approval");
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("First approval");
     });
 
-    await user.click(screen.getByTestId("approval-item-approval-011"));
+    await user.click(screen.getByTestId("inbox-item-inbox-011"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("approval-detail")).toHaveTextContent("Second approval");
-      expect(screen.getByTestId("approval-detail")).toHaveTextContent("session-011");
       expect(screen.getByTestId("inbox-detail")).toHaveTextContent("Second inbox");
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("Second approval");
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("session-011");
     });
   });
 
@@ -307,7 +310,7 @@ describe("InboxApprovalDesk", () => {
     expect(screen.getByText("inbox unavailable")).toBeInTheDocument();
   });
 
-  it("renders channel delivery payload context in inbox and approval focus", async () => {
+  it("renders channel delivery payload context in inbox detail", async () => {
     const payloadJson = JSON.stringify({
       draftId: "draft-chan-001",
       bindingId: "binding-chan-001",
@@ -365,20 +368,21 @@ describe("InboxApprovalDesk", () => {
 
     renderWithI18n(<InboxApprovalDesk />);
 
+    // Auto-selects the item; inbox-detail shows delivery context + linked approval title
     await waitFor(() => {
-      expect(screen.getByTestId("approval-detail")).toHaveTextContent("Approve channel delivery");
+      expect(screen.getByTestId("inbox-detail")).toHaveTextContent("Channel draft pending");
     });
 
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("渠道投递上下文");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("Telegram");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("telegram-main");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("binding-chan-001");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("draft-chan-001");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("Thanks, I have a draft reply ready.");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("/api/channels/threads/binding-chan-001");
-    expect(screen.getByTestId("approval-detail")).toHaveTextContent("/api/channels/threads/binding-chan-001/audit?limit=20");
-
-    expect(screen.getByTestId("inbox-detail")).toHaveTextContent("渠道投递上下文");
-    expect(screen.getByTestId("inbox-detail")).toHaveTextContent("10001");
+    const detail = screen.getByTestId("inbox-detail");
+    expect(within(detail).getByText("渠道投递上下文")).toBeInTheDocument();
+    expect(detail).toHaveTextContent("Telegram");
+    expect(detail).toHaveTextContent("telegram-main");
+    expect(detail).toHaveTextContent("binding-chan-001");
+    expect(detail).toHaveTextContent("draft-chan-001");
+    expect(detail).toHaveTextContent("10001");
+    expect(detail).toHaveTextContent("Thanks, I have a draft reply ready.");
+    expect(detail).toHaveTextContent("/api/channels/threads/binding-chan-001");
+    expect(detail).toHaveTextContent("/api/channels/threads/binding-chan-001/audit?limit=20");
+    expect(detail).toHaveTextContent("Approve channel delivery");
   });
 });

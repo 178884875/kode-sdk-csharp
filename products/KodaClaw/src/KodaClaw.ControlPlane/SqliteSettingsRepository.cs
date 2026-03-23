@@ -34,7 +34,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_start,
                 quiet_hours_end,
                 updated_at,
-                automations_enabled
+                automations_enabled,
+                auto_approve_tool_calls
             FROM app_settings
             WHERE id = $id
             LIMIT 1;
@@ -69,7 +70,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_start,
                 quiet_hours_end,
                 updated_at,
-                automations_enabled
+                automations_enabled,
+                auto_approve_tool_calls
             )
             VALUES (
                 $id,
@@ -81,7 +83,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 $quietHoursStart,
                 $quietHoursEnd,
                 $updatedAt,
-                $automationsEnabled
+                $automationsEnabled,
+                $autoApproveToolCalls
             )
             ON CONFLICT(id) DO UPDATE SET
                 default_landing_route = excluded.default_landing_route,
@@ -92,7 +95,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_start = excluded.quiet_hours_start,
                 quiet_hours_end = excluded.quiet_hours_end,
                 updated_at = excluded.updated_at,
-                automations_enabled = excluded.automations_enabled;
+                automations_enabled = excluded.automations_enabled,
+                auto_approve_tool_calls = excluded.auto_approve_tool_calls;
             """;
 
         BindParameters(command, settings);
@@ -172,6 +176,19 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 // Column already exists — idempotent migration.
             }
 
+            // Migration: add auto_approve_tool_calls column if not present (introduced in KC-3906).
+            await using var migrateCommand2 = connection.CreateCommand();
+            migrateCommand2.CommandText =
+                "ALTER TABLE app_settings ADD COLUMN auto_approve_tool_calls INTEGER NOT NULL DEFAULT 0;";
+            try
+            {
+                await migrateCommand2.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
             _databasePath = databasePath;
             _initialized = true;
             return databasePath;
@@ -194,6 +211,7 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
         command.Parameters.AddWithValue("$quietHoursEnd", (object?)NormalizeQuietHours(settings.QuietHoursEndLocalTime) ?? DBNull.Value);
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(settings.UpdatedAt));
         command.Parameters.AddWithValue("$automationsEnabled", settings.AutomationsEnabled ? 1 : 0);
+        command.Parameters.AddWithValue("$autoApproveToolCalls", settings.AutoApproveToolCalls ? 1 : 0);
     }
 
     private static KodaClawSettings MapSettings(SqliteDataReader reader)
@@ -207,7 +225,8 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
             QuietHoursStartLocalTime: reader.IsDBNull(5) ? null : reader.GetString(5),
             QuietHoursEndLocalTime: reader.IsDBNull(6) ? null : reader.GetString(6),
             UpdatedAt: ParseTimestamp(reader.GetString(7)),
-            AutomationsEnabled: reader.GetInt64(8) != 0);
+            AutomationsEnabled: reader.GetInt64(8) != 0,
+            AutoApproveToolCalls: reader.GetInt64(9) != 0);
     }
 
     private static void Validate(KodaClawSettings settings)

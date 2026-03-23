@@ -204,7 +204,7 @@ export function UpdatesSection() {
           </p>
         </div>
         <button
-          className="secondary-button"
+          className="btn btn--secondary"
           type="button"
           data-testid="settings-update-check"
           onClick={() => void refreshUpdateState()}
@@ -291,7 +291,7 @@ export function UpdatesSection() {
                   <div className="update-watch__actions">
                     {component.releaseNotesUrl ? (
                       <button
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         type="button"
                         onClick={() => openExternalUrl(component.releaseNotesUrl!)}
                       >
@@ -300,7 +300,7 @@ export function UpdatesSection() {
                     ) : null}
                     {component.downloadUrl && component.updateAvailability === "UpdateAvailable" ? (
                       <button
-                        className="bootstrap-form__submit"
+                        className="btn btn--primary"
                         type="button"
                         onClick={() => openExternalUrl(component.downloadUrl!)}
                       >

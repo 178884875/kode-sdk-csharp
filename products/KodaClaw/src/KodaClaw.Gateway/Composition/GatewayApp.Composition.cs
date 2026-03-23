@@ -5,6 +5,7 @@ using KodaClaw.ControlPlane;
 using KodaClaw.Gateway.Channels;
 using KodaClaw.Gateway;
 using KodaClaw.Gateway.Plugins;
+using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using KodaClaw.PluginHost;
 using KodaClaw.Runtime;
@@ -67,6 +68,7 @@ public static partial class GatewayApp
         builder.Services.AddKodaClawChannelHub();
         builder.Services.AddModelRegistry();
         builder.Services.AddKodaClawStorage();
+        builder.Services.AddKodaClawMcpHub();
         builder.Services.AddKodaClawPluginHost();
         builder.Services.AddSingleton<IPluginGatewayService, PluginGatewayService>();
         builder.Services.AddSingleton<IRuntimeConfigurationResolver, GatewayRuntimeConfigurationResolver>();
@@ -120,6 +122,7 @@ public static partial class GatewayApp
         MapInboxEndpoints(app);
         MapChannelEndpoints(app);
         MapWorkspaceEndpoints(app);
+        MapMcpServersEndpoints(app);
         MapMediaEndpoints(app);
         MapRootEndpoint(app);
     }

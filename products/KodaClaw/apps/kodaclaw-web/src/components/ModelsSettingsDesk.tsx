@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
-import { Cpu } from "lucide-react";
+import { Cpu, Plus } from "lucide-react";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
@@ -20,6 +20,9 @@ import type {
   ModelProviderKind,
   UpdateModelEndpointRequest,
 } from "../types/contracts";
+import { Modal } from "./ui/Modal";
+import { ConfirmModal } from "./ui/ConfirmModal";
+import "./ui/Modal.css";
 import "./ControlPlaneDesk.css";
 
 // ModelCapabilitySet bitmask constants (mirrors C# enum)
@@ -30,6 +33,14 @@ const CAP_IMAGE_GENERATION = 1 << 3; // 8
 const CAP_TTS              = 1 << 4; // 16
 const CAP_STT              = 1 << 5; // 32
 const CAP_EMBEDDINGS       = 1 << 6; // 64
+
+const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ModelProviderKind, string>> = {
+  OpenAI: 'https://api.openai.com/v1',
+  Anthropic: 'https://api.anthropic.com',
+};
+const KNOWN_DEFAULT_URLS = new Set(
+  Object.values(PROVIDER_DEFAULT_BASE_URLS).filter(Boolean) as string[]
+);
 
 type ModelDraft = {
   displayName: string;
@@ -46,7 +57,7 @@ const DEFAULT_MODEL_DRAFT: ModelDraft = {
   displayName: "",
   provider: "OpenAI",
   modelId: "",
-  baseUrl: "",
+  baseUrl: PROVIDER_DEFAULT_BASE_URLS["OpenAI"] ?? "",
   apiKeyEnvironmentVariable: "",
   apiKeyValue: "",
   enabled: true,
@@ -173,6 +184,15 @@ export function ModelsSettingsDesk() {
         create: "创建模型端点",
         save: "保存端点修改",
         reset: "重置编辑器",
+        presetSection: "从预设选择（可选）",
+        presetPlaceholder: "选择预设模型",
+        baseUrlRequired: "Base URL（必填）",
+        testConnection: "测试连接",
+        testingConnection: "测试中…",
+        cancel: "取消",
+        replaceKey: "重新输入",
+        connectionOk: "连接成功",
+        connectionFail: "连接失败",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -254,6 +274,15 @@ export function ModelsSettingsDesk() {
         create: "Create model endpoint",
         save: "Save endpoint edits",
         reset: "Reset composer",
+        presetSection: "Quick-start from preset (optional)",
+        presetPlaceholder: "Choose a preset model",
+        baseUrlRequired: "Base URL (required)",
+        testConnection: "Test connection",
+        testingConnection: "Testing...",
+        cancel: "Cancel",
+        replaceKey: "Replace",
+        connectionOk: "Connected",
+        connectionFail: "Failed",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -271,10 +300,11 @@ export function ModelsSettingsDesk() {
   const [isMutating, setIsMutating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [endpointModalOpen, setEndpointModalOpen] = useState(false);
 
   // Preset selector state
   const [presets, setPresets] = useState<ModelPreset[]>([]);
-  const [selectedPresetProvider, setSelectedPresetProvider] = useState<string>('');
   const [selectedPresetForFill, setSelectedPresetForFill] = useState<ModelPreset | null>(null);
   const [testResult, setTestResult] = useState<ModelConnectionTestResponse | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
@@ -353,6 +383,7 @@ export function ModelsSettingsDesk() {
       setSelectedModelId(created.id);
       setModelDraft(toDraft(created));
       setNote(text.notes.modelCreated);
+      setEndpointModalOpen(false);
     } catch (nextError) {
       const detail = nextError instanceof Error ? nextError.message : text.errors.createModel;
       setError(detail);
@@ -375,6 +406,7 @@ export function ModelsSettingsDesk() {
       setModels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
       setModelDraft(toDraft(updated));
       setNote(text.notes.modelUpdated);
+      setEndpointModalOpen(false);
     } catch (nextError) {
       const detail = nextError instanceof Error ? nextError.message : text.errors.updateModel;
       setError(detail);
@@ -453,7 +485,7 @@ export function ModelsSettingsDesk() {
 
       <div className="control-plane-toolbar">
         <button
-          className="secondary-button"
+          className="btn btn--secondary"
           type="button"
           data-testid="models-settings-refresh"
           onClick={() => void refreshDesk()}
@@ -474,20 +506,41 @@ export function ModelsSettingsDesk() {
         </p>
       ) : null}
 
-      <div className="control-plane-pane-shell">
-        <div className="control-plane-pane-rail control-plane-stack">
-          <section className="timeline" data-testid="models-list">
+      <section className="timeline" data-testid="models-list">
             <div className="timeline__header">
               <div>
                 <h3 className="desk-section-title">{text.sections.modelRegistryTitle}</h3>
                 <p className="desk-section-desc">{text.stageNav.modelSummary}</p>
               </div>
-              <span className="composer__status">{isLoading ? text.common.loading : models.length}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                <span className="composer__status">{isLoading ? text.common.loading : models.length}</span>
+                <button
+                  className="btn btn--primary"
+                  type="button"
+                  data-testid="model-create"
+                  onClick={() => { resetModelComposer(); setEndpointModalOpen(true); }}
+                  disabled={isLoading}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
+                >
+                  <Plus size={14} strokeWidth={2.5} />
+                  {text.sections.modelComposerCreate}
+                </button>
+              </div>
             </div>
             <div className="timeline__body">
               {isLoading ? <Skeleton height={40} count={4} /> : null}
               {!isLoading && models.length === 0 ? (
-                <EmptyState icon={<Cpu size={28} strokeWidth={1.5} />} title={text.sections.modelRegistryEmpty} />
+                <EmptyState icon={<Cpu size={28} strokeWidth={1.5} />} title={text.sections.modelRegistryEmpty}>
+                  <button
+                    className="btn btn--primary"
+                    type="button"
+                    onClick={() => { resetModelComposer(); setEndpointModalOpen(true); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
+                  >
+                    <Plus size={14} strokeWidth={2.5} />
+                    {text.sections.modelComposerCreate}
+                  </button>
+                </EmptyState>
               ) : null}
               <ul className="control-plane-list control-plane-session-list">
                 {models.map((item) => {
@@ -513,15 +566,15 @@ export function ModelsSettingsDesk() {
                         </div>
                         <div className="control-plane-item-actions">
                           <button
-                            className="secondary-button"
+                            className="btn btn--secondary"
                             type="button"
-                            onClick={() => handleSelectModel(item)}
+                            onClick={() => { handleSelectModel(item); setEndpointModalOpen(true); }}
                             disabled={isMutating}
                           >
                             {text.modelList.edit}
                           </button>
                           <button
-                            className="secondary-button"
+                            className="btn btn--secondary"
                             type="button"
                             data-testid="model-default"
                             onClick={() => void handleSetDefault(item.id)}
@@ -530,10 +583,10 @@ export function ModelsSettingsDesk() {
                             {text.modelList.setDefault}
                           </button>
                           <button
-                            className="secondary-button"
+                            className="btn btn--danger"
                             type="button"
                             data-testid={`model-delete-${item.id}`}
-                            onClick={() => void handleDeleteModel(item.id)}
+                            onClick={() => setDeleteConfirm({ id: item.id, name: item.displayName })}
                             disabled={isMutating}
                           >
                             {text.modelList.delete}
@@ -545,137 +598,85 @@ export function ModelsSettingsDesk() {
                 })}
               </ul>
             </div>
-          </section>
+      </section>
 
-        </div>
-
-        <div className="control-plane-pane-stage control-plane-stack">
-          <section
-            className="status-card status-card--normal control-plane-stage-hero"
-            data-testid="model-create"
-          >
-            <div data-testid="model-detail" className="control-plane-stack">
-              <div className="control-plane-stage-hero__header">
-                <div>
-                  <h3 className="desk-section-title">
-                    {selectedModel ? selectedModel.displayName : text.sections.modelComposerCreate}
-                  </h3>
-                  <p className="desk-section-desc">
-                    {selectedModel
-                      ? `${text.providerLabels[selectedModel.provider]} · ${selectedModel.modelId}`
-                      : text.detail.createHint}
-                  </p>
-                </div>
-                <div className="control-plane-chip-row">
-                  {selectedModel?.isDefault ? (
-                    <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
-                  ) : null}
-                  <span className="control-plane-chip">
-                    {selectedModel?.enabled ? text.detail.enabled : text.detail.disabled}
-                  </span>
-                </div>
-              </div>
-
-              {selectedModel ? (
-                <div className="control-plane-summary-grid">
-                  <div className="metric-item">
-                    <span className="metric-label">{text.detail.providerModel}</span>
-                    <span className="metric-value">
-                      {text.providerLabels[selectedModel.provider]} · {selectedModel.modelId}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.detail.lastUpdated}</span>
-                    <span className="metric-value">{formatTimestamp(selectedModel.updatedAt)}</span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.composer.baseUrl}</span>
-                    <span className="metric-value metric-value--path">
-                      {selectedModel.baseUrl ?? text.common.none}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.composer.apiKeyEnv}</span>
-                    <span className="metric-value metric-value--path">
-                      {selectedModel.apiKeyEnvironmentVariable ?? text.common.none}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.detail.endpointState}</span>
-                    <span className="metric-value">
-                      {selectedModel.enabled ? text.detail.enabled : text.detail.disabled}
-                    </span>
-                  </div>
-                  <div className="metric-item">
-                    <span className="metric-label">{text.detail.capabilities}</span>
-                    <span className="metric-value">
-                      {[
-                        selectedModel.capabilities & CAP_TEXT_CHAT ? text.composer.capTextChat : null,
-                        selectedModel.capabilities & CAP_TOOL_CALLING ? text.composer.capToolCalling : null,
-                        selectedModel.capabilities & CAP_VISION ? text.composer.capVision : null,
-                        selectedModel.capabilities & CAP_IMAGE_GENERATION ? text.composer.capImageGeneration : null,
-                        selectedModel.capabilities & CAP_TTS ? text.composer.capTts : null,
-                        selectedModel.capabilities & CAP_STT ? text.composer.capStt : null,
-                        selectedModel.capabilities & CAP_EMBEDDINGS ? text.composer.capEmbeddings : null,
-                      ].filter(Boolean).join(", ") || text.common.none}
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            <form className="bootstrap-form" onSubmit={handleCreateModel}>
+      <Modal
+        open={endpointModalOpen}
+        title={selectedModelId
+          ? `${text.modelList.edit}${selectedModel?.displayName ? ` · ${selectedModel.displayName}` : ''}`
+          : text.sections.modelComposerCreate}
+        onClose={() => { setEndpointModalOpen(false); setTestResult(null); setSelectedPresetForFill(null); }}
+        width={560}
+        footer={
+          <>
+            <button type="button" className="btn btn--ghost" onClick={() => { setEndpointModalOpen(false); setTestResult(null); setSelectedPresetForFill(null); }} disabled={isMutating}>
+              {text.composer.cancel}
+            </button>
+            {selectedModelId ? (
+              <button
+                type="button"
+                className="btn btn--primary"
+                data-testid="model-update-submit"
+                onClick={() => void handleUpdateModel()}
+                disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
+              >
+                {isMutating ? (text.common.loading) : text.composer.save}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                form="model-endpoint-form"
+                className="btn btn--primary"
+                data-testid="model-create-submit"
+                disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
+              >
+                {isMutating ? (text.common.loading) : text.composer.create}
+              </button>
+            )}
+          </>
+        }
+      >
+        <div data-testid="model-detail">
+            <form id="model-endpoint-form" className="bootstrap-form" onSubmit={handleCreateModel}>
             <div className="bootstrap-form__field">
-              <span className="bootstrap-form__label">从预设选择（可选）</span>
+              <span className="bootstrap-form__label">{text.composer.presetSection}</span>
               <select
-                data-testid="preset-provider-select"
-                className="bootstrap-form__textarea control-plane-select"
-                value={selectedPresetProvider}
+                data-testid="preset-model-select"
+                className="kc-select"
+                value={selectedPresetForFill?.presetId ?? ''}
                 onChange={e => {
-                  setSelectedPresetProvider(e.target.value);
-                  setSelectedPresetForFill(null);
+                  const preset = presets.find(p => p.presetId === e.target.value);
+                  if (preset) {
+                    setSelectedPresetForFill(preset);
+                    setModelDraft(current => ({
+                      ...current,
+                      displayName: current.displayName || preset.displayName,
+                      provider: preset.provider as ModelProviderKind,
+                      modelId: preset.modelId,
+                      baseUrl: preset.baseUrl ?? PROVIDER_DEFAULT_BASE_URLS[preset.provider as ModelProviderKind] ?? '',
+                      capabilities: preset.defaultCapabilities,
+                    }));
+                    setTestResult(null);
+                  } else {
+                    setSelectedPresetForFill(null);
+                  }
                 }}
               >
-                <option value="">选择 Provider（可选）</option>
-                {['Anthropic', 'OpenAI', 'OpenAICompatible', 'AnthropicCompatible'].map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
+                <option value="">{text.composer.presetPlaceholder}</option>
+                {presets
+                  .filter(p => p.provider === modelDraft.provider)
+                  .map(p => (
+                    <option key={p.presetId} value={p.presetId}>
+                      {p.displayName} ({p.tier})
+                    </option>
+                  ))}
               </select>
-              {selectedPresetProvider && (
-                <select
-                  data-testid="preset-model-select"
-                  className="bootstrap-form__textarea control-plane-select control-plane-select--mt"
-                  value={selectedPresetForFill?.presetId ?? ''}
-                  onChange={e => {
-                    const preset = presets.find(p => p.presetId === e.target.value);
-                    if (preset) {
-                      setSelectedPresetForFill(preset);
-                      setModelDraft(current => ({
-                        ...current,
-                        displayName: current.displayName || preset.displayName,
-                        modelId: preset.modelId,
-                        baseUrl: preset.baseUrl ?? '',
-                      }));
-                      setTestResult(null);
-                    }
-                  }}
-                >
-                  <option value="">选择预设模型</option>
-                  {presets
-                    .filter(p => p.provider === selectedPresetProvider)
-                    .map(p => (
-                      <option key={p.presetId} value={p.presetId}>
-                        {p.displayName} ({p.tier})
-                      </option>
-                    ))}
-                </select>
-              )}
             </div>
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.displayName}</span>
               <input
                 data-testid="model-display-name"
-                className="bootstrap-form__textarea control-plane-input"
+                className="kc-input"
                 value={modelDraft.displayName}
                 onChange={(event) => setModelDraft((current) => ({ ...current, displayName: event.target.value }))}
               />
@@ -684,14 +685,21 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.provider}</span>
               <select
                 data-testid="model-provider"
-                className="bootstrap-form__textarea control-plane-select"
+                className="kc-select"
                 value={modelDraft.provider}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const next = event.target.value as ModelProviderKind;
+                  const defaultUrl = PROVIDER_DEFAULT_BASE_URLS[next] ?? '';
                   setModelDraft((current) => ({
                     ...current,
-                    provider: event.target.value as ModelProviderKind,
-                  }))
-                }
+                    provider: next,
+                    baseUrl:
+                      current.baseUrl === '' || KNOWN_DEFAULT_URLS.has(current.baseUrl)
+                        ? defaultUrl
+                        : current.baseUrl,
+                  }));
+                  setSelectedPresetForFill(null);
+                }}
               >
                 <option value="OpenAI">{text.providerLabels.OpenAI}</option>
                 <option value="Anthropic">{text.providerLabels.Anthropic}</option>
@@ -703,16 +711,18 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.modelId}</span>
               <input
                 data-testid="model-id"
-                className="bootstrap-form__textarea control-plane-input"
+                className="kc-input"
                 value={modelDraft.modelId}
                 onChange={(event) => setModelDraft((current) => ({ ...current, modelId: event.target.value }))}
               />
             </label>
             <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.baseUrl}</span>
+              <span className="bootstrap-form__label">
+                {modelDraft.provider.includes('Compatible') ? text.composer.baseUrlRequired : text.composer.baseUrl}
+              </span>
               <input
                 data-testid="model-base-url"
-                className="bootstrap-form__textarea control-plane-input"
+                className="kc-input"
                 value={modelDraft.baseUrl}
                 onChange={(event) => setModelDraft((current) => ({ ...current, baseUrl: event.target.value }))}
               />
@@ -726,10 +736,10 @@ export function ModelsSettingsDesk() {
                   </span>
                   <button
                     type="button"
-                    className="link-button"
+                    className="btn btn--link"
                     onClick={() => setModelDraft((current) => ({ ...current, apiKeyValue: " " }))}
                   >
-                    {locale === "zh-CN" ? "重新输入" : "Replace"}
+                    {text.composer.replaceKey}
                   </button>
                 </div>
               ) : (
@@ -737,7 +747,7 @@ export function ModelsSettingsDesk() {
                   data-testid="model-api-key-value"
                   type="password"
                   autoComplete="new-password"
-                  className="bootstrap-form__textarea control-plane-input"
+                  className="kc-input"
                   placeholder={text.composer.apiKeyPlaceholder}
                   value={modelDraft.apiKeyValue}
                   onChange={(event) =>
@@ -750,7 +760,7 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.apiKeyEnv}</span>
               <input
                 data-testid="model-api-key-env"
-                className="bootstrap-form__textarea control-plane-input"
+                className="kc-input"
                 value={modelDraft.apiKeyEnvironmentVariable}
                 onChange={(event) =>
                   setModelDraft((current) => ({
@@ -763,7 +773,7 @@ export function ModelsSettingsDesk() {
             <div className="bootstrap-form__field">
               <button
                 type="button"
-                className="secondary-button"
+                className="btn btn--secondary"
                 data-testid="test-connection-btn"
                 onClick={() => {
                   setTestingConnection(true);
@@ -771,7 +781,7 @@ export function ModelsSettingsDesk() {
                   testModelConnection({
                     presetId: selectedPresetForFill?.presetId,
                     modelId: modelDraft.modelId || undefined,
-                    apiKey: '',
+                    apiKey: modelDraft.apiKeyValue.trim(),
                     baseUrl: modelDraft.baseUrl || undefined,
                   })
                     .then(result => { setTestResult(result); })
@@ -780,7 +790,7 @@ export function ModelsSettingsDesk() {
                 }}
                 disabled={testingConnection || !modelDraft.modelId}
               >
-                {testingConnection ? '测试中...' : '测试连接'}
+                {testingConnection ? text.composer.testingConnection : text.composer.testConnection}
               </button>
               {testResult && (
                 <p
@@ -788,8 +798,8 @@ export function ModelsSettingsDesk() {
                   data-testid="connection-result"
                 >
                   {testResult.ok
-                    ? `连接成功（${testResult.latencyMs}ms）`
-                    : `连接失败：${testResult.error ?? 'unknown'}`}
+                    ? `${text.composer.connectionOk}（${testResult.latencyMs}ms）`
+                    : `${text.composer.connectionFail}：${testResult.error ?? 'unknown'}`}
                 </p>
               )}
             </div>
@@ -832,38 +842,20 @@ export function ModelsSettingsDesk() {
               ))}
             </div>
 
-            <div className="control-plane-inline-actions">
-              <button
-                className="bootstrap-form__submit"
-                data-testid="model-create-submit"
-                type="submit"
-                disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
-              >
-                {text.composer.create}
-              </button>
-              <button
-                className="secondary-button"
-                data-testid="model-update-submit"
-                type="button"
-                disabled={!selectedModelId || isMutating}
-                onClick={() => void handleUpdateModel()}
-              >
-                {text.composer.save}
-              </button>
-              <button
-                className="secondary-button"
-                type="button"
-                disabled={isMutating}
-                onClick={resetModelComposer}
-              >
-                {text.composer.reset}
-              </button>
-            </div>
             </form>
-          </section>
-
         </div>
-      </div>
+      </Modal>
+
+      <ConfirmModal
+        open={deleteConfirm !== null}
+        title={text.modelList.delete}
+        description={`确认删除模型端点 "${deleteConfirm?.name}" 吗？此操作不可撤销。`}
+        confirmLabel={text.modelList.delete}
+        variant="danger"
+        busy={isMutating}
+        onConfirm={() => { if (deleteConfirm) void handleDeleteModel(deleteConfirm.id); setDeleteConfirm(null); }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </section>
   );
 }

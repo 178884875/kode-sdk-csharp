@@ -59,11 +59,11 @@ public sealed class ChatSessionService : IChatSessionService
         var workspaceUpdated = false;
 
         var stream = agent.Subscribe(
-            channels: ["progress", "monitor"],
+            channels: ["progress", "monitor", "control"],
             opts: new AgentRuntime.SubscribeOptions
             {
                 Since = agent.EventBus.GetLastBookmark(),
-                Kinds = ["text_chunk", "done", "error", "tool:end"],
+                Kinds = ["text_chunk", "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided"],
             },
             cancellationToken: cancellationToken);
 
@@ -113,10 +113,62 @@ public sealed class ChatSessionService : IChatSessionService
                         Delta: textChunk.Delta);
                     break;
 
-                case ToolEndEvent toolEnd
-                    when string.Equals(toolEnd.Call.Name, "workspace_protocol_update", StringComparison.Ordinal):
-                    workspaceUpdated = true;
+                case ToolStartEvent toolStart:
+                    yield return new ChatStreamEvent(
+                        Type: "agent_working",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        ToolName: toolStart.Call.Name);
                     break;
+
+                case ToolEndEvent toolEnd:
+                    if (string.Equals(toolEnd.Call.Name, "workspace_protocol_update", StringComparison.Ordinal))
+                        workspaceUpdated = true;
+                    yield return new ChatStreamEvent(
+                        Type: "tool_activity",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        ToolName: toolEnd.Call.Name,
+                        CallId: toolEnd.Call.Id,
+                        DurationMs: toolEnd.Call.DurationMs);
+                    break;
+
+                case PermissionRequiredEvent permRequired:
+                {
+                    var inputRaw = permRequired.Call.InputPreview switch
+                    {
+                        string s => s,
+                        System.Text.Json.JsonElement j => j.GetRawText(),
+                        { } o => o.ToString(),
+                        _ => null,
+                    };
+                    var inputPreview = inputRaw is { Length: > 400 } ? inputRaw[..400] : inputRaw;
+                    var approvalId = _mainSessionService.TryGetApprovalIdForCall(permRequired.Call.Id)
+                        ?? $"approval-{permRequired.Call.Id}";
+                    yield return new ChatStreamEvent(
+                        Type: "approval_required",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        ApprovalId: approvalId,
+                        CallId: permRequired.Call.Id,
+                        ToolName: permRequired.Call.Name,
+                        InputPreview: inputPreview);
+                    break;
+                }
+
+                case PermissionDecidedEvent permDecided:
+                {
+                    var approvalId = _mainSessionService.TryGetApprovalIdForCall(permDecided.CallId)
+                        ?? $"approval-{permDecided.CallId}";
+                    yield return new ChatStreamEvent(
+                        Type: "approval_decided",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        ApprovalId: approvalId,
+                        CallId: permDecided.CallId,
+                        Decision: permDecided.Decision);
+                    break;
+                }
 
                 case DoneEvent done:
                     yield return new ChatStreamEvent(
@@ -131,6 +183,16 @@ public sealed class ChatSessionService : IChatSessionService
                         _mainSessionService.RequestWorkspaceRotation();
                     }
                     yield break;
+
+                case ErrorEvent error
+                    when string.Equals(error.Severity, "warn", StringComparison.Ordinal):
+                    // Non-fatal: tool failure or processing restart — agent continues.
+                    yield return new ChatStreamEvent(
+                        Type: "tool_warning",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        Reason: error.Message);
+                    break;
 
                 case ErrorEvent error:
                     yield return CreateErrorEvent(sessionId, error.Message);

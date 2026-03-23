@@ -13,6 +13,8 @@ export function BehaviorSection() {
       requireApprovalDesc: '开启后，Koda 执行外部动作（如发送消息）前将暂停并等待你的确认。',
       automationsEnabled: '启用自动化引擎',
       automationsDesc: '关闭后，所有定时任务和心跳规则将暂停执行。',
+      autoApproveToolCalls: '工具调用自动授权',
+      autoApproveToolCallsDesc: '开启后，Agent 执行所有工具时跳过审批弹卡，自动授权（对新建/恢复的会话生效）。',
       save: '保存',
       saving: '保存中…',
       saved: '已保存。',
@@ -26,6 +28,8 @@ export function BehaviorSection() {
       requireApprovalDesc: 'When enabled, Koda pauses before sending messages or performing external actions and waits for your confirmation.',
       automationsEnabled: 'Automations engine enabled',
       automationsDesc: 'When disabled, all scheduled tasks and heartbeat rules are paused.',
+      autoApproveToolCalls: 'Auto-approve tool calls',
+      autoApproveToolCallsDesc: 'When enabled, tool calls are approved automatically without inline approval cards (takes effect on new or resumed sessions).',
       save: 'Save',
       saving: 'Saving…',
       saved: 'Saved.',
@@ -102,13 +106,26 @@ export function BehaviorSection() {
             />
           </div>
 
+          <div className="settings-toggle-row">
+            <div className="settings-action-info">
+              <div className="settings-action-label">{text.autoApproveToolCalls}</div>
+              <div className="settings-action-desc">{text.autoApproveToolCallsDesc}</div>
+            </div>
+            <input
+              data-testid="settings-auto-approve-tool-calls-toggle"
+              type="checkbox"
+              checked={draft?.autoApproveToolCalls ?? false}
+              onChange={e => setDraft(d => d ? { ...d, autoApproveToolCalls: e.target.checked } : d)}
+            />
+          </div>
+
           {error && <p className="settings-file-error" style={{ marginTop: 'var(--space-2)' }}>{error}</p>}
           {note && <p className="settings-file-success" style={{ marginTop: 'var(--space-2)' }}>{note}</p>}
 
           <div style={{ marginTop: 'var(--space-4)' }}>
             <button
               type="submit"
-              className="settings-btn settings-btn--primary"
+              className="btn btn--primary"
               disabled={isSaving || !draft}
             >
               {isSaving ? text.saving : text.save}

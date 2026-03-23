@@ -29,6 +29,7 @@ public static class KodaClawWorkspaceLayout
     public const string AgentsFile = "AGENTS.md";
     public const string IdentityFile = "IDENTITY.md";
     public const string SoulFile = "SOUL.md";
+    public const string OntologyFile = "ONTOLOGY.md";
     public const string UserFile = "USER.md";
     public const string MemoryFile = "MEMORY.md";
     public const string HeartbeatFile = "HEARTBEAT.md";

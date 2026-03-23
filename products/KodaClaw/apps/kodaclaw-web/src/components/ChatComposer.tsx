@@ -8,6 +8,7 @@ type ChatComposerProps = {
   disabled?: boolean;
   placeholder: string;
   isStreaming: boolean;
+  activeToolName?: string | null;
   onChange: (next: string) => void;
   onSubmit: () => void;
 };
@@ -17,6 +18,7 @@ export function ChatComposer({
   disabled,
   placeholder,
   isStreaming,
+  activeToolName,
   onChange,
   onSubmit,
 }: ChatComposerProps) {
@@ -44,13 +46,13 @@ export function ChatComposer({
 
   const text = useLocaleText({
     zh: {
-      live: "正在接收回复…",
+      live: (tool: string | null | undefined) => tool ? `Koda 正在执行 ${tool}…` : "正在接收回复…",
       waiting: "正在等待 Gateway 同步，请稍候。",
       hint: "Shift+Enter 换行",
       submit: "发送",
     },
     en: {
-      live: "Receiving response…",
+      live: (tool: string | null | undefined) => tool ? `Koda is running ${tool}…` : "Receiving response…",
       waiting: "Waiting for gateway sync…",
       hint: "Shift+Enter for new line",
       submit: "Send",
@@ -76,7 +78,7 @@ export function ChatComposer({
       />
       <div className="composer__actions">
         <p className="composer__hint">
-          {disabled ? text.waiting : isStreaming ? text.live : text.hint}
+          {disabled ? text.waiting : isStreaming ? text.live(activeToolName) : text.hint}
         </p>
         <button
           data-testid="chat-submit"

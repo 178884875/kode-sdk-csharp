@@ -499,30 +499,51 @@ button {
 .btn--md { padding: 7px 16px; font-size: var(--font-size-sm); }
 .btn--lg { padding: 10px 20px; font-size: var(--font-size-base); }
 
-/* ── Secondary button ── */
-.secondary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-decoration: none;
+/* ── Unified Form Controls ── */
+.kc-input,
+.kc-select,
+.kc-textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-medium);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: inherit;
   font-size: var(--font-size-sm);
-  font-weight: 500;
-  transition: background var(--duration-base) ease, border-color var(--duration-base) ease;
+  line-height: 1.5;
+  transition: border-color var(--duration-base) ease, box-shadow var(--duration-base) ease;
+  box-sizing: border-box;
 }
-
-.secondary-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-medium);
+.kc-input:focus,
+.kc-select:focus,
+.kc-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
-
-.secondary-button:disabled {
+.kc-input:disabled,
+.kc-select:disabled,
+.kc-textarea:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+}
+.kc-input::placeholder,
+.kc-textarea::placeholder {
+  color: var(--text-secondary);
   opacity: 0.6;
+}
+.kc-select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-3) center;
+  padding-right: var(--space-8);
+  cursor: pointer;
+}
+.kc-textarea {
+  resize: vertical;
+  min-height: 80px;
 }
 
 /* ── Risk briefing ── */
@@ -795,6 +816,17 @@ button {
   margin-bottom: 6px;
 }
 
+.message__time {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+article.message:hover .message__time {
+  opacity: 1;
+}
+
 .message__text {
   margin: 0;
   white-space: pre-wrap;
@@ -905,6 +937,36 @@ button {
 @keyframes kcCursorBlink {
   0%, 100% { opacity: 1; }
   50%       { opacity: 0; }
+}
+
+/* ── Tool activity inline block ── */
+.tool-activity-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 100px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  width: fit-content;
+}
+
+.tool-activity-block__icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.tool-activity-block__name {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  letter-spacing: -0.01em;
+}
+
+.tool-activity-block__dur {
+  color: var(--text-tertiary);
+  opacity: 0.7;
 }
 
 /* ── Chat view: timeline stripped to content-only (no card wrapper) ── */
@@ -1150,4 +1212,259 @@ button {
 
 .empty-state__cta {
   margin-top: var(--space-2);
+}
+
+/* ── ApprovalCard decided pill ── */
+.approval-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 100px;
+  border: 1px solid var(--border-subtle);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  width: fit-content;
+}
+
+.approval-pill--approved {
+  color: #16a34a;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.approval-pill--rejected {
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-color: var(--border-subtle);
+}
+
+.approval-pill__tool {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  letter-spacing: -0.01em;
+}
+
+.approval-pill__label {
+  opacity: 0.8;
+}
+
+/* ── ApprovalCard ─────────────────────────────────────────────────────────── */
+.approval-card {
+  margin: var(--space-2) 0;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.approval-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.approval-card__icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.approval-card__title {
+  flex: 1;
+}
+
+.approval-card__status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.approval-card__status--pending {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+
+.approval-card__status--approved {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.approval-card__status--rejected {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.approval-card__body {
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.approval-card__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.approval-card__label {
+  min-width: 60px;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  padding-top: 2px;
+}
+
+.approval-card__tool-name {
+  font-family: monospace;
+  font-size: var(--font-size-xs);
+  background: var(--surface-raised);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+}
+
+.approval-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.approval-card__toggle:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-medium);
+}
+
+.approval-card__toggle-icon {
+  transition: transform 0.15s ease;
+}
+
+.approval-card__toggle-icon--open {
+  transform: rotate(180deg);
+}
+
+.approval-card__preview {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  max-height: 120px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.approval-card__actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.approval-card__btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.approval-card__btn:hover {
+  opacity: 0.85;
+}
+
+.approval-card__btn--approve {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+}
+
+.approval-card__btn--reject {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+/* ── History separator ── */
+.history-separator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0 4px;
+}
+
+.history-separator::before,
+.history-separator::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle);
+}
+
+.history-separator__label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ── History messages (dimmed) ── */
+.message--history {
+  opacity: 0.65;
+}
+
+/* ── Load more history button ── */
+.load-more-history {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+}
+
+.load-more-history__btn {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.load-more-history__btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.load-more-history__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }

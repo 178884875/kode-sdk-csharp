@@ -293,7 +293,7 @@ export function CanvasDesk() {
         <div className="canvas-desk__toolbar canvas-toolbar">
           <button
             type="button"
-            className="secondary-button"
+            className="btn btn--secondary"
             data-testid="canvas-refresh"
             disabled={isLoading || isRefreshing}
             onClick={() => {
@@ -308,7 +308,7 @@ export function CanvasDesk() {
           <select
             id="canvas-kind-filter"
             data-testid="canvas-kind-filter"
-            className="bootstrap-form__textarea control-plane-filter control-plane-select"
+            className="kc-select control-plane-filter"
             value={kindFilter}
             onChange={(event) => setKindFilter(event.target.value as CanvasKindFilter)}
           >

@@ -1,0 +1,46 @@
+/* ───────────────────────────────────────────
+   ConfirmModal
+   ─────────────────────────────────────────── */
+
+.confirm-modal__description {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+/* ── Confirm button variants ── */
+.confirm-modal__confirm-btn--default {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+
+.confirm-modal__confirm-btn--default:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.confirm-modal__confirm-btn--warning {
+  background: var(--warning, #D97706);
+  color: white;
+  border: none;
+}
+
+.confirm-modal__confirm-btn--warning:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.confirm-modal__confirm-btn--danger {
+  background: var(--error, #DC2626);
+  color: white;
+  border: none;
+}
+
+.confirm-modal__confirm-btn--danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.confirm-modal__confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

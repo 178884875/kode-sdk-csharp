@@ -15,6 +15,7 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         {
             ["identity"] = KodaClawWorkspaceLayout.IdentityFile,
             ["soul"] = KodaClawWorkspaceLayout.SoulFile,
+            ["ontology"] = KodaClawWorkspaceLayout.OntologyFile,
             ["user"] = KodaClawWorkspaceLayout.UserFile,
             ["memory"] = KodaClawWorkspaceLayout.MemoryFile,
             ["agents"] = KodaClawWorkspaceLayout.AgentsFile,
@@ -32,11 +33,12 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
     public override string Name => "workspace_protocol_update";
 
     public override string Description =>
-        "Update a section of a workspace protocol file (identity, soul, user, memory, agents, or heartbeat). " +
+        "Update a section of a workspace protocol file (identity, soul, ontology, user, memory, agents, or heartbeat). " +
         "Use this when the user shares information that should permanently update their profile, " +
-        "preferences, behavioral rules, long-term memory, or scheduled automation rules. " +
+        "preferences, behavioral rules, world-view/values, long-term memory, or scheduled automation rules. " +
+        "Use target=ontology to update epistemology, methodology, values, or meta-cognition frameworks. " +
         "Use target=heartbeat to add or modify a ## SectionTitle automation rule in HEARTBEAT.md. " +
-        "Changes to identity/soul/user/memory/agents take effect at the next session start. " +
+        "Changes to identity/soul/ontology/user/memory/agents take effect at the next session start. " +
         "Changes to heartbeat take effect immediately via the hot-sync pipeline.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<WorkspaceProtocolUpdateArgs>();
@@ -137,6 +139,7 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
     {
         "identity" => "# Koda Identity\n\n",
         "soul" => "# Koda Soul\n\n",
+        "ontology" => "# Koda Ontology\n\n",
         "user" => "# User Profile\n\n",
         "memory" => "# Long-Term Memory\n\n",
         "agents" => "# KodaClaw Workspace Rules\n\n",
@@ -150,7 +153,7 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
 /// </summary>
 public sealed class WorkspaceProtocolUpdateArgs
 {
-    [ToolParameter(Description = "The protocol file to update. One of: identity, soul, user, memory, agents, heartbeat.")]
+    [ToolParameter(Description = "The protocol file to update. One of: identity, soul, ontology, user, memory, agents, heartbeat.")]
     public required string Target { get; init; }
 
     [ToolParameter(Description = "The ## section heading to update. If omitted, replaces everything after the # title line.", Required = false)]

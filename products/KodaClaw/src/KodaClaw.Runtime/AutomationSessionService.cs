@@ -1,5 +1,6 @@
 using System.Text;
 using KodaClaw.Contracts;
+using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
@@ -16,6 +17,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         KodaClawWorkspaceLayout.AgentsFile,
         KodaClawWorkspaceLayout.IdentityFile,
         KodaClawWorkspaceLayout.SoulFile,
+        KodaClawWorkspaceLayout.OntologyFile,
         KodaClawWorkspaceLayout.UserFile,
         KodaClawWorkspaceLayout.HeartbeatFile,
     ];
@@ -25,6 +27,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly AutomationSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IMcpHubService? _mcpHubService;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public AutomationSessionService(
@@ -32,13 +35,15 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         AutomationSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
-        IModelRegistryRepository? modelRegistryRepository = null)
+        IModelRegistryRepository? modelRegistryRepository = null,
+        IMcpHubService? mcpHubService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new AutomationSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _modelRegistryRepository = modelRegistryRepository;
+        _mcpHubService = mcpHubService;
     }
 
     public async Task<AutomationSessionHandle> StartAutomationSessionAsync(
@@ -60,9 +65,10 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+        var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var agent = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel),
+            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, sessionTools),
             dependencies,
             cancellationToken);
         _agents[sessionId] = agent;
@@ -210,10 +216,35 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         return relativePath.Replace(Path.DirectorySeparatorChar, '/');
     }
 
+    private async Task<IReadOnlyList<string>> BuildSessionToolsAsync(
+        string sessionId,
+        IToolRegistry? toolRegistry,
+        CancellationToken cancellationToken)
+    {
+        var tools = new List<string>(_options.Tools);
+        if (_mcpHubService is null || toolRegistry is null)
+        {
+            return tools;
+        }
+
+        var merged = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
+        var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, toolRegistry, cancellationToken);
+        foreach (var toolName in mcpResult.InjectedToolNames)
+        {
+            if (merged.Add(toolName))
+            {
+                tools.Add(toolName);
+            }
+        }
+
+        return tools;
+    }
+
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         string systemPrompt,
-        string model)
+        string model,
+        IReadOnlyList<string>? tools = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
@@ -221,7 +252,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             Model = model,
             SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
-            Tools = _options.Tools,
+            Tools = tools ?? _options.Tools,
             Permissions = _options.Permissions,
             SandboxOptions = new SandboxOptions
             {
@@ -253,8 +284,10 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         AutomationDefinition definition,
         IReadOnlyList<PromptContextDocument> contextDocuments)
     {
+        var triggeredAt = DateTimeOffset.Now;
         var prompt = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)
+            .AddBody($"Triggered at: {triggeredAt:yyyy-MM-dd HH:mm:ss zzz} ({triggeredAt.DayOfWeek}).")
             .AddSection(
                 "Automation Definition",
                 [

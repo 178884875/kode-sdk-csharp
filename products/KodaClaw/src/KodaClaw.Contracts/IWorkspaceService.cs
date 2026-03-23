@@ -15,4 +15,8 @@ public interface IWorkspaceService
     string GetSessionDirectory(string sessionId);
 
     IReadOnlyList<string> GetSkillsPaths();
+
+    Task<WorkspaceMcpConfig> ReadMcpConfigAsync(CancellationToken cancellationToken = default);
+
+    Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default);
 }

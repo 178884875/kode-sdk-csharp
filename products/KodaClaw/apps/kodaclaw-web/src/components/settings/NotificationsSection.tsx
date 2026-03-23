@@ -112,7 +112,7 @@ export function NotificationsSection() {
                 <span className="settings-pref-label">{text.quietStart}</span>
                 <input
                   data-testid="settings-quiet-start"
-                  className="settings-input"
+                  className="kc-input"
                   value={draft?.quietHoursStartLocalTime ?? ''}
                   onChange={e => {
                     const v = e.target.value.trim() || null;
@@ -124,7 +124,7 @@ export function NotificationsSection() {
                 <span className="settings-pref-label">{text.quietEnd}</span>
                 <input
                   data-testid="settings-quiet-end"
-                  className="settings-input"
+                  className="kc-input"
                   value={draft?.quietHoursEndLocalTime ?? ''}
                   onChange={e => {
                     const v = e.target.value.trim() || null;
@@ -141,7 +141,7 @@ export function NotificationsSection() {
           <div style={{ marginTop: 'var(--space-4)' }}>
             <button
               type="submit"
-              className="settings-btn settings-btn--primary"
+              className="btn btn--primary"
               disabled={isSaving || !draft}
             >
               {isSaving ? text.saving : text.save}

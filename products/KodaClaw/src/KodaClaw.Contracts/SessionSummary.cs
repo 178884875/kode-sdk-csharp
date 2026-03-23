@@ -5,4 +5,5 @@ public sealed record SessionSummary(
     SessionKind SessionKind,
     SessionStatusSummary Status,
     DateTimeOffset? CreatedAt,
-    DateTimeOffset? LastEventAt);
+    DateTimeOffset? LastEventAt,
+    string? Title = null);

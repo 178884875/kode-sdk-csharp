@@ -345,7 +345,7 @@ export interface ChatStreamRequest {
 }
 
 export interface ChatStreamEvent {
-  type: "text_chunk" | "done" | "error";
+  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working";
   sessionId: string;
   step?: number | null;
   sequence?: number | null;
@@ -353,6 +353,14 @@ export interface ChatStreamEvent {
   delta?: string | null;
   reason?: string | null;
   error?: ErrorResponse | null;
+  // Approval event fields
+  approvalId?: string | null;
+  callId?: string | null;
+  toolName?: string | null;
+  inputPreview?: string | null;
+  decision?: string | null;
+  // Tool activity fields
+  durationMs?: number | null;
 }
 
 export interface InboxItem {
@@ -473,6 +481,7 @@ export interface SessionSummary {
   status: SessionStatusSummary;
   createdAt?: string | null;
   lastEventAt?: string | null;
+  title?: string | null;
 }
 
 export interface SessionDetail {
@@ -972,6 +981,7 @@ export interface KodaClawSettings {
   quietHoursEndLocalTime?: string | null;
   updatedAt: string;
   automationsEnabled: boolean;
+  autoApproveToolCalls: boolean;
 }
 
 export interface SandboxExecutionProfile {
@@ -1109,4 +1119,38 @@ export interface OnboardingState {
 
 export interface ApplyPersonaRequest {
   presetId: string;
+}
+
+export interface WorkspaceMcpServerEntry {
+  command?: string | null;
+  args?: string[] | null;
+  env?: Record<string, string> | null;
+  transport?: string | null;
+  url?: string | null;
+  headers?: Record<string, string> | null;
+  enabled?: boolean | null;
+}
+
+export interface WorkspaceMcpConfig {
+  mcpServers: Record<string, WorkspaceMcpServerEntry>;
+}
+
+export interface McpConnectionTestResult {
+  success: boolean;
+  toolCount: number;
+  errorMessage?: string | null;
+  toolNames?: string[] | null;
+}
+
+export interface SessionMessageItem {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp?: number | null;
+}
+
+export interface SessionMessagesResponse {
+  items: SessionMessageItem[];
+  totalCount: number;
+  hasMore: boolean;
 }

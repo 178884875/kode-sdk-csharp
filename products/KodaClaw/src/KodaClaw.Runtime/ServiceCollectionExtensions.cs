@@ -82,6 +82,8 @@ public static class ServiceCollectionExtensions
                 _ => new WorkspaceMemoryAppendTool(workspaceService));
             toolRegistry.Register("workspace_protocol_update",
                 _ => new WorkspaceProtocolUpdateTool(workspaceService));
+            toolRegistry.Register("get_current_datetime",
+                _ => new GetCurrentDateTimeTool());
 
             var canvasRepository = sp.GetRequiredService<ICanvasArtifactRepository>();
             toolRegistry.Register("canvas_upsert",

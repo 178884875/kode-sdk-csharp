@@ -94,10 +94,12 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
                     <StatusBadge status={session.status} />
                     {isCurrent && <span className="session-history-item__current-label">当前</span>}
                   </div>
+                  <div className="session-history-item__title">
+                    {session.title ?? `${session.sessionId.slice(0, 8)}…`}
+                  </div>
                   <div className="session-history-item__time">
                     {formatRelativeTime(session.lastEventAt ?? session.createdAt)}
                   </div>
-                  <div className="session-history-item__id">{session.sessionId.slice(0, 8)}…</div>
                   {!isCurrent && (
                     <button
                       className="session-history-item__resume"

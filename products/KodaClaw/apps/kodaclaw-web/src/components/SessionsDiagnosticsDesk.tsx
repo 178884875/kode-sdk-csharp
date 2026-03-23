@@ -460,7 +460,7 @@ export function SessionsDiagnosticsDesk({
         <div className="control-plane-toolbar">
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="sessions-refresh"
           onClick={() => setRefreshToken((v) => v + 1)}
           disabled={isLoadingList || isLoadingDetail}
@@ -758,7 +758,7 @@ export function SessionsDiagnosticsDesk({
               <div className="diag-bundle-action">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="btn btn--secondary"
                   data-testid="diagnostic-bundle-export-button"
                   onClick={() => void handleExportBundle()}
                   disabled={isLoadingList || isHydratingSelection || isExportingBundle}

@@ -252,10 +252,11 @@ public static partial class GatewayApp
         {
             "identity"  => (KodaClawWorkspaceLayout.IdentityFile, null),
             "soul"      => (KodaClawWorkspaceLayout.SoulFile, null),
+            "ontology"  => (KodaClawWorkspaceLayout.OntologyFile, null),
             "user"      => (KodaClawWorkspaceLayout.UserFile, null),
             "memory"    => (KodaClawWorkspaceLayout.MemoryFile, null),
             "heartbeat" => (KodaClawWorkspaceLayout.HeartbeatFile, null),
-            _           => (null, $"Unknown workspace target '{target}'. Allowed: identity, soul, user, memory, heartbeat."),
+            _           => (null, $"Unknown workspace target '{target}'. Allowed: identity, soul, ontology, user, memory, heartbeat."),
         };
 
         onboarding.MapPost("/apply-persona", async (

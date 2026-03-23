@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { SettingsDesk } from "../components/SettingsDesk";
 import { I18nProvider } from "../i18n/I18nProvider";
 
@@ -76,9 +76,10 @@ describe("SettingsDesk", () => {
     });
     fireEvent.click(screen.getByTestId("settings-reset-onboarding"));
     await waitFor(() => {
-      expect(screen.getByText("确认重置 Onboarding？")).toBeInTheDocument();
+      expect(document.querySelector("dialog[open]")).not.toBeNull();
     });
-    expect(screen.getByText("取消")).toBeInTheDocument();
+    const dialog = document.querySelector("dialog[open]") as HTMLElement;
+    expect(within(dialog).getByText(/此操作将重置 Onboarding 状态/)).toBeInTheDocument();
   });
 
   it("cancels reset-onboarding confirmation", async () => {
@@ -87,11 +88,15 @@ describe("SettingsDesk", () => {
       expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId("settings-reset-onboarding"));
-    await waitFor(() => { screen.getByText("取消"); });
-    fireEvent.click(screen.getByText("取消"));
     await waitFor(() => {
-      expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
+      expect(document.querySelector("dialog[open]")).not.toBeNull();
     });
+    const dialog = document.querySelector("dialog[open]") as HTMLElement;
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+    await waitFor(() => {
+      expect(document.querySelector("dialog[open]")).toBeNull();
+    });
+    expect(screen.getByTestId("settings-reset-onboarding")).toBeInTheDocument();
   });
 
   it("shows confirmation before clear-identity action", async () => {
@@ -101,8 +106,10 @@ describe("SettingsDesk", () => {
     });
     fireEvent.click(screen.getByTestId("settings-clear-identity"));
     await waitFor(() => {
-      expect(screen.getByText("确认清除所有身份文件？")).toBeInTheDocument();
+      expect(document.querySelector("dialog[open]")).not.toBeNull();
     });
+    const dialog = document.querySelector("dialog[open]") as HTMLElement;
+    expect(within(dialog).getByText(/此操作将清空 IDENTITY\.md/)).toBeInTheDocument();
   });
 
   it("clears identity files on confirm", async () => {
@@ -119,8 +126,11 @@ describe("SettingsDesk", () => {
       expect(screen.getByTestId("settings-clear-identity")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId("settings-clear-identity"));
-    await waitFor(() => { screen.getByText("确认清除所有身份文件？"); });
-    fireEvent.click(screen.getByText("确认"));
+    await waitFor(() => {
+      expect(document.querySelector("dialog[open]")).not.toBeNull();
+    });
+    const dialog = document.querySelector("dialog[open]") as HTMLElement;
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认" }));
     await waitFor(() => {
       expect(screen.getByText(/已清除/)).toBeInTheDocument();
     });

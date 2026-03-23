@@ -8,6 +8,7 @@
     <ProjectReference Include="..\KodaClaw.ChannelHub\KodaClaw.ChannelHub.csproj" />
     <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
     <ProjectReference Include="..\KodaClaw.ControlPlane\KodaClaw.ControlPlane.csproj" />
+    <ProjectReference Include="..\KodaClaw.McpHub\KodaClaw.McpHub.csproj" />
     <ProjectReference Include="..\KodaClaw.ModelHub\KodaClaw.ModelHub.csproj" />
     <ProjectReference Include="..\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />

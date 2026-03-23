@@ -76,6 +76,13 @@ public static partial class GatewayApp
         var messageCount = messages.Count > 0 ? messages.Count : info.MessageCount;
         var userMessageCount = messages.Count(static message => message.Role == MessageRole.User);
         var assistantMessageCount = messages.Count(static message => message.Role == MessageRole.Assistant);
+
+        var rawTitle = messages
+            .FirstOrDefault(static m => m.Role == MessageRole.User)
+            ?.Content.OfType<TextContent>()
+            .Select(static t => t.Text)
+            .FirstOrDefault(static t => !string.IsNullOrWhiteSpace(t));
+        var title = rawTitle is { Length: > 60 } ? rawTitle[..60] + "\u2026" : rawTitle;
         var sessionDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         var promptReport = await SessionPromptReportStore.TryReadAsync(
             sessionDirectory,
@@ -102,7 +109,45 @@ public static partial class GatewayApp
             PendingApprovalCallIds: pendingApprovalCallIds,
             PromptReport: promptReport,
             PromptReportDelta: promptReportDelta,
-            RecentPromptReports: promptReportHistory);
+            RecentPromptReports: promptReportHistory,
+            Title: title);
+    }
+
+    private static async Task<SessionMessagesResponse> LoadSessionMessagesAsync(
+        string workspaceRoot,
+        string sessionId,
+        int limit,
+        int skip,
+        CancellationToken cancellationToken)
+    {
+        var store = CreateSessionStore(workspaceRoot);
+        var messages = await store.LoadMessagesAsync(sessionId, cancellationToken);
+
+        // Only user/assistant messages with text content
+        var conversationMessages = messages
+            .Where(static m => m.Role == MessageRole.User || m.Role == MessageRole.Assistant)
+            .ToArray();
+
+        var totalCount = conversationMessages.Length;
+
+        // Return in reverse order so most-recent is first, then skip/limit
+        var items = conversationMessages
+            .Reverse()
+            .Skip(skip)
+            .Take(limit)
+            .Select(static (m, i) => new SessionMessageItem(
+                Id: $"history-{i}",
+                Role: m.Role == MessageRole.User ? "user" : "assistant",
+                Text: string.Concat(m.Content.OfType<TextContent>().Select(static t => t.Text)),
+                Timestamp: null))
+            .ToArray();
+
+        var hasMore = skip + limit < totalCount;
+
+        return new SessionMessagesResponse(
+            Items: items,
+            TotalCount: totalCount,
+            HasMore: hasMore);
     }
 
     private static PromptReportDelta? BuildPromptReportDelta(IReadOnlyList<PromptReport>? history)

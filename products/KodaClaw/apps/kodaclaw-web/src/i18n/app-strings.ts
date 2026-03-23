@@ -24,6 +24,7 @@ export function useAppStrings() {
         { id: 'plugins',     label: '插件',        eyebrow: '扩展能力',   summary: '从信任、权限、运行态与日志四个维度掌控插件。' },
         { id: 'sessions',    label: '会话诊断',    eyebrow: '审计追踪',   summary: '检查会话生命周期、关键事件与诊断证据。' },
         { id: 'skills',      label: '技能',        eyebrow: '能力层',     summary: '浏览已发现的技能，在会话中激活。' },
+        { id: 'mcpServers',  label: 'MCP 工具',    eyebrow: '能力层',     summary: '管理 workspace/mcp.json 中的 MCP 服务器：启用/禁用、测试连接。' },
         { id: 'settings',    label: '设置',        eyebrow: '工作区配置', summary: '编辑身份文件、绑定渠道账号、调整偏好与系统操作。' },
       ] as DeskMeta[],
       chat: {
@@ -33,6 +34,8 @@ export function useAppStrings() {
         unknownStreamError: '未知流式错误。',
         streamClosed: '[流式通道已关闭]',
         failedToReachStream: '无法连接到聊天流。',
+        newSessionNote: '已开始新对话。',
+        sessionResumedNote: '已切换到历史会话，Agent 记得之前的上下文。',
       },
       notes: {
         gatewaySnapshot: (status: string, version: number, rootPath: string) =>
@@ -61,6 +64,7 @@ export function useAppStrings() {
         { id: 'plugins',     label: 'Plugins',        eyebrow: 'Extensibility',   summary: 'Control trust, permissions, and runtime state.' },
         { id: 'sessions',    label: 'Sessions',       eyebrow: 'Audit trail',     summary: 'Inspect lifecycle traces and diagnostic evidence.' },
         { id: 'skills',      label: 'Skills',         eyebrow: 'Capability layer',summary: 'Browse discovered skills and activate them in chat.' },
+        { id: 'mcpServers',  label: 'MCP Tools',      eyebrow: 'Capability layer',summary: 'Manage MCP servers from workspace/mcp.json: enable, disable, test connections.' },
         { id: 'settings',    label: 'Settings',       eyebrow: 'Workspace config', summary: 'Edit identity files, connect channels, set preferences, and system actions.' },
       ] as DeskMeta[],
       chat: {
@@ -70,6 +74,8 @@ export function useAppStrings() {
         unknownStreamError: 'Unknown stream error.',
         streamClosed: '[stream closed]',
         failedToReachStream: 'Failed to reach chat stream.',
+        newSessionNote: 'New conversation started.',
+        sessionResumedNote: 'Switched to a previous session. Agent remembers prior context.',
       },
       notes: {
         gatewaySnapshot: (status: string, version: number, rootPath: string) =>

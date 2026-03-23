@@ -1,6 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
-import { streamChatEvents } from "../lib/api";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { streamChatEvents, submitApprovalDecision, fetchSessionMessages } from "../lib/api";
 import type { ChatMessage } from "../types/chat";
+import type { SessionMessageItem } from "../types/contracts";
 
 export type ChatConsoleCopy = {
   initialSystemNote: string;
@@ -9,6 +10,8 @@ export type ChatConsoleCopy = {
   unknownStreamError: string;
   streamClosed: string;
   failedToReachStream: string;
+  newSessionNote?: string;
+  sessionResumedNote?: string;
 };
 
 function createId(prefix: string): string {
@@ -20,6 +23,7 @@ function createMessage(
   text: string,
   status: ChatMessage["status"],
   sessionId?: string | null,
+  approvalFields?: Pick<ChatMessage, "approvalId" | "callId" | "toolName" | "inputPreview" | "decision">,
 ): ChatMessage {
   return {
     id: createId(role),
@@ -28,12 +32,20 @@ function createMessage(
     status,
     timestamp: Date.now(),
     sessionId,
+    ...approvalFields,
   };
 }
 
 export function useChatConsole(copy: ChatConsoleCopy) {
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [activeToolName, setActiveToolName] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const historySkipRef = useRef(0);
+  const historySessionIdRef = useRef<string | null>(null);
+  // Track callIds that already have an approval message, so tool_activity can skip duplicates
+  const approvalCallIds = useRef<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([
     createMessage(
       "system",
@@ -55,17 +67,22 @@ export function useChatConsole(copy: ChatConsoleCopy) {
 
     setDraft("");
     setIsStreaming(true);
+    approvalCallIds.current = new Set();
     setMessages((current) => [...current, userMessage, assistantMessage]);
 
     try {
+      let lastStep: number | null = null;
       for await (const event of streamChatEvents({ message: content })) {
         if (event.type === "text_chunk") {
+          const stepChanged =
+            lastStep !== null && event.step != null && event.step !== lastStep;
+          if (event.step != null) lastStep = event.step;
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantMessage.id
                 ? {
                     ...message,
-                    text: `${message.text}${event.delta ?? ""}`,
+                    text: `${message.text}${stepChanged ? "\n\n" : ""}${event.delta ?? ""}`,
                     status: "streaming",
                     timestamp: event.timestamp ?? Date.now(),
                     sessionId: event.sessionId,
@@ -76,7 +93,62 @@ export function useChatConsole(copy: ChatConsoleCopy) {
           continue;
         }
 
+        if (event.type === "approval_required") {
+          if (event.callId) approvalCallIds.current.add(event.callId);
+          setMessages((current) => [
+            ...current,
+            createMessage("approval", "", "done", event.sessionId, {
+              approvalId: event.approvalId ?? null,
+              callId: event.callId ?? null,
+              toolName: event.toolName ?? null,
+              inputPreview: event.inputPreview ?? null,
+              decision: "pending",
+            }),
+          ]);
+          continue;
+        }
+
+        if (event.type === "approval_decided") {
+          setMessages((current) =>
+            current.map((message) =>
+              message.role === "approval" && message.approvalId === event.approvalId
+                ? {
+                    ...message,
+                    decision: event.decision === "allow" ? "approved" : "rejected",
+                  }
+                : message,
+            ),
+          );
+          continue;
+        }
+
+        if (event.type === "tool_warning") {
+          setMessages((current) => [
+            ...current,
+            createMessage("system", `⚠ ${event.reason ?? "工具调用失败"}`, "done", event.sessionId),
+          ]);
+          continue;
+        }
+
+        if (event.type === "agent_working") {
+          setActiveToolName(event.toolName ?? null);
+          continue;
+        }
+
+        if (event.type === "tool_activity") {
+          setActiveToolName(null);
+          // Skip if an approval card already represents this call (no duplicate needed)
+          if (event.callId && approvalCallIds.current.has(event.callId)) continue;
+          const toolMsg = createMessage("tool_activity", "", "done", event.sessionId);
+          setMessages((current) => [
+            ...current,
+            { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null },
+          ]);
+          continue;
+        }
+
         if (event.type === "done") {
+          setActiveToolName(null);
           setMessages((current) =>
             current.map((message) =>
               message.id === assistantMessage.id
@@ -95,6 +167,7 @@ export function useChatConsole(copy: ChatConsoleCopy) {
         }
 
         const detail = event.error?.message ?? event.reason ?? copy.unknownStreamError;
+        setActiveToolName(null);
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantMessage.id
@@ -127,6 +200,7 @@ export function useChatConsole(copy: ChatConsoleCopy) {
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : copy.failedToReachStream;
+      setActiveToolName(null);
       setMessages((current) =>
         current.map((message) =>
           message.id === assistantMessage.id
@@ -149,13 +223,108 @@ export function useChatConsole(copy: ChatConsoleCopy) {
     setMessages((current) => [...current, createMessage("system", note, "done")]);
   }, []);
 
+  const clearMessages = useCallback((systemNote?: string) => {
+    setMessages([
+      createMessage("system", systemNote ?? copy.initialSystemNote, "done"),
+    ]);
+    setHasMoreHistory(false);
+    historySkipRef.current = 0;
+    historySessionIdRef.current = null;
+  }, [copy.initialSystemNote]);
+
+  const prependHistory = useCallback((items: SessionMessageItem[], hasMore: boolean, sessionId: string) => {
+    if (items.length === 0) return;
+    const historyMessages: ChatMessage[] = items.map((item) => ({
+      id: `history-${item.id}`,
+      role: item.role,
+      text: item.text,
+      status: "done" as const,
+      timestamp: item.timestamp ?? Date.now(),
+      isHistory: true,
+    }));
+    const separator = createMessage("history_separator", "", "done");
+    setMessages((current) => [...historyMessages, separator, ...current]);
+    setHasMoreHistory(hasMore);
+  }, []);
+
+  const loadMoreHistory = useCallback(async () => {
+    const sessionId = historySessionIdRef.current;
+    if (!sessionId || isLoadingHistory) return;
+    const limit = 20;
+    const skip = historySkipRef.current + limit;
+    setIsLoadingHistory(true);
+    try {
+      const result = await fetchSessionMessages(sessionId, limit, skip);
+      if (result.items.length > 0) {
+        const historyMessages: ChatMessage[] = result.items.map((item) => ({
+          id: `history-${skip}-${item.id}`,
+          role: item.role,
+          text: item.text,
+          status: "done" as const,
+          timestamp: item.timestamp ?? Date.now(),
+          isHistory: true,
+        }));
+        setMessages((current) => [...historyMessages, ...current]);
+        historySkipRef.current = skip;
+      }
+      setHasMoreHistory(result.hasMore);
+    } catch {
+      // silently fail — history load is best-effort
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [isLoadingHistory]);
+
+  const loadHistory = useCallback(async (sessionId: string) => {
+    historySessionIdRef.current = sessionId;
+    historySkipRef.current = 0;
+    setIsLoadingHistory(true);
+    try {
+      const result = await fetchSessionMessages(sessionId, 20, 0);
+      prependHistory(result.items, result.hasMore, sessionId);
+    } catch {
+      // silently fail
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  }, [prependHistory]);
+
+  const submitApproval = useCallback(async (approvalId: string, approve: boolean) => {
+    setMessages((current) =>
+      current.map((message) =>
+        message.role === "approval" && message.approvalId === approvalId
+          ? { ...message, decision: approve ? "approved" : "rejected" }
+          : message,
+      ),
+    );
+    try {
+      await submitApprovalDecision(approvalId, approve);
+    } catch {
+      // Revert to pending on error
+      setMessages((current) =>
+        current.map((message) =>
+          message.role === "approval" && message.approvalId === approvalId
+            ? { ...message, decision: "pending" }
+            : message,
+        ),
+      );
+    }
+  }, []);
+
   return {
     draft,
     setDraft,
     isStreaming,
+    activeToolName,
     messages,
     placeholder,
     sendMessage,
     appendSystemNote,
+    clearMessages,
+    submitApproval,
+    loadHistory,
+    loadMoreHistory,
+    isLoadingHistory,
+    hasMoreHistory,
   };
 }

@@ -110,7 +110,7 @@ export function WorkspaceIdentityEditor() {
           {identity.success && <span className="settings-file-success">{text.saved}</span>}
           <button
             type="button"
-            className="settings-btn settings-btn--primary"
+            className="btn btn--primary"
             disabled={!identity.isDirty || identity.saving || identity.loading}
             onClick={identity.save}
           >
@@ -125,7 +125,7 @@ export function WorkspaceIdentityEditor() {
           <span className="settings-file-hint">{text.soulHint}</span>
           <button
             type="button"
-            className="settings-btn settings-btn--ghost"
+            className="btn btn--ghost"
             data-testid="settings-persona-trigger"
             onClick={() => setShowPersonaSelector(v => !v)}
           >
@@ -154,7 +154,7 @@ export function WorkspaceIdentityEditor() {
           {soul.success && <span className="settings-file-success">{text.saved}</span>}
           <button
             type="button"
-            className="settings-btn settings-btn--primary"
+            className="btn btn--primary"
             disabled={!soul.isDirty || soul.saving || soul.loading}
             onClick={soul.save}
           >
@@ -184,7 +184,7 @@ export function WorkspaceIdentityEditor() {
           {user.success && <span className="settings-file-success">{text.saved}</span>}
           <button
             type="button"
-            className="settings-btn settings-btn--primary"
+            className="btn btn--primary"
             disabled={!user.isDirty || user.saving || user.loading}
             onClick={user.save}
           >

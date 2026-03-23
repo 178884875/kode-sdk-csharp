@@ -13,4 +13,5 @@ public sealed record SessionDetail(
     IReadOnlyList<string> PendingApprovalCallIds,
     PromptReport? PromptReport = null,
     PromptReportDelta? PromptReportDelta = null,
-    IReadOnlyList<PromptReport>? RecentPromptReports = null);
+    IReadOnlyList<PromptReport>? RecentPromptReports = null,
+    string? Title = null);

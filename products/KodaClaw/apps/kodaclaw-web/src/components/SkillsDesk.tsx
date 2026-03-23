@@ -137,7 +137,7 @@ export function SkillsDesk() {
         <div className="control-plane-toolbar">
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="skills-refresh"
           disabled={isLoading || isRefreshing}
           onClick={() => { void loadSkills("refresh"); }}

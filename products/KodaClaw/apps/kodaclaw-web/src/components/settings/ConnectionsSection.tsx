@@ -3,14 +3,16 @@ import { Plug } from 'lucide-react';
 import { fetchChannelAccounts } from '../../lib/api';
 import type { ChannelAccount } from '../../types/contracts';
 import { ChannelSetupWizard } from './ChannelSetupWizard';
+import { Modal } from '../ui/Modal';
 import { Skeleton } from '../ui/Skeleton';
 import { EmptyState } from '../ui/EmptyState';
 import { useLocaleText } from '../../i18n/I18nProvider';
+import '../ui/Modal.css';
 
 export function ConnectionsSection() {
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showWizard, setShowWizard] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const text = useLocaleText({
     zh: {
@@ -20,6 +22,7 @@ export function ConnectionsSection() {
       emptyDesc: '绑定后可通过外部渠道与 Koda 交互。',
       unknown: '未知',
       addChannel: '+ 绑定新渠道',
+      wizardTitle: '绑定新渠道',
     },
     en: {
       sectionTitle: 'Connections',
@@ -28,6 +31,7 @@ export function ConnectionsSection() {
       emptyDesc: 'Connect a channel to interact with Koda from external apps.',
       unknown: 'Unknown',
       addChannel: '+ Add channel',
+      wizardTitle: 'Add Channel',
     },
   });
 
@@ -40,6 +44,11 @@ export function ConnectionsSection() {
   }, []);
 
   useEffect(() => { loadAccounts(); }, [loadAccounts]);
+
+  function handleWizardClose() {
+    setWizardOpen(false);
+    loadAccounts();
+  }
 
   return (
     <div className="settings-section" data-testid="settings-connections-section">
@@ -68,22 +77,25 @@ export function ConnectionsSection() {
         </div>
       )}
 
-      {!showWizard && (
-        <button
-          type="button"
-          className="settings-btn settings-btn--secondary"
-          onClick={() => setShowWizard(true)}
-        >
-          {text.addChannel}
-        </button>
-      )}
+      <button
+        type="button"
+        className="btn btn--secondary"
+        onClick={() => setWizardOpen(true)}
+      >
+        {text.addChannel}
+      </button>
 
-      {showWizard && (
+      <Modal
+        open={wizardOpen}
+        title={text.wizardTitle}
+        onClose={handleWizardClose}
+        width={520}
+      >
         <ChannelSetupWizard
-          onComplete={() => { setShowWizard(false); loadAccounts(); }}
-          onDismiss={() => setShowWizard(false)}
+          onComplete={handleWizardClose}
+          onDismiss={() => setWizardOpen(false)}
         />
-      )}
+      </Modal>
     </div>
   );
 }

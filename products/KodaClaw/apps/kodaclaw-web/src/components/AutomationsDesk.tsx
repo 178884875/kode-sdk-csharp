@@ -595,7 +595,7 @@ export function AutomationsDesk() {
       <div className="automations-desk__toolbar">
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="automations-refresh"
           disabled={isLoadingList || isRefreshing}
           onClick={() => {
@@ -611,7 +611,7 @@ export function AutomationsDesk() {
         <select
           id="automations-enabled-filter"
           data-testid="automations-enabled-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select"
+          className="kc-select control-plane-filter"
           value={enabledFilter}
           onChange={(event) => setEnabledFilter(event.target.value as EnabledFilter)}
         >
@@ -625,7 +625,7 @@ export function AutomationsDesk() {
         <select
           id="automations-source-filter"
           data-testid="automations-source-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select"
+          className="kc-select control-plane-filter"
           value={sourceFilter}
           onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
         >
@@ -707,7 +707,7 @@ export function AutomationsDesk() {
                   <div className="automation-item-actions">
                     <button
                       type="button"
-                      className="secondary-button"
+                      className="btn btn--secondary"
                       data-testid={`automation-select-${automation.id}`}
                       aria-pressed={isSelected}
                       onClick={() => handleSelectAutomation(automation.id)}
@@ -718,7 +718,7 @@ export function AutomationsDesk() {
                     {automation.enabled ? (
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         data-testid={`automation-trigger-${automation.id}`}
                         onClick={() => {
                           void handleTriggerAutomation(automation.id);
@@ -755,7 +755,7 @@ export function AutomationsDesk() {
                 </span>
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="btn btn--secondary"
                   data-testid={`automation-toggle-${selectedAutomation.id}`}
                   onClick={() => {
                     void handleToggleAutomation(selectedAutomation);

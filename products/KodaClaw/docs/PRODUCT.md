@@ -104,26 +104,30 @@ KodaClaw 不是单模型产品，而是带有控制面的多模型系统：
 - 支持 primary / fallback 路由
 - 支持对不同任务绑定不同默认模型策略
 
-### 5.5 Plugins
+### 5.5 扩展体系：两轨分工
 
-插件是 KodaClaw 的长期扩展方式。插件能带来：
+KodaClaw 采用两轨扩展模型，不同类型的扩展走不同路径：
 
-- 新工具
-- 新渠道
-- 新 Canvas 面板
-- 新自动化来源
-- 新记忆或知识接入方式
+**工具扩展 → workspace/mcp.json**
+
+用户直接编辑 `~/.kodaclaw/workspace/mcp.json`，接入任意 MCP server。依托 MCP 生态（filesystem、postgres、github、browser 等），无需安装流程，与 Claude Desktop 格式完全兼容。这是工具能力扩展的主要路径。
+
+**渠道扩展 → PluginHost channel 插件**
+
+接入新的外部消息平台（Discord、Slack、钉钉、企业微信等）通过 channel 插件实现。插件声明 `plugin.json` manifest，由 PluginHost 管理进程生命周期（启停、健康检查、日志、Keychain secrets）。插件通过 Channel Plugin Protocol 与 ChannelHub 交互（支持 Webhook / Push API / 轮询三种入站模式）。
+
+详细协议见 `docs/PLUGIN_SPEC.md`。
 
 ### 5.6 Channels
 
-外部渠道不是“通知发送器”，而是独立会话入口：
+外部渠道不是”通知发送器”，而是独立会话入口：
 
-- Telegram 私聊
-- Telegram 群组
-- QQ / WhatsApp / WeCom / DingTalk（后续插件化）
-- 通用 Webhook 入口
+- Telegram 私聊 / 群组（内置）
+- 飞书 / Lark（内置）
+- 通用 Webhook 入口（内置）
+- Discord、Slack、钉钉、企业微信等（通过 channel 插件扩展）
 
-KodaClaw 必须区分这些入口的隐私边界与记忆加载策略。
+KodaClaw 必须区分这些入口的隐私边界与记忆加载策略。内置渠道和插件渠道在 ChannelsDesk 统一管理，对用户呈现一致的账号管理体验。
 
 ### 5.7 Automation
 

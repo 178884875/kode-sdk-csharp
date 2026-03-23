@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   MessageSquare, Inbox, LayoutDashboard, Radio, Zap,
-  Cpu, Puzzle, Search, Lightbulb, Settings,
+  Cpu, Puzzle, Search, Lightbulb, Settings, Network,
 } from 'lucide-react';
 import type { MainDesk } from '../shell-shared/types';
 import { AutomationsDesk } from '../components/AutomationsDesk';
@@ -13,6 +13,7 @@ import { PluginsDesk } from '../components/PluginsDesk';
 import { SessionsDiagnosticsDesk } from '../components/SessionsDiagnosticsDesk';
 import { SkillsDesk } from '../components/SkillsDesk';
 import { SettingsDesk } from '../components/SettingsDesk';
+import { McpServersDesk } from '../components/McpServersDesk';
 import { DeskPageHeader } from './DeskPageHeader';
 import { useLocaleText } from '../i18n/I18nProvider';
 
@@ -48,11 +49,13 @@ export function MainContent({
       chat: '对话', inbox: '收件箱 / 审批', canvas: '画布',
       channels: '渠道', automations: '自动化', models: '模型设置',
       plugins: '插件', sessions: '会话诊断', skills: '技能', settings: '设置',
+      mcpServers: 'MCP 工具',
     },
     en: {
       chat: 'Chat', inbox: 'Inbox / Approvals', canvas: 'Canvas',
       channels: 'Channels', automations: 'Automations', models: 'Model Settings',
       plugins: 'Plugins', sessions: 'Session Diagnostics', skills: 'Skills', settings: 'Settings',
+      mcpServers: 'MCP Tools',
     },
   });
 
@@ -67,6 +70,7 @@ export function MainContent({
     sessions:    { icon: <Search size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.sessions },
     skills:      { icon: <Lightbulb size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.skills },
     settings:    { icon: <Settings size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.settings },
+    mcpServers:  { icon: <Network size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.mcpServers },
   };
 
   if (mainDesk === 'chat') {
@@ -103,6 +107,7 @@ export function MainContent({
         {mainDesk === 'channels' && <ChannelsDesk />}
         {mainDesk === 'skills' && <SkillsDesk />}
         {mainDesk === 'settings' && <SettingsDesk />}
+        {mainDesk === 'mcpServers' && <McpServersDesk />}
       </div>
     </div>
   );

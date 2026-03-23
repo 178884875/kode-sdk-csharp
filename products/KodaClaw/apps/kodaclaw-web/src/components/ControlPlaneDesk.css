@@ -98,10 +98,6 @@
   min-width: 156px;
 }
 
-.control-plane-select,
-.control-plane-input {
-  width: 100%;
-}
 
 .control-plane-install-form {
   margin-top: 14px;
@@ -735,6 +731,21 @@
   color: var(--accent);
 }
 
+/* ── Inbox linked-approval section ── */
+.inbox-approval-section {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.inbox-delivery-context {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
 /* ── Inbox media thumbnail ── */
 .inbox-media-thumbnail {
   max-width: 200px;
@@ -763,15 +774,6 @@
   font-weight: 500;
 }
 
-.link-button {
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-  cursor: pointer;
-  text-decoration: underline;
-}
 
 /* ── ChannelsDesk 布局 ── */
 .channels-desk__layout {

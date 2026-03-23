@@ -231,6 +231,12 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
 
         public IReadOnlyList<string> GetSkillsPaths() => [];
 
+        public Task<WorkspaceMcpConfig> ReadMcpConfigAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new WorkspaceMcpConfig());
+
+        public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         private WorkspaceSnapshot CreateSnapshot(bool initialized)
         {
             return new WorkspaceSnapshot(

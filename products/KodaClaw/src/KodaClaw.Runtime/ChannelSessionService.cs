@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
@@ -17,6 +18,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly ChannelSessionOptions _options;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IModelRegistryRepository? _modelRegistryRepository;
+    private readonly IMcpHubService? _mcpHubService;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
@@ -24,13 +26,15 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IMainSessionAgentDependenciesFactory dependenciesFactory,
         ChannelSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
-        IModelRegistryRepository? modelRegistryRepository = null)
+        IModelRegistryRepository? modelRegistryRepository = null,
+        IMcpHubService? mcpHubService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
         _options = options ?? new ChannelSessionOptions();
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _modelRegistryRepository = modelRegistryRepository;
+        _mcpHubService = mcpHubService;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -73,6 +77,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
             var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+            var resumeTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
@@ -84,7 +89,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     {
                         Model = configuredModel,
                         SystemPrompt = systemPrompt,
-                        Tools = _options.Tools,
+                        Tools = resumeTools,
                         Permissions = _options.Permissions,
                         SandboxOptions = new SandboxOptions
                         {
@@ -117,7 +122,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 var createdAfterFallback = await AgentRuntime.CreateAsync(
                     binding.SessionId,
-                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel),
+                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools),
                     dependencies,
                     cancellationToken);
 
@@ -132,9 +137,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         var initialModel = await ResolveConfiguredModelAsync(cancellationToken);
+        var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             binding.SessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel),
+            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools),
             dependencies,
             cancellationToken);
 
@@ -224,6 +230,12 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 seenPaths,
                 documents,
                 cancellationToken);
+            await TryAddContextDocumentAsync(
+                Path.Combine(workspaceDirectory, KodaClawWorkspaceLayout.OntologyFile),
+                workspaceRoot,
+                seenPaths,
+                documents,
+                cancellationToken);
         }
 
         if (scope.LoadUserProfile)
@@ -269,10 +281,35 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         documents.Add(new PromptContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
     }
 
+    private async Task<IReadOnlyList<string>> BuildSessionToolsAsync(
+        string sessionId,
+        IToolRegistry? toolRegistry,
+        CancellationToken cancellationToken)
+    {
+        var tools = new List<string>(_options.Tools);
+        if (_mcpHubService is null || toolRegistry is null)
+        {
+            return tools;
+        }
+
+        var merged = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
+        var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, toolRegistry, cancellationToken);
+        foreach (var toolName in mcpResult.InjectedToolNames)
+        {
+            if (merged.Add(toolName))
+            {
+                tools.Add(toolName);
+            }
+        }
+
+        return tools;
+    }
+
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         string systemPrompt,
-        string model)
+        string model,
+        IReadOnlyList<string>? tools = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
@@ -280,7 +317,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             Model = model,
             SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
-            Tools = _options.Tools,
+            Tools = tools ?? _options.Tools,
             Permissions = _options.Permissions,
             SandboxOptions = new SandboxOptions
             {
@@ -318,8 +355,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             ?? binding.ChannelIdentity.Username
             ?? binding.ExternalThreadId;
 
+        var sessionStartedAt = DateTimeOffset.Now;
         var prompt = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
             .WithCharacterBudget(_options.MaxPromptCharacters)
+            .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}).")
             .AddSection(
                 "Channel Session",
                 [

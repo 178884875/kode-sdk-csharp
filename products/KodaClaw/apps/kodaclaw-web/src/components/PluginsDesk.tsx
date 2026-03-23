@@ -635,7 +635,7 @@ export function PluginsDesk() {
       <div className="control-plane-toolbar">
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="plugins-refresh"
           disabled={isLoadingList || isRefreshing || isMutating}
           onClick={() => {
@@ -646,7 +646,7 @@ export function PluginsDesk() {
         </button>
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="plugins-discover"
           disabled={isMutating}
           onClick={() => {
@@ -661,7 +661,7 @@ export function PluginsDesk() {
         <select
           id="plugins-type-filter"
           data-testid="plugins-type-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select"
+          className="kc-select control-plane-filter"
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value as PluginTypeFilter)}
         >
@@ -678,7 +678,7 @@ export function PluginsDesk() {
         <select
           id="plugins-trust-filter"
           data-testid="plugins-trust-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select"
+          className="kc-select control-plane-filter"
           value={trustFilter}
           onChange={(event) => setTrustFilter(event.target.value as PluginTrustFilter)}
         >
@@ -695,7 +695,7 @@ export function PluginsDesk() {
         <select
           id="plugins-runtime-filter"
           data-testid="plugins-runtime-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-filter--wide control-plane-select"
+          className="kc-select control-plane-filter control-plane-filter--wide"
           value={runtimeFilter}
           onChange={(event) => setRuntimeFilter(event.target.value as PluginRuntimeFilter)}
         >
@@ -730,7 +730,7 @@ export function PluginsDesk() {
           <span className="bootstrap-form__label">{text.install.label}</span>
           <input
             data-testid="plugin-install-path"
-            className="bootstrap-form__textarea control-plane-input"
+            className="kc-input"
             value={installPath}
             onChange={(event) => setInstallPath(event.target.value)}
             placeholder={text.install.placeholder}
@@ -738,7 +738,7 @@ export function PluginsDesk() {
         </label>
         <button
           type="submit"
-          className="secondary-button control-plane-install-submit"
+          className="btn btn--secondary control-plane-install-submit"
           data-testid="plugin-install-submit"
           disabled={isMutating}
         >
@@ -854,19 +854,19 @@ export function PluginsDesk() {
             </div>
 
             <div className="control-plane-detail-actions">
-              <button type="button" className="secondary-button" data-testid="plugin-action-trust" disabled={!trustButtonEnabled} onClick={() => { void handleAction("trust"); }}>
+              <button type="button" className="btn btn--secondary" data-testid="plugin-action-trust" disabled={!trustButtonEnabled} onClick={() => { void handleAction("trust"); }}>
                 {text.actions.trust}
               </button>
-              <button type="button" className="secondary-button" data-testid="plugin-action-enable" disabled={!enableButtonEnabled} onClick={() => { void handleAction("enable"); }}>
+              <button type="button" className="btn btn--secondary" data-testid="plugin-action-enable" disabled={!enableButtonEnabled} onClick={() => { void handleAction("enable"); }}>
                 {text.actions.enable}
               </button>
-              <button type="button" className="secondary-button" data-testid="plugin-action-disable" disabled={!disableButtonEnabled} onClick={() => { void handleAction("disable"); }}>
+              <button type="button" className="btn btn--secondary" data-testid="plugin-action-disable" disabled={!disableButtonEnabled} onClick={() => { void handleAction("disable"); }}>
                 {text.actions.disable}
               </button>
-              <button type="button" className="secondary-button" data-testid="plugin-action-start" disabled={!startButtonEnabled} onClick={() => { void handleAction("start"); }}>
+              <button type="button" className="btn btn--secondary" data-testid="plugin-action-start" disabled={!startButtonEnabled} onClick={() => { void handleAction("start"); }}>
                 {text.actions.start}
               </button>
-              <button type="button" className="secondary-button" data-testid="plugin-action-stop" disabled={!stopButtonEnabled} onClick={() => { void handleAction("stop"); }}>
+              <button type="button" className="btn btn--secondary" data-testid="plugin-action-stop" disabled={!stopButtonEnabled} onClick={() => { void handleAction("stop"); }}>
                 {text.actions.stop}
               </button>
             </div>
@@ -966,7 +966,7 @@ export function PluginsDesk() {
                 <h3 className="desk-section-title">{text.logs.title}</h3>
                 <p className="desk-section-desc">{text.logs.copy}</p>
               </div>
-              <a data-testid="plugin-logs-link" className="secondary-button" href={selectedPluginId ? `/api/plugins/${selectedPluginId}/logs?limit=${PLUGIN_LOG_LIMIT}` : "#"}>
+              <a data-testid="plugin-logs-link" className="btn btn--secondary" href={selectedPluginId ? `/api/plugins/${selectedPluginId}/logs?limit=${PLUGIN_LOG_LIMIT}` : "#"}>
                 {text.logs.rawLogs}
               </a>
             </div>

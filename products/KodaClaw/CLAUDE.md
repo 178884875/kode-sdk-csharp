@@ -64,8 +64,9 @@ KodaClaw.Gateway（ASP.NET Core，loopback）
         ↓ DI 组合
 ┌──────────────────────────────────────────┐
 │ KodaClaw.Runtime    Agent 工厂 / 会话服务  │
+│ KodaClaw.McpHub     MCP 生态工具接入      │
 │ KodaClaw.ControlPlane  审批 / Inbox       │
-│ KodaClaw.PluginHost    MCP 插件生命周期    │
+│ KodaClaw.PluginHost    渠道插件生命周期    │
 │ KodaClaw.ChannelHub    Telegram / Webhook │
 │ KodaClaw.Automation    cron / heartbeat   │
 │ KodaClaw.ModelHub      模型路由 / 密钥    │
@@ -85,7 +86,8 @@ Kode.Agent SDK（父仓库 /src/Kode.Agent.Sdk/）
 | `KodaClaw.Workspace` | `~/.kodaclaw` 初始化，文件协议读写 |
 | `KodaClaw.ModelHub` | 模型 provider 注册、endpoint 路由、Keychain 密钥存储 |
 | `KodaClaw.Runtime` | Agent 工厂，三类 session 服务（chat / channel / automation），SSE 适配 |
-| `KodaClaw.PluginHost` | 插件发现、manifest 校验、MCP 进程托管、生命周期 |
+| `KodaClaw.McpHub` | MCP 生态接入：读取 workspace/mcp.json，管理 MCP 连接，向 session 注入工具；不依赖 PluginHost |
+| `KodaClaw.PluginHost` | 渠道插件：发现、manifest 校验、HTTP 协议进程托管、生命周期；不依赖 MCP |
 | `KodaClaw.ChannelHub` | 外部渠道连接器、消息路由、delivery 审批派发 |
 | `KodaClaw.Automation` | HEARTBEAT.md 编译、cron 调度、后台任务执行 |
 | `KodaClaw.ControlPlane` | 审批、Inbox、设置持久化、诊断 |
@@ -142,10 +144,10 @@ workspace/
   USER.md        # 用户画像
   MEMORY.md      # 长期记忆索引
   HEARTBEAT.md   # 自动化规则（从 YAML 编译而来）
-  mcp.json       # 插件 MCP server 定义
+  mcp.json       # 工具扩展：直连 MCP server（主流扩展路径）
 config/
   models.json    # 模型 endpoint 配置
-  plugins.json   # 已安装插件
+  plugins.json   # 已安装渠道插件（PluginHost 管理）
   gateway.json   # Gateway 认证 token
 ```
 
@@ -235,6 +237,23 @@ ACCEPTANCE_PACK 验收矩阵
 ## 当前进行中工作（WIP）
 
 无进行中条目。
+
+**近期完成**（Iter 38，2026-03-22）：
+- KodaClaw.McpHub 独立模块 + McpServersDesk（KC-3801~3807）
+  - `WorkspaceMcpServerEntry` 加 `enabled` nullable bool 字段，缺省等价 true，向后兼容 Claude Desktop 格式（KC-3801）
+  - 新建 `KodaClaw.McpHub` 独立项目：`IMcpHubService`（`InjectToolsAsync` / `TestConnectionAsync`）、`McpHubService`（迁移自 Runtime，错误隔离，诊断事件）、`McpHubInjectionResult` / `McpConnectionTestResult` records、`ServiceCollectionExtensions`（KC-3802）
+  - `IWorkspaceService.SaveMcpConfigAsync()`；Gateway `GET /api/mcp-servers` + `PUT /api/mcp-servers` + `POST /api/mcp-servers/{name}/test-connection`；集成测试 5 个（KC-3803 + KC-3806）
+  - 前端：`contracts.ts` 加 `WorkspaceMcpConfig` / `WorkspaceMcpServerEntry` / `McpConnectionTestResult`；`api.ts` 加 `fetchMcpServers` / `saveMcpServers` / `testMcpServerConnection`；`McpServersDesk.tsx` 完整管理界面（列表、enable/disable、添加表单、删除、测试连接状态徽章）；Sidebar 能力层加 "MCP 工具" 入口（KC-3804 + KC-3807）
+  - 契约测试：`McpHubInjectionContractTests`（6 个）+ `WorkspaceMcpConfigContractTests`（新增 enabled + SaveMcpConfigAsync 测试，共 13 个新测试）（KC-3805）
+  - 全量验证：`dotnet build` 0 错 0 警告；`npm run typecheck` 通过；L1/L2/L3 测试全绿
+
+**近期完成**（Iter 37，2026-03-22）：
+- workspace/mcp.json 接入（KC-3701~3704）
+  - `WorkspaceMcpConfig` / `WorkspaceMcpServerEntry` DTO，Claude Desktop 兼容格式（mcpServers 字典，transport/command/args/env/url/headers）（KC-3701）
+  - `IWorkspaceService.ReadMcpConfigAsync()`，`WorkspaceService` 实现：路径 `workspace/mcp.json`，文件不存在或 JSON 损坏时安全返回空配置（KC-3702）
+  - `MainSessionService.BuildWorkspaceMcpToolsAsync()`：session 启动时读 mcp.json → 为每 entry 构建 McpConfig → `McpToolProvider.GetToolsAsync` → 注册 ToolRegistry + 去重；支持 stdio/http/streamableHttp/sse；单 server 错误隔离；诊断事件 `main_session.workspace_mcp.fetch_failed` / `.injected`（KC-3703）
+  - 7 个契约测试：stdio/http entry 序列化、transport 缺省推断、空文件/文件缺失/JSON 损坏 → 安全返回（KC-3704）
+  - 全量回归：`dotnet test KodaClaw.sln -m:1` 失败数 0（1 个预存在失败不计入）
 
 **近期完成**（Iter 36，2026-03-22）：
 - 飞书 / Lark Channel 连接器（KC-3601~3609）

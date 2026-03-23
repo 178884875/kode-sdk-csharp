@@ -1,0 +1,12 @@
+namespace KodaClaw.Contracts;
+
+public sealed record SessionMessageItem(
+    string Id,
+    string Role,
+    string Text,
+    long? Timestamp);
+
+public sealed record SessionMessagesResponse(
+    IReadOnlyList<SessionMessageItem> Items,
+    int TotalCount,
+    bool HasMore);

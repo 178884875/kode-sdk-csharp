@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   MessageSquare, Inbox, LayoutDashboard, Radio, Zap,
-  Cpu, Puzzle, Search, Lightbulb, Settings, PenSquare, Activity,
+  Cpu, Puzzle, Search, Lightbulb, Settings, PenSquare, Activity, Network,
 } from 'lucide-react';
 import type { MainDesk } from '../shell-shared/types';
 import { useInboxUnreadCount } from '../hooks/useInboxUnreadCount';
@@ -35,12 +35,13 @@ const DESK_ICONS: Record<MainDesk, ReactNode> = {
   sessions:    <Search size={ICON_SIZE} strokeWidth={STROKE} />,
   skills:      <Lightbulb size={ICON_SIZE} strokeWidth={STROKE} />,
   settings:    <Settings size={ICON_SIZE} strokeWidth={STROKE} />,
+  mcpServers:  <Network size={ICON_SIZE} strokeWidth={STROKE} />,
 };
 
 const NAV_GROUPS: NavGroup[] = [
   { items: ['chat', 'inbox', 'canvas'] },
   { label: '渠道与自动化', items: ['channels', 'automations'] },
-  { label: '能力层', items: ['models', 'plugins', 'skills'] },
+  { label: '能力层', items: ['models', 'plugins', 'skills', 'mcpServers'] },
   { label: '工具', items: ['sessions'] },
   { label: '', items: ['settings'] },
 ];

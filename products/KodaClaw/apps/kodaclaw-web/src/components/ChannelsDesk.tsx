@@ -15,6 +15,7 @@ import {
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { ConfirmModal } from "./ui/ConfirmModal";
 import { Radio } from "lucide-react";
 import type {
   ChannelAccount,
@@ -290,6 +291,7 @@ export function ChannelsDesk() {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [updatingDelivery, setUpdatingDelivery] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
 
   // Add channel form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -738,7 +740,7 @@ export function ChannelsDesk() {
       <div className="channels-desk__toolbar">
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="channels-refresh"
           disabled={isLoadingList || isRefreshing}
           onClick={() => {
@@ -754,7 +756,7 @@ export function ChannelsDesk() {
         ) : null}
         <button
           type="button"
-          className="secondary-button"
+          className="btn btn--secondary"
           data-testid="channel-add-btn"
           disabled={isLoadingList}
           onClick={handleOpenAddForm}
@@ -767,7 +769,7 @@ export function ChannelsDesk() {
         </label>
         <select
           id="channels-connector-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select channels-connector-select"
+          className="kc-select control-plane-filter channels-connector-select"
           data-testid="channels-connector-filter"
           value={connectorFilter}
           onChange={(event) => {
@@ -788,7 +790,7 @@ export function ChannelsDesk() {
         </label>
         <select
           id="channels-account-filter"
-          className="bootstrap-form__textarea control-plane-filter control-plane-select channels-account-select"
+          className="kc-select control-plane-filter channels-account-select"
           data-testid="channels-account-filter"
           value={accountFilter}
           onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
@@ -843,7 +845,7 @@ export function ChannelsDesk() {
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                   <button
                     type="button"
-                    className="secondary-button"
+                    className="btn btn--secondary"
                     data-testid={`channel-account-toggle-${account.id}`}
                     onClick={() => { void handleToggleAccount(account); }}
                   >
@@ -851,9 +853,9 @@ export function ChannelsDesk() {
                   </button>
                   <button
                     type="button"
-                    className="secondary-button"
+                    className="btn btn--secondary"
                     data-testid={`channel-account-delete-${account.id}`}
-                    onClick={() => { void handleDeleteAccount(account.id); }}
+                    onClick={() => setDeleteConfirm({ id: account.id, name: account.displayName })}
                   >
                     Delete
                   </button>
@@ -877,7 +879,7 @@ export function ChannelsDesk() {
                     </label>
                     <select
                       id="channel-form-kind"
-                      className="bootstrap-form__textarea"
+                      className="kc-select"
                       value={addFormConnectorKind}
                       onChange={(e) => setAddFormConnectorKind(e.target.value as ChannelConnectorKind)}
                     >
@@ -888,14 +890,14 @@ export function ChannelsDesk() {
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={() => setAddFormStep(2)}
                       >
                         Next
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={handleCancelAddForm}
                       >
                         Cancel
@@ -911,7 +913,7 @@ export function ChannelsDesk() {
                         </label>
                         <input
                           id="channel-form-bot-token"
-                          className="bootstrap-form__textarea"
+                          className="kc-input"
                           type="password"
                           value={addFormBotToken}
                           onChange={(e) => setAddFormBotToken(e.target.value)}
@@ -925,7 +927,7 @@ export function ChannelsDesk() {
                         </label>
                         <input
                           id="channel-form-feishu-app-id"
-                          className="bootstrap-form__textarea"
+                          className="kc-input"
                           type="text"
                           value={addFormFeishuAppId}
                           onChange={(e) => setAddFormFeishuAppId(e.target.value)}
@@ -936,7 +938,7 @@ export function ChannelsDesk() {
                         </label>
                         <input
                           id="channel-form-feishu-app-secret"
-                          className="bootstrap-form__textarea"
+                          className="kc-input"
                           type="password"
                           value={addFormFeishuAppSecret}
                           onChange={(e) => setAddFormFeishuAppSecret(e.target.value)}
@@ -950,7 +952,7 @@ export function ChannelsDesk() {
                         </label>
                         <input
                           id="channel-form-webhook-path"
-                          className="bootstrap-form__textarea"
+                          className="kc-input"
                           type="text"
                           value={addFormWebhookPath}
                           onChange={(e) => setAddFormWebhookPath(e.target.value)}
@@ -967,7 +969,7 @@ export function ChannelsDesk() {
                       {addFormConnectorKind === "Telegram" ? (
                         <button
                           type="button"
-                          className="secondary-button"
+                          className="btn btn--secondary"
                           disabled={addFormTesting || !addFormBotToken.trim()}
                           onClick={() => { void handleTestTelegramToken(); }}
                         >
@@ -976,7 +978,7 @@ export function ChannelsDesk() {
                       ) : addFormConnectorKind === "Feishu" ? (
                         <button
                           type="button"
-                          className="secondary-button"
+                          className="btn btn--secondary"
                           disabled={addFormTesting || !addFormFeishuAppId.trim() || !addFormFeishuAppSecret.trim()}
                           onClick={() => { void handleTestFeishuCredentials(); }}
                         >
@@ -985,7 +987,7 @@ export function ChannelsDesk() {
                       ) : (
                         <button
                           type="button"
-                          className="secondary-button"
+                          className="btn btn--secondary"
                           onClick={() => setAddFormStep(3)}
                         >
                           Next
@@ -993,14 +995,14 @@ export function ChannelsDesk() {
                       )}
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={() => { setAddFormStep(1); setAddFormError(null); }}
                       >
                         Back
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={handleCancelAddForm}
                       >
                         Cancel
@@ -1019,7 +1021,7 @@ export function ChannelsDesk() {
                     </label>
                     <select
                       id="channel-form-delivery-rule"
-                      className="bootstrap-form__textarea"
+                      className="kc-select"
                       data-testid="channel-delivery-rule-select"
                       value={addFormDeliveryMode}
                       onChange={(e) => setAddFormDeliveryMode(e.target.value as DeliveryMode)}
@@ -1031,21 +1033,21 @@ export function ChannelsDesk() {
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={() => setAddFormStep(4)}
                       >
                         Next
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={() => setAddFormStep(2)}
                       >
                         Back
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={handleCancelAddForm}
                       >
                         Cancel
@@ -1059,7 +1061,7 @@ export function ChannelsDesk() {
                     </label>
                     <input
                       id="channel-form-display-name"
-                      className="bootstrap-form__textarea"
+                      className="kc-input"
                       type="text"
                       value={addFormDisplayName}
                       onChange={(e) => setAddFormDisplayName(e.target.value)}
@@ -1073,7 +1075,7 @@ export function ChannelsDesk() {
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         disabled={addFormSaving}
                         onClick={() => { void handleSaveChannelAccount(); }}
                       >
@@ -1081,14 +1083,14 @@ export function ChannelsDesk() {
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={() => setAddFormStep(3)}
                       >
                         Back
                       </button>
                       <button
                         type="button"
-                        className="secondary-button"
+                        className="btn btn--secondary"
                         onClick={handleCancelAddForm}
                       >
                         Cancel
@@ -1111,7 +1113,7 @@ export function ChannelsDesk() {
                 <button
                   key={thread.bindingId}
                   type="button"
-                  className="secondary-button channel-thread-btn"
+                  className="btn btn--secondary channel-thread-btn"
                   data-testid={`channel-thread-select-${thread.bindingId}`}
                   aria-pressed={selected}
                   onClick={() => {
@@ -1150,7 +1152,7 @@ export function ChannelsDesk() {
                   </span>
                   <span className="metric-label">{text.detail.deliveryMode}</span>
                   <select
-                    className="bootstrap-form__textarea"
+                    className="kc-select"
                     data-testid="channel-thread-delivery-mode-select"
                     value={threadDetail.deliveryRule.mode}
                     disabled={updatingDelivery}
@@ -1243,6 +1245,16 @@ export function ChannelsDesk() {
           </div>
         </section>
       </div>
+
+      <ConfirmModal
+        open={deleteConfirm !== null}
+        title="删除渠道账号"
+        description={`确认删除渠道账号 "${deleteConfirm?.name}" 吗？关联的线程绑定将同时移除，此操作不可撤销。`}
+        confirmLabel="删除"
+        variant="danger"
+        onConfirm={() => { if (deleteConfirm) void handleDeleteAccount(deleteConfirm.id); setDeleteConfirm(null); }}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </section>
   );
 }

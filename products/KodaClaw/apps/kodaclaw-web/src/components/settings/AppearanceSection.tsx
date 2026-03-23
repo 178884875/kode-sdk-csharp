@@ -82,7 +82,7 @@ export function AppearanceSection() {
             <span className="settings-pref-label">{text.theme}</span>
             <select
               data-testid="settings-theme"
-              className="settings-select"
+              className="kc-select"
               value={draft?.theme ?? 'System'}
               onChange={e => setDraft(d => d ? { ...d, theme: e.target.value as ThemeMode } : d)}
             >
@@ -96,7 +96,7 @@ export function AppearanceSection() {
             <span className="settings-pref-label">{text.landingRoute}</span>
             <input
               data-testid="settings-route"
-              className="settings-input"
+              className="kc-input"
               value={draft?.defaultLandingRoute ?? ''}
               onChange={e => setDraft(d => d ? { ...d, defaultLandingRoute: e.target.value } : d)}
             />
@@ -108,7 +108,7 @@ export function AppearanceSection() {
           <div style={{ marginTop: 'var(--space-4)' }}>
             <button
               type="submit"
-              className="settings-btn settings-btn--primary"
+              className="btn btn--primary"
               disabled={isSaving || !draft}
             >
               {isSaving ? text.saving : text.save}

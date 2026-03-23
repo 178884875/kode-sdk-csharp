@@ -33,7 +33,7 @@ function isMainDesk(value: DesktopDeskId | string | null | undefined): value is 
   return value === 'chat' || value === 'inbox' || value === 'sessions' ||
     value === 'models' || value === 'automations' || value === 'channels' ||
     value === 'plugins' || value === 'canvas' || value === 'skills' ||
-    value === 'settings';
+    value === 'settings' || value === 'mcpServers';
 }
 
 function resolveMainDeskFromLaunchTarget(target: DesktopLaunchTarget | null): MainDesk | null {
@@ -52,7 +52,7 @@ export default function App() {
   useTheme();
   const text = useAppStrings();
   const { health, snapshot, isLoading, error, refresh } = useGatewaySnapshot();
-  const { draft, setDraft, isStreaming, messages, placeholder, sendMessage, appendSystemNote } =
+  const { draft, setDraft, isStreaming, activeToolName, messages, placeholder, sendMessage, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory } =
     useChatConsole(text.chat);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
@@ -122,22 +122,47 @@ export default function App() {
 
   const handleRotateSession = useCallback(async () => {
     try { await rotateSession(); } catch { /* Gateway creates fresh session on next turn */ }
-  }, []);
+    clearMessages(text.chat.newSessionNote);
+  }, [clearMessages, text.chat.newSessionNote]);
+
+  const handleResumeSession = useCallback(() => {
+    clearMessages(text.chat.sessionResumedNote);
+  }, [clearMessages, text.chat.sessionResumedNote]);
+
+  // When activeMainSessionId changes from one non-null value to another, load history.
+  // Covers both resume (has history) and rotate (new session = 0 items, silent no-op).
+  const prevActiveSessionIdRef = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const current = snapshot?.activeMainSessionId ?? null;
+    const prev = prevActiveSessionIdRef.current;
+    // undefined = initial render, skip to avoid loading on app start
+    if (prev !== undefined && prev !== null && current !== null && current !== prev) {
+      loadHistory(current);
+    }
+    prevActiveSessionIdRef.current = current;
+  }, [snapshot?.activeMainSessionId, loadHistory]);
 
   const activeSessionId = snapshot?.activeMainSessionId ?? null;
 
   const chatHeaderActions = useMemo(() => (
     <SessionHistoryPanel
       activeSessionId={activeSessionId}
-      onResumed={handleRotateSession}
+      onResumed={handleResumeSession}
     />
-  ), [activeSessionId, handleRotateSession]);
+  ), [activeSessionId, handleResumeSession]);
 
   const healthTone = resolveHealthTone(health?.status ?? 'unknown');
 
   const chatTimeline = useMemo(() => (
-    <MessageTimeline messages={messages} isStreaming={isStreaming} />
-  ), [messages, isStreaming]);
+    <MessageTimeline
+      messages={messages}
+      isStreaming={isStreaming}
+      onSubmitApproval={submitApproval}
+      hasMoreHistory={hasMoreHistory}
+      isLoadingHistory={isLoadingHistory}
+      onLoadMoreHistory={loadMoreHistory}
+    />
+  ), [messages, isStreaming, submitApproval, hasMoreHistory, isLoadingHistory, loadMoreHistory]);
 
   const chatComposer = useMemo(() => (
     <ChatComposer
@@ -145,10 +170,11 @@ export default function App() {
       placeholder={placeholder}
       disabled={isLoading}
       isStreaming={isStreaming}
+      activeToolName={activeToolName}
       onChange={setDraft}
       onSubmit={sendMessage}
     />
-  ), [draft, placeholder, isLoading, isStreaming, setDraft, sendMessage]);
+  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, sendMessage]);
 
   // Onboarding gate
   if (onboardingState && !onboardingState.isCompleted) {

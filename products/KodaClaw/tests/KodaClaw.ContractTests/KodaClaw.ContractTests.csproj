@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.Gateway\KodaClaw.Gateway.csproj" />
+    <ProjectReference Include="..\..\src\KodaClaw.McpHub\KodaClaw.McpHub.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.Workspace\KodaClaw.Workspace.csproj" />
   </ItemGroup>

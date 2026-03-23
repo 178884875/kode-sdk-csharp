@@ -28,6 +28,12 @@ public interface IMainSessionService
     /// </summary>
     void RequestWorkspaceRotation();
 
+    /// <summary>
+    /// Resolves the approvalId for the given tool call ID, or null if not found.
+    /// Used by <see cref="ChatSessionService"/> to emit inline approval SSE events.
+    /// </summary>
+    string? TryGetApprovalIdForCall(string callId);
+
     Task<ApprovalDecisionDispatchResult> ApproveApprovalAsync(
         string approvalId,
         CancellationToken cancellationToken = default);

@@ -1192,3 +1192,205 @@
   - Scope：`ChannelSetupWizard.tsx` 新增飞书选项卡，包含：引导说明（飞书开发者后台创建企业自建应用 → 开启机器人能力 → 在事件订阅中添加 `im.message.receive_v1` → 订阅范围勾选接收群聊/私聊消息 → 复制 App ID 和 App Secret）；appId / appSecret 输入框 + 连通性测试按钮；成功后调 `createChannelAccount`。
   - Modules：`apps/kodaclaw-web/src/components/settings/ChannelSetupWizard.tsx`。
   - Verification：`npm run typecheck`；`npm run test`；L5 Dogfood 人工走通飞书引导全流程。
+
+## 迭代 37：workspace/mcp.json 接入（KC-3701~3704）
+
+范围冻结：见 `docs/ITERATION_37_FREEZE.md`（2026-03-22）。补齐 workspace/mcp.json 空洞——文件已存在但从未被读取，本迭代让用户能直接通过编辑文件方式接入任意 MCP server，无需走 PluginHost 安装流程。
+
+- `KC-3701`：`Completed`（2026-03-22）。
+  - User Outcome：新增 `WorkspaceMcpConfig` / `WorkspaceMcpServerEntry` DTO，定义 mcp.json 的 schema（Claude Desktop 兼容格式）。
+  - Scope：`src/KodaClaw.Contracts/WorkspaceMcpConfig.cs`（新增）；`mcpServers` 字典，每个 entry 支持 `transport`（默认 stdio）、`command`、`args`、`env`、`url`、`headers`。
+  - Modules：`src/KodaClaw.Contracts/WorkspaceMcpConfig.cs`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.ContractTests --filter "WorkspaceMcpConfig"`（L3）✓。
+
+- `KC-3702`：`Completed`（2026-03-22）。
+  - User Outcome：WorkspaceService 能读取 workspace/mcp.json，文件不存在或格式错误时安全返回空配置。
+  - Scope：`IWorkspaceService` 新增 `ReadMcpConfigAsync(CancellationToken)`；`WorkspaceService` 实现（路径 `workspace/mcp.json`）；JSON 解析异常时返回空 `WorkspaceMcpConfig`。
+  - Modules：`src/KodaClaw.Contracts/IWorkspaceService.cs`、`src/KodaClaw.Workspace/WorkspaceService.cs`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）✓；所有 `IWorkspaceService` stub 实现同步补齐。
+
+- `KC-3703`：`Completed`（2026-03-22）。
+  - User Outcome：用户编辑 `~/.kodaclaw/workspace/mcp.json` 后，下次 session 启动 Agent 自动拥有其中声明的 MCP server 工具，工具命名空间 `mcp__{name}__{tool}`，支持 stdio / http / streamableHttp / sse。
+  - Scope：`MainSessionService` 构造函数注入 `McpClientManager?`（可选）；`BuildSessionToolsAsync` 末尾追加 `BuildWorkspaceMcpToolsAsync()`：读 mcp.json → 为每个 entry 构建 McpConfig → 调 `McpToolProvider.GetToolsAsync` → 注册到 ToolRegistry + 去重；单 server 错误隔离，记录诊断事件 `main_session.workspace_mcp.fetch_failed`；成功时记录 `main_session.workspace_mcp.injected`。
+  - Modules：`src/KodaClaw.Runtime/MainSessionService.cs`、`src/KodaClaw.Runtime/KodaClaw.Runtime.csproj`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）✓；`dotnet test KodaClaw.sln -m:1`（全量回归）✓ 失败数 0（1 个预存在失败不计入）。
+
+- `KC-3704`：`Completed`（2026-03-22）。
+  - User Outcome：mcp.json schema 有合约测试保护，序列化/反序列化格式稳定。
+  - Scope：`WorkspaceMcpConfigContractTests.cs`：7 个测试覆盖 stdio/http entry、transport 缺省推断、空文件解析、文件缺失 / JSON 损坏时安全返回。
+  - Modules：`tests/KodaClaw.ContractTests/Workspace/WorkspaceMcpConfigContractTests.cs`（新增）。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter "WorkspaceMcpConfig"` → 测试总数 7，通过数 7 ✓。
+
+## 迭代 39：Chat UX — 会话清空 + 内联审批（KC-3901~3905）
+
+范围冻结：见 `docs/ITERATION_39_FREEZE.md`（2026-03-23）。解决两个割裂问题：会话切换后 UI 无反馈、Agent 审批需跳转 Inbox 操作。
+
+- `KC-3901`：`Completed`（2026-03-23）。
+  - User Outcome：点击"新对话"或从历史面板恢复会话后，Chat 消息列表立即清空并显示对应系统提示（"已开始新对话" / "已切换到历史会话，Agent 记得之前的上下文"），用户有明确的切换感知。
+  - Scope：`useChatConsole.ts` 新增 `clearMessages()` 函数；`App.tsx` 新增 `handleResumeSession`（调 `clearMessages(sessionResumedNote)`）；`handleRotateSession` 调 `clearMessages(newSessionNote)`；`SessionHistoryPanel.onResumed` 改为 `handleResumeSession`；`app-strings.ts` 新增 `newSessionNote`/`sessionResumedNote`。
+  - Modules：`apps/kodaclaw-web/src/hooks/useChatConsole.ts`、`apps/kodaclaw-web/src/App.tsx`、`apps/kodaclaw-web/src/i18n/app-strings.ts`。
+  - Verification：`npm run typecheck`（L0 通过）；`npm run test`（L1 通过）。
+
+- `KC-3902`：`Completed`（2026-03-23）。
+  - User Outcome：Chat SSE 流新增 `approval_required` 和 `approval_decided` 两种事件类型，有完整 schema 契约，供前端渲染内联审批卡片。
+  - Scope：后端 `ChatStreamEvent.cs` 新增 `ApprovalId?`、`CallId?`、`ToolName?`、`InputPreview?`、`Decision?` optional 字段；前端 `contracts.ts` 的 `ChatStreamEvent` union 扩展这两个 type，新增 approval 字段。
+  - Modules：`src/KodaClaw.Contracts/ChatStreamEvent.cs`、`apps/kodaclaw-web/src/types/contracts.ts`。
+  - Verification：`dotnet build KodaClaw.sln`（L0 通过）；`npm run typecheck`（L0 通过）。
+
+- `KC-3903`：`Completed`（2026-03-23）。
+  - User Outcome：Agent 触发权限审批时，审批请求**实时**出现在 Chat SSE 流中，前端无需轮询 Inbox 即可感知；审批决策后，决定结果也通过 SSE 推送。
+  - Scope：`IMainSessionService` 新增 `TryGetApprovalIdForCall(string callId)`；`MainSessionService` 实现（查 `_liveApprovals`）；`ChatSessionService` 订阅新增 `"control"` 频道和 `"permission_required"/"permission_decided"` kinds，switch case 处理 `PermissionRequiredEvent` → yield `approval_required`，`PermissionDecidedEvent` → yield `approval_decided`；inputPreview 截断到 400 字符。
+  - Modules：`src/KodaClaw.Runtime/IMainSessionService.cs`、`src/KodaClaw.Runtime/MainSessionService.cs`、`src/KodaClaw.Runtime/ChatSessionService.cs`。
+  - Verification：`dotnet build KodaClaw.sln`（L0 通过）。
+
+- `KC-3904`：`Completed`（2026-03-23）。
+  - User Outcome：Chat 对话流中出现内联审批卡片（工具名、参数预览、允许/拒绝按钮）；用户点击决策后卡片状态更新为已批准/已拒绝；Agent 随即继续执行，对话流继续。收件箱作为备份入口保留。
+  - Scope：`chat.ts` 新增 `"approval"` role + approval 字段；`useChatConsole.ts` 处理 `approval_required`/`approval_decided` 事件，新增 `clearMessages()`、`submitApproval()` 导出；新增 `ApprovalCard.tsx` 组件；`MessageTimeline.tsx` 渲染 `ApprovalCard`；`index.css` 新增 `.approval-card*` 样式；`App.tsx` 传递 `onSubmitApproval`。
+  - Modules：`apps/kodaclaw-web/src/types/chat.ts`、`apps/kodaclaw-web/src/hooks/useChatConsole.ts`、`apps/kodaclaw-web/src/components/MessageTimeline.tsx`、`apps/kodaclaw-web/src/components/chat/ApprovalCard.tsx`（新增）。
+  - Verification：`npm run typecheck`（L0 通过）；`npm run test`（L1 通过）。
+  - Depends on：KC-3902（事件类型定义）、KC-3903（SSE 推送）。
+
+- `KC-3905`：`Pending`（L2/L4 专项测试推迟，L0 全量编译已通过）。
+  - User Outcome：内联审批全链路有集成测试保护，SSE 序列、卡片渲染、决策回路三层均可验证。
+  - Scope：待补充 `InlineApprovalIntegrationTests.cs`（后端 L2）和 `approval-card.spec.tsx`（前端 L1）。
+  - Modules：`tests/KodaClaw.IntegrationTests/Runtime/InlineApprovalIntegrationTests.cs`（待新增）、`apps/kodaclaw-web/src/__tests__/approval-card.spec.tsx`（待新增）。
+  - Verification：`dotnet build KodaClaw.sln`（L0 通过）；专项测试待补充。
+  - Depends on：KC-3903、KC-3904。
+
+- `KC-3906`：`Completed`（2026-03-23）。
+  - User Outcome：用户在 Settings → 行为控制 开启"工具调用自动授权"后，新建/恢复的 MainSession 中 Agent 执行任何工具均自动放行，不弹内联审批卡片，也不进 Inbox；关闭后恢复审批流。与渠道消息投递审批（`RequireApprovalForExternalActions`）独立控制。
+  - Scope：`KodaClawSettings` 新增 `AutoApproveToolCalls: bool`（默认 false）；`SqliteSettingsRepository` 补 migration（`auto_approve_tool_calls` 列）+ BindParameters + MapSettings（col 9）；`MainSessionService` 注入 `ISettingsRepository?`，新增 `ResolvePermissionsAsync()`（AutoApproveToolCalls=true → `Mode="auto"` else `Mode="approval"`），在 Fresh 和 Resume 路径均调用；`BehaviorSection.tsx` 新增 toggle；`contracts.ts` 新增 `autoApproveToolCalls: boolean`。
+  - Modules：`src/KodaClaw.Contracts/KodaClawSettings.cs`、`src/KodaClaw.ControlPlane/SqliteSettingsRepository.cs`、`src/KodaClaw.Runtime/MainSessionService.cs`、`apps/kodaclaw-web/src/components/settings/BehaviorSection.tsx`、`apps/kodaclaw-web/src/types/contracts.ts`。
+  - Verification：`dotnet build KodaClaw.sln`（L0 通过）；`npm run typecheck`（L0 通过）；`dotnet test --filter "ControlPlane.SqliteSettings"`（L1 全通）。
+
+- `KC-BUG-003`：`Completed`（2026-03-23）。
+  - 症状：历史会话面板（SessionHistoryPanel）只显示截断的 session ID，缺乏有意义的会话摘要，用户难以识别具体会话。
+  - 根因：`SessionSummary` / `SessionDetail` contract 无 title 字段；后端未提取第一条用户消息作为标题。
+  - 修复：后端 `SessionSummary`、`SessionDetail` 新增 `string? Title = null`；`LoadSessionDetailAsync` 提取第一条 `MessageRole.User` 的 `TextContent.Text`，超过 60 字符截断并附省略号；`GatewayApp.SessionEndpoints.cs` 将 `Title` 透传到 `SessionSummary` 响应；前端 `contracts.ts` 的 `SessionSummary` 新增 `title?: string | null`；`SessionHistoryPanel.tsx` 用 title 代替 session ID 前 8 位显示，无 title 时降级到 ID 截断；`app-shell.css` 新增 `.session-history-item__title` 样式，网格扩展为 3 行。
+  - 受影响模块：`src/KodaClaw.Contracts/SessionSummary.cs`、`src/KodaClaw.Contracts/SessionDetail.cs`、`src/KodaClaw.Gateway/Infrastructure/GatewayApp.SessionInfrastructure.cs`、`src/KodaClaw.Gateway/Endpoints/GatewayApp.SessionEndpoints.cs`、`apps/kodaclaw-web/src/types/contracts.ts`、`apps/kodaclaw-web/src/components/chat/SessionHistoryPanel.tsx`、`apps/kodaclaw-web/src/shell/app-shell.css`。
+  - Verification：`dotnet build KodaClaw.sln`（L0 通过）；`npm run typecheck`（L0 通过）。
+
+## 迭代 38：KodaClaw.McpHub 独立模块 + McpServersDesk（KC-3801~3807）
+
+范围冻结：见 `docs/ITERATION_38_FREEZE.md`（2026-03-22）。将 workspace/mcp.json 接入能力提取为独立模块，补齐 enabled 字段，实现前后端完整管理界面，并支持连通性测试与状态展示。
+
+- `KC-3801`：`Completed`（2026-03-22）。
+  - User Outcome：`WorkspaceMcpServerEntry` 新增 `enabled` 字段（nullable bool，缺省 true），`BuildWorkspaceMcpToolsAsync` 跳过 `enabled=false` 的 entry，向后兼容 Claude Desktop 格式。
+  - Scope：`src/KodaClaw.Contracts/WorkspaceMcpConfig.cs` 加 `enabled` 属性；`MainSessionService.BuildWorkspaceMcpToolsAsync()` 加过滤逻辑；`WorkspaceMcpConfigContractTests.cs` 补充 enabled 相关测试。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Runtime`、`KodaClaw.ContractTests`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.ContractTests --filter "WorkspaceMcp"`（L3）。
+
+- `KC-3802`：`Completed`（2026-03-22）。
+  - User Outcome：workspace/mcp.json 接入逻辑从 Runtime 提取到独立模块 `KodaClaw.McpHub`，接口清晰，便于未来扩展（热重载、连接池等）。
+  - Scope：新建 `src/KodaClaw.McpHub/` 项目；`IMcpHubService` 接口（`InjectToolsAsync`）；`McpHubService` 实现（迁移自 `MainSessionService.BuildWorkspaceMcpToolsAsync`）；`McpHubInjectionResult` record；`ServiceCollectionExtensions`；`KodaClaw.Runtime.csproj` 加 McpHub 引用；`MainSessionService` 改为注入 `IMcpHubService`；`KodaClaw.Gateway` 注册 McpHub 服务。
+  - Modules：`src/KodaClaw.McpHub/`（新增）、`KodaClaw.Runtime`、`KodaClaw.Gateway`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test KodaClaw.sln -m:1`（全量回归）。
+
+- `KC-3803`：`Completed`（2026-03-22）。
+  - User Outcome：`IWorkspaceService` 新增 `SaveMcpConfigAsync()`；Gateway 暴露 `GET /api/mcp-servers` 和 `PUT /api/mcp-servers`，前端可读写 workspace/mcp.json。
+  - Scope：`IWorkspaceService` 加 `SaveMcpConfigAsync(WorkspaceMcpConfig)`；`WorkspaceService` 实现（序列化写入 `workspace/mcp.json`）；所有 stub/fake `IWorkspaceService` 补充新方法；`GatewayApp.McpServersEndpoints.cs`（新 partial）：GET 调 `ReadMcpConfigAsync`，PUT 调 `SaveMcpConfigAsync`；Gateway DI 注册；集成测试 `McpServersApiIntegrationTests`（GET 返回空配置、PUT 保存后 GET 可读回）。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Workspace`、`KodaClaw.Gateway`、`KodaClaw.IntegrationTests`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.IntegrationTests --filter "McpServers"`（L2）。
+
+- `KC-3804`：`Completed`（2026-03-22）。
+  - User Outcome：前端 McpServersDesk 组件：列表展示所有 server（名称、transport、command/url）、enable/disable toggle（调 PUT 保存）、添加表单（名称、transport 选择、command/args 或 url/headers）、删除按钮；Sidebar 能力层加"MCP 直连"入口；`contracts.ts` 新增 `WorkspaceMcpServerEntry` / `WorkspaceMcpConfig` 类型；`api.ts` 新增 `fetchMcpServers()` / `saveMcpServers()`。
+  - Scope：`apps/kodaclaw-web/src/components/McpServersDesk.tsx`（新增）；`apps/kodaclaw-web/src/lib/api.ts`；`apps/kodaclaw-web/src/types/contracts.ts`；`apps/kodaclaw-web/src/shell/Sidebar.tsx`（加入口）；`apps/kodaclaw-web/src/shell/MainContent.tsx`（加路由）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck`（L0）；`npm run test`（L1）；L5 人工走通添加/禁用/删除全流程。
+
+- `KC-3805`：`Completed`（2026-03-22）。
+  - User Outcome：McpHub 模块和 GET/PUT API 有契约测试保护，schema 稳定。
+  - Scope：`tests/KodaClaw.ContractTests/McpHub/McpHubInjectionContractTests.cs`（新增）：验证 enabled 过滤行为、空配置时返回零工具、单 server 失败不影响其他；`WorkspaceMcpConfigContractTests` 补充 SaveMcpConfigAsync 往返序列化测试。
+  - Modules：`tests/KodaClaw.ContractTests`。
+  - Verification：`dotnet test tests/KodaClaw.ContractTests --filter "McpHub|WorkspaceMcp"`（L3）。
+
+- `KC-3806`：`Completed`（2026-03-22）。
+  - User Outcome：用户可在 McpServersDesk 点击「测试连接」按钮，即时得知某个 MCP server 是否可达、能否成功 ListTools，以及可用工具数量；连接失败时显示错误摘要。
+  - Scope：`IMcpHubService` 新增 `TestConnectionAsync(string serverName, CancellationToken ct) → McpConnectionTestResult`；`McpHubService` 实现（复用 McpClientManager，尝试连接 + ListTools，超时 10s）；`McpConnectionTestResult` record（Success/ToolCount/ErrorMessage）；`GatewayApp.McpServersEndpoints.cs` 加 `POST /api/mcp-servers/{name}/test-connection`；集成测试 `McpServersTestConnectionIntegrationTests`（对不存在的 server 返回 404，对错误 command 返回 success=false）。
+  - Modules：`KodaClaw.McpHub`、`KodaClaw.Gateway`、`KodaClaw.IntegrationTests`。
+  - Verification：`dotnet build KodaClaw.sln`（L0）；`dotnet test tests/KodaClaw.IntegrationTests --filter "McpServersTest"`（L2）；L5 人工触发 test-connection 端点确认 JSON 返回。
+  - Depends on：KC-3802（McpHub 模块存在）、KC-3803（端点 partial 已建）。
+
+- `KC-3807`：`Completed`（2026-03-22）。
+  - User Outcome：McpServersDesk 列表中每个 server 行显示连通状态徽章（绿色"可达" / 红色"不可达" / 灰色"未测试"）；用户点击「测试连接」按钮后徽章实时更新；页面加载时不自动触发（手动按需测试）。
+  - Scope：`contracts.ts` 加 `McpConnectionTestResult`（success/toolCount/errorMessage）；`api.ts` 加 `testMcpServerConnection(name)`；`McpServersDesk.tsx` 本地 state `connectionStatus: Record<string, McpConnectionTestResult | 'testing' | null>`；每行渲染状态徽章（Lucide CheckCircle2/XCircle/Circle）和「测试」按钮（loading spinner 动效）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck`（L0）；`npm run test`（L1）；L5 人工验证：点击按钮 → 转圈 → 显示绿/红徽章 + 工具数或错误摘要。
+
+## 迭代 40：前端 Modal 表单体验系统化（KC-4001~4004）
+
+范围冻结：见 `docs/ITERATION_40_FREEZE.md`（2026-03-23）。纯前端 UX 优化/重构：替换 `window.confirm()`、将高字段数编辑器和多步向导改为 Modal，以及破坏性操作视觉强化。不涉及任何后端或 API 变更。
+
+- `KC-4001`：`Completed`（2026-03-23）。
+  - User Outcome：所有删除/破坏性操作弹出样式统一的 `ConfirmModal` 而非原生 `window.confirm()`；danger 变体下确认按钮为红色，视觉分量更重。
+  - Scope：新建 `apps/kodaclaw-web/src/components/ui/ConfirmModal.tsx`，基于 `Modal.tsx` 封装，props：`open / title / description / confirmLabel / variant("danger"|"warning"|"default") / onConfirm / onCancel / busy`；新建配套 `ConfirmModal.css`（danger/warning 按钮色）；替换 `McpServersDesk.tsx`、`ModelsSettingsDesk.tsx`、`ChannelsDesk.tsx` 中所有 `window.confirm()` 调用。
+  - Modules：`apps/kodaclaw-web/src/components/ui/`、`apps/kodaclaw-web/src/components/McpServersDesk.tsx`、`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`、`apps/kodaclaw-web/src/components/ChannelsDesk.tsx`。
+  - Verification：L0 typecheck ✓；L0 build ✓；L1 48 tests ✓。
+
+- `KC-4002`：`Completed`（2026-03-23）。
+  - User Outcome：Settings → 系统 → "重新引导" / "清除身份" 操作弹出 `ConfirmModal`（danger 变体），包含操作说明和不可撤销警告；移除 `settings-confirm-row` inline 确认状态，简化为 idle → working → done/error 三态。
+  - Scope：`SystemSection.tsx` 移除 `useConfirmAction` hook 的 `confirming` 状态分支；两个操作各自维护 `confirmOpen` bool state + `busy` state；按钮点击 → 打开 ConfirmModal → `onConfirm` 回调执行破坏性 API 调用 → done/error inline 反馈。
+  - Modules：`apps/kodaclaw-web/src/components/settings/SystemSection.tsx`。
+  - Verification：L0 typecheck ✓；L0 build ✓；L1 48 tests ✓。
+
+- `KC-4003`：`Completed`（2026-03-23）。
+  - User Outcome：`ModelsSettingsDesk` 新建/编辑模型端点通过 Modal 操作，左侧模型列表改为全宽显示；工具栏新增"新建端点"按钮，列表行"编辑"按钮触发 Modal，右侧常驻 Composer 面板移除；全局设置（主题/自动化引擎）以独立 section 展示在模型列表下方。
+  - Scope：Modal 封装端点表单；`settings-form` section 恢复（fetchSettings/saveSettings）；vitest.setup.ts 补 HTMLDialogElement mock；settings-desk.spec 和 models-settings-desk.spec 更新对应测试。
+  - Modules：`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`（大改）、`vitest.setup.ts`、`__tests__/settings-desk.spec.tsx`、`__tests__/models-settings-desk.spec.tsx`。
+  - Verification：L0 typecheck ✓；L0 build ✓；L1 48 tests ✓。
+
+- `KC-4004`：`Completed`（2026-03-23）。
+  - User Outcome：Settings → 连接 → "+ 绑定新渠道" 弹出 Modal，Modal 内嵌 `ChannelSetupWizard` 多步向导；完成或取消关闭 Modal，列表自动刷新；向导体验与 Settings 页面内容在视觉上明确隔离。
+  - Scope：`ConnectionsSection.tsx` 替换 inline `showWizard` 展开方式：改为 `wizardOpen: bool` state + `Modal` 容器包裹 `ChannelSetupWizard`；Modal 的 `onClose` 同时触发 `loadAccounts()`；`ChannelSetupWizard` 组件 props 不变；Modal `width` 设为 `520px` 以适配向导宽度。
+  - Modules：`apps/kodaclaw-web/src/components/settings/ConnectionsSection.tsx`。
+  - Verification：L0 typecheck ✓；L0 build ✓；L1 48 tests ✓。
+
+## 迭代 41：Chat UX as Agent OS（KC-4101~4103）
+
+范围冻结：见 `docs/ITERATION_41_FREEZE.md`（2026-03-23）。通过工具调用可见性、流式状态语义化、时间戳 hover 展示三项改动，使 Chat 页面从聊天应用形态向 Agent OS 形态迈进。后端仅扩展 SSE 事件，前端增加新渲染层，不改变现有 API contract。
+
+- `KC-4101`：`Pending`。
+  - User Outcome：消息时间戳默认隐藏，悬停消息时淡入显示，减少连续对话中的视觉噪音。
+  - Scope：`index.css` 中 `.message__time` 加 `opacity: 0; transition: opacity 0.15s ease`；`article.message:hover .message__time { opacity: 1 }`。
+  - Modules：`apps/kodaclaw-web/src/index.css`。
+  - Verification：L0 typecheck / build；L5 人工悬停验证。
+
+- `KC-4102`：`Pending`。
+  - User Outcome：Agent 执行工具后，Timeline 中插入紧凑的工具活动行（⚙ 工具名 · 耗时），用户可见 Agent 都做了什么。
+  - Scope：`ChatStreamEvent.cs` 加 `long? DurationMs` 字段；`ChatSessionService.cs` 将 `ToolEndEvent` case 改为通用（保留 workspace rotation 检查），yield `tool_activity`；前端 `contracts.ts` 加 `"tool_activity"` type 和 `durationMs`；`chat.ts` 加 `"tool_activity"` role 和 `durationMs?: number`；`useChatConsole.ts` 处理 `tool_activity` 事件；`MessageTimeline.tsx` 新增 `ToolActivityBlock` 组件内联渲染；CSS 加 `.tool-activity` 紧凑样式。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Runtime`、`apps/kodaclaw-web`。
+  - Verification：L0 dotnet build / npm typecheck / build；L1 npm test；L5 人工触发工具调用验证。
+
+- `KC-4103`：`Pending`。
+  - User Outcome：Agent 执行工具时，Composer hint 显示"Koda 正在执行 {toolName}…"，用户知道在等什么而不是茫然等待。
+  - Scope：`ChatSessionService.cs` Subscribe kinds 加 `"tool:start"`，handle `ToolStartEvent` → yield `agent_working`；前端 `contracts.ts` 加 `"agent_working"` type；`useChatConsole.ts` 跟踪 `activeToolName` state，返回给调用方；`App.tsx` 传 `activeToolName` 给 `ChatComposer`；`ChatComposer.tsx` 接受 `activeToolName` prop，在 streaming 时显示工具 hint。
+  - Modules：`KodaClaw.Runtime`、`apps/kodaclaw-web`。
+  - Verification：L0 build；L1 test；L5 人工验证 Composer hint 跟随工具执行变化。
+
+## 专项 W3：前端 UI 系统统一（KC-W3-001）
+
+范围：纯前端 CSS/className 重构，不改任何后端 API、契约或组件逻辑。消灭 4 套按钮体系和 5 套输入框体系，统一为 `.btn` + `.kc-input/.kc-select/.kc-textarea`。
+
+- `KC-W3-001`：`Pending`。
+  - User Outcome：全站按钮高度、padding、禁用态、focus ring 视觉一致；输入框高度、padding、focus ring 视觉一致；Settings 页面与模型设置/MCP 页面表单元素对齐。
+  - Scope：
+    - CSS 层：`app-shell.css` 删除 `.settings-btn`/`.settings-input`/`.settings-select`；`index.css` 删除 `.secondary-button`；`ControlPlaneDesk.css` 删除 `.control-plane-input`/`.control-plane-select`；`Modal.css` 将 `.kc-input`/`.kc-select`/`.kc-field*` 提升到 `index.css` 成为全局样式；新增 `.kc-textarea`；统一 disabled opacity 为 0.5；统一 focus shadow 为 `0 0 0 3px var(--accent-soft)`。
+    - 组件层：Settings 各 section（Appearance/Behavior/Notifications/Connections/System/Memory/Heartbeat/Risk/Updates/WorkspaceIdentityEditor）`settings-btn*` → `btn*`；`settings-input` → `kc-input`；`settings-select` → `kc-select`；ModelsSettingsDesk/ChannelsDesk/PluginsDesk/AutomationsDesk/McpServersDesk/ChannelSetupWizard 中 `secondary-button` → `btn btn--secondary`；`bootstrap-form__textarea` 用于 input/select 时 → `kc-input`/`kc-select`；`bootstrap-form__textarea` 用于 textarea 保留或改为 `kc-textarea`；`control-plane-input`/`control-plane-select` → `kc-input`/`kc-select`。
+  - Modules：`apps/kodaclaw-web/src/index.css`、`app-shell.css`、`ControlPlaneDesk.css`、`Modal.css`、全部 `components/settings/*.tsx`、`components/*.tsx`（10+个文件）。
+  - Verification：L0 `npm run typecheck`；L0 `npm run build`；L1 `npm run test`（46 tests 全绿）；L5 人工 Dogfood Settings/Models/MCP/Channels 页面外观。
+
+## 迭代 42：Session History Restoration（KC-4201~4202）
+
+范围冻结：见 `docs/ITERATION_42_FREEZE.md`（2026-03-23）。Resume 一个历史 session 后，Chat 区域自动加载最近 20 条消息（user/assistant），顶部插入分隔线，并提供"加载更多"按钮向上翻页。
+
+- `KC-4201`：`Completed`（2026-03-23）。
+  - User Outcome：前端可通过 `GET /api/sessions/{id}/messages?limit=20&skip=0` 拉取任意 session 的对话历史（user/assistant 消息，文本内容）。
+  - Scope：新增 `SessionMessageItem` / `SessionMessagesResponse` record（`KodaClaw.Contracts/SessionMessagesResponse.cs`）；`GatewayApp.SessionEndpoints.cs` 加 `GET /{id}/messages` 端点；`GatewayApp.SessionInfrastructure.cs` 加 `LoadSessionMessagesAsync` helper（倒序 skip/limit，仅 user/assistant）。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Gateway`。
+  - Verification：L0 `dotnet build` 0 错 0 警告 ✓。
+
+- `KC-4202`：`Completed`（2026-03-23）。
+  - User Outcome：Resume 一个历史 session 后，Chat 顶部自动出现历史消息（减淡显示），上方有分隔线"以下为历史对话"，并有"加载更多"按钮可追加更早的消息。
+  - Scope：`contracts.ts` 加 `SessionMessageItem`/`SessionMessagesResponse`；`api.ts` 加 `fetchSessionMessages`；`chat.ts` 加 `isHistory?: boolean` 和 role `"history_separator"`；`useChatConsole.ts` 加 `loadHistory`/`loadMoreHistory`/`prependHistory`/`isLoadingHistory`/`hasMoreHistory`；`App.tsx` 通过 `useEffect` 监听 `snapshot.activeMainSessionId` 变化自动触发 `loadHistory`（不改 `useSessionHistory`/`SessionHistoryPanel`）；`MessageTimeline.tsx` 加"加载更多"按钮、分隔线、`message--history` class；`index.css` 加对应样式。
+  - Modules：`apps/kodaclaw-web`（仅自有文件）。
+  - Verification：L0 `npm run typecheck` ✓；L0 `dotnet build` 0 错 0 警告 ✓。
