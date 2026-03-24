@@ -94,8 +94,9 @@ public static class ServiceCollectionExtensions
                 _ => new InboxCreateTool(inboxRepository));
             toolRegistry.Register("inbox_read",
                 _ => new InboxReadTool(inboxRepository));
+            var bindingRepository = sp.GetService<IThreadBindingRepository>();
             toolRegistry.Register("workspace_read",
-                _ => new WorkspaceReadTool(workspaceService));
+                _ => new WorkspaceReadTool(workspaceService, bindingRepository));
 
             var channelSendService = sp.GetService<IChannelSendService>();
             if (channelSendService is not null)
@@ -104,7 +105,6 @@ public static class ServiceCollectionExtensions
                     _ => new ChannelSendTool(channelSendService));
             }
 
-            var bindingRepository = sp.GetService<IThreadBindingRepository>();
             if (bindingRepository is not null)
             {
                 toolRegistry.Register("channel_list",

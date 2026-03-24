@@ -73,17 +73,51 @@ public sealed class ModelConnectionTestService(
                 System.Net.HttpStatusCode.Unauthorized => "authentication_error",
                 System.Net.HttpStatusCode.Forbidden => "permission_denied",
                 System.Net.HttpStatusCode.TooManyRequests => "rate_limit_exceeded",
+                System.Net.HttpStatusCode.NotFound => "model_not_found",
                 _ => $"http_{(int)response.StatusCode}"
             };
-            return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, errorCode);
+
+            var errorMessage = await TryExtractErrorMessageAsync(response, ct);
+            return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, errorCode, errorMessage);
         }
         catch (TaskCanceledException)
         {
             return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, "timeout");
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, "network_error");
+            return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, "network_error", ex.Message);
         }
+    }
+
+    private static async Task<string?> TryExtractErrorMessageAsync(HttpResponseMessage response, CancellationToken ct)
+    {
+        try
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(body)) return null;
+
+            // OpenAI / Anthropic / most compatible APIs: {"error": {"message": "..."}}
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var errEl))
+            {
+                if (errEl.ValueKind == JsonValueKind.Object &&
+                    errEl.TryGetProperty("message", out var msgEl))
+                    return msgEl.GetString();
+
+                // Some APIs put the message directly as a string in "error"
+                if (errEl.ValueKind == JsonValueKind.String)
+                    return errEl.GetString();
+            }
+
+            // Fallback: return raw body if short enough to be readable
+            if (body.Length <= 300) return body;
+        }
+        catch
+        {
+            // Ignore parse errors — error message is best-effort
+        }
+
+        return null;
     }
 }

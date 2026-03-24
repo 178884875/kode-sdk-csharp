@@ -7,6 +7,8 @@ import { fetchMcpServers, saveMcpServers, testMcpServerConnection } from "../lib
 import type { WorkspaceMcpConfig, WorkspaceMcpServerEntry, McpConnectionTestResult } from "../types/contracts";
 import { Modal } from "./ui/Modal";
 import { ConfirmModal } from "./ui/ConfirmModal";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import "./ui/Modal.css";
 import "./McpServersDesk.css";
 
@@ -200,24 +202,24 @@ export function McpServersDesk() {
           {saveError && <span className="mcp-desk__inline-error">{saveError}</span>}
         </div>
         <div className="mcp-desk__toolbar-right">
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => void load()}
             disabled={loading}
             aria-label="刷新"
           >
             <RefreshCw size={14} className={loading ? "spin" : ""} />
             刷新
-          </button>
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => setModalTarget("")}
           >
             <Plus size={14} />
             添加服务器
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -227,14 +229,13 @@ export function McpServersDesk() {
           <Network size={36} className="mcp-desk__empty-icon" />
           <p className="mcp-desk__empty-title">暂无 MCP 服务器</p>
           <p className="mcp-desk__empty-sub">添加 MCP 服务器以在对话中扩展工具能力</p>
-          <button
-            type="button"
-            className="btn btn--primary btn--md"
+          <Button
+            variant="primary"
             onClick={() => setModalTarget("")}
           >
             <Plus size={14} />
             添加第一个服务器
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="mcp-desk__list">
@@ -272,9 +273,10 @@ export function McpServersDesk() {
                   <div className="mcp-entry__status">
                     <TestStatusBadge ts={ts} />
                     {(hasError || hasTools) && (
-                      <button
-                        type="button"
-                        className="btn btn--ghost btn--sm mcp-entry__log-toggle"
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="mcp-entry__log-toggle"
                         onClick={() => togglePanel(name)}
                         title={panelExpanded ? "收起" : hasTools ? "查看工具列表" : "查看错误日志"}
                       >
@@ -282,14 +284,14 @@ export function McpServersDesk() {
                           ? <ChevronUp size={12} />
                           : <ChevronDown size={12} />}
                         {panelExpanded ? "收起" : hasTools ? "工具" : "日志"}
-                      </button>
+                      </Button>
                     )}
                   </div>
 
                   <div className="mcp-entry__actions">
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => void handleTestConnection(name)}
                       disabled={ts?.state === "testing" || saving}
                       title="测试连接"
@@ -298,35 +300,36 @@ export function McpServersDesk() {
                         ? <Loader2 size={13} className="spin" />
                         : null}
                       测试
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => setModalTarget(name)}
                       disabled={saving}
                       title="编辑"
                       aria-label={`编辑 ${name}`}
                     >
                       <Pencil size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       onClick={() => void handleToggleEnabled(name, entry)}
                       disabled={saving}
                     >
                       {enabled ? "禁用" : "启用"}
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm mcp-entry__delete"
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="mcp-entry__delete"
                       onClick={() => setDeleteConfirm(name)}
                       disabled={saving}
                       title="删除"
                       aria-label={`删除 ${name}`}
                     >
                       <Trash2 size={13} />
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
@@ -499,18 +502,17 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
 
   const footer = (
     <>
-      <button type="button" className="btn btn--secondary btn--md" onClick={onClose} disabled={saving}>
+      <Button variant="secondary" onClick={onClose} disabled={saving}>
         取消
-      </button>
-      <button
-        type="button"
-        className="btn btn--primary btn--md"
+      </Button>
+      <Button
+        variant="primary"
         onClick={() => void handleSubmit()}
         disabled={saving}
       >
         {saving ? <Loader2 size={14} className="spin" /> : null}
         {saving ? "保存中…" : "保存"}
-      </button>
+      </Button>
     </>
   );
 
@@ -538,16 +540,15 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
           </div>
           <div className="kc-field">
             <label className="kc-field__label" htmlFor="mcp-transport">传输类型</label>
-            <select
+            <Select
               id="mcp-transport"
-              className="kc-select"
               value={form.transport}
               onChange={e => setField("transport", e.target.value as ServerFormState["transport"])}
             >
               <option value="stdio">stdio（本地进程）</option>
               <option value="streamableHttp">streamableHttp（远程 HTTP）</option>
               <option value="sse">sse（Server-Sent Events）</option>
-            </select>
+            </Select>
           </div>
         </div>
 

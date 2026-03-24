@@ -10,6 +10,7 @@ namespace KodaClaw.Automation;
 public sealed class AutomationScheduler : IAutomationScheduler
 {
     private const string SchedulerTrigger = "automation.scheduler";
+    private const string ManualTrigger = "manual";
     private const string SchedulerSource = "automation.scheduler";
     private readonly IAutomationDefinitionRepository _definitionRepository;
     private readonly IAutomationRunRepository _runRepository;
@@ -18,6 +19,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly IAutomationClock _clock;
     private readonly AutomationSchedulerOptions _options;
     private readonly ISettingsRepository? _settingsRepository;
+    private readonly IAutomationNotificationService? _notificationService;
     private readonly ILogger<AutomationScheduler>? _logger;
 
     public AutomationScheduler(
@@ -28,6 +30,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         IAutomationClock clock,
         AutomationSchedulerOptions options,
         ISettingsRepository? settingsRepository = null,
+        IAutomationNotificationService? notificationService = null,
         ILogger<AutomationScheduler>? logger = null)
     {
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
@@ -37,6 +40,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _settingsRepository = settingsRepository;
+        _notificationService = notificationService;
         _logger = logger;
     }
 
@@ -48,6 +52,34 @@ public sealed class AutomationScheduler : IAutomationScheduler
     public Task<int> TickAsync(CancellationToken cancellationToken = default)
     {
         return TickCoreAsync(ignoreEnabledFlag: false, cancellationToken);
+    }
+
+    public async Task<string?> TriggerDefinitionAsync(string definitionId, CancellationToken cancellationToken = default)
+    {
+        var definition = await _definitionRepository.GetByIdAsync(definitionId, cancellationToken);
+        if (definition is null)
+        {
+            return null;
+        }
+
+        var runId = $"run-{Guid.NewGuid():N}";
+        var now = _clock.UtcNow;
+        var attempt = await ComputeNextAttemptAsync(definitionId, cancellationToken);
+        var queuedRun = new AutomationRunRecord(
+            RunId: runId,
+            AutomationId: definitionId,
+            Status: AutomationRunStatus.Queued,
+            Trigger: ManualTrigger,
+            Attempt: attempt,
+            SessionId: null,
+            StartedAt: now,
+            CompletedAt: null,
+            Summary: null,
+            ErrorMessage: null);
+        await _runRepository.AddAsync(queuedRun, cancellationToken);
+
+        _ = Task.Run(() => RunSessionCoreAsync(definition, queuedRun, CancellationToken.None), CancellationToken.None);
+        return runId;
     }
 
     private async Task<int> TickCoreAsync(bool ignoreEnabledFlag, CancellationToken cancellationToken)
@@ -109,7 +141,10 @@ public sealed class AutomationScheduler : IAutomationScheduler
             new AutomationRunQuery(AutomationId: null, Status: AutomationRunStatus.Running, Limit: int.MaxValue),
             cancellationToken);
 
-        var staleRuns = staleQueued.Concat(staleRunning).ToArray();
+        var staleThreshold = now.Subtract(_options.StaleRunThreshold);
+        var staleRuns = staleQueued.Concat(staleRunning)
+            .Where(r => r.StartedAt <= staleThreshold)
+            .ToArray();
         foreach (var run in staleRuns)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -127,7 +162,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 continue;
             }
 
-            await UpsertResultInboxItemAsync(failedRun, cancellationToken);
+            await UpsertResultInboxItemAsync(failedRun, definition: null, pushResults: null, cancellationToken);
             await MarkDefinitionFailureForRecoveryAsync(failedRun.AutomationId, now, failedRun.ErrorMessage!, cancellationToken);
         }
     }
@@ -151,10 +186,17 @@ public sealed class AutomationScheduler : IAutomationScheduler
             Summary: null,
             ErrorMessage: null);
         await _runRepository.AddAsync(queuedRun, cancellationToken);
+        await RunSessionCoreAsync(definition, queuedRun, cancellationToken);
+    }
 
+    private async Task RunSessionCoreAsync(
+        AutomationDefinition definition,
+        AutomationRunRecord initialRun,
+        CancellationToken cancellationToken)
+    {
         AutomationSessionHandle? handle = null;
         var agentDisposed = false;
-        var runState = queuedRun;
+        var runState = initialRun;
         try
         {
             handle = await _sessionService.StartAutomationSessionAsync(definition, cancellationToken);
@@ -183,13 +225,14 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 {
                     Status = AutomationRunStatus.Succeeded,
                     CompletedAt = _clock.UtcNow,
-                    Summary = NormalizeText(runResult.Response) ?? "Automation run completed successfully.",
+                    Summary = TruncateText(NormalizeText(runResult.Response), 600) ?? "Automation run completed successfully.",
                     ErrorMessage = null,
                 };
 
                 await _runRepository.UpdateAsync(successfulRun, cancellationToken);
                 await PersistDefinitionSuccessAsync(definition, successfulRun.CompletedAt!.Value, cancellationToken);
-                await UpsertResultInboxItemAsync(successfulRun, cancellationToken);
+                var pushResults = await PushToChannelsIfAutoAsync(definition, successfulRun.Summary!, cancellationToken);
+                await UpsertResultInboxItemAsync(successfulRun, definition, pushResults, cancellationToken);
                 return;
             }
 
@@ -197,13 +240,13 @@ public sealed class AutomationScheduler : IAutomationScheduler
             {
                 Status = AutomationRunStatus.Failed,
                 CompletedAt = _clock.UtcNow,
-                Summary = NormalizeText(runResult.Response) ?? $"Automation run stopped: {runResult.StopReason}.",
+                Summary = TruncateText(NormalizeText(runResult.Response), 600) ?? $"Automation run stopped: {runResult.StopReason}.",
                 ErrorMessage = $"Run did not complete successfully (stop reason: {runResult.StopReason}).",
             };
 
             await _runRepository.UpdateAsync(failedRun, cancellationToken);
             await PersistDefinitionFailureAsync(definition, failedRun.CompletedAt!.Value, failedRun.ErrorMessage!, cancellationToken);
-            await UpsertResultInboxItemAsync(failedRun, cancellationToken);
+            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -224,7 +267,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
             await _runRepository.UpdateAsync(failedRun, cancellationToken);
             await PersistDefinitionFailureAsync(definition, failedAt, failedRun.ErrorMessage!, cancellationToken);
-            await UpsertResultInboxItemAsync(failedRun, cancellationToken);
+            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, cancellationToken);
 
             if (!agentDisposed && handle is { } danglingHandle)
             {
@@ -300,15 +343,42 @@ public sealed class AutomationScheduler : IAutomationScheduler
         await _definitionRepository.UpsertAsync(updated, cancellationToken);
     }
 
-    private async Task UpsertResultInboxItemAsync(AutomationRunRecord run, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<ChannelPushResult>?> PushToChannelsIfAutoAsync(
+        AutomationDefinition definition,
+        string text,
+        CancellationToken cancellationToken)
+    {
+        if (definition.NotifyMode != AutomationNotifyMode.Auto
+            || definition.NotificationChannels is not { Count: > 0 }
+            || _notificationService is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _notificationService.PushAsync(definition.NotificationChannels, text, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Channel push failed for automation {AutomationId}.", definition.Id);
+            return null;
+        }
+    }
+
+    private async Task UpsertResultInboxItemAsync(
+        AutomationRunRecord run,
+        AutomationDefinition? definition,
+        IReadOnlyList<ChannelPushResult>? pushResults,
+        CancellationToken cancellationToken)
     {
         var now = _clock.UtcNow;
+        // RunId is globally unique (GUID-based), so inboxId is always new — no need to query existing.
         var inboxId = $"automation-result-{run.RunId}";
-        var existing = await _inboxRepository.GetByIdAsync(inboxId, cancellationToken);
-        var summary = NormalizeText(run.Summary) ?? (run.Status == AutomationRunStatus.Succeeded
+        var summary = TruncateText(NormalizeText(run.Summary), 400) ?? (run.Status == AutomationRunStatus.Succeeded
             ? "Automation run completed."
             : "Automation run failed.");
-        var errorMessage = NormalizeText(run.ErrorMessage);
+        var errorMessage = TruncateText(NormalizeText(run.ErrorMessage), 400);
         var payload = JsonSerializer.Serialize(new
         {
             automationId = run.AutomationId,
@@ -316,6 +386,15 @@ public sealed class AutomationScheduler : IAutomationScheduler
             status = run.Status.ToString(),
             summary,
             errorMessage,
+            notificationChannels = definition?.NotificationChannels,
+            notifyMode = definition?.NotifyMode.ToString(),
+            channelPushResults = pushResults?.Select(r => new
+            {
+                bindingId = r.BindingId,
+                ok = r.Ok,
+                errorMessage = r.ErrorMessage,
+                sentAt = r.SentAt,
+            }).ToArray(),
         });
 
         var item = new InboxItem(
@@ -325,12 +404,12 @@ public sealed class AutomationScheduler : IAutomationScheduler
             Title: $"Automation run {(run.Status == AutomationRunStatus.Succeeded ? "succeeded" : "failed")}",
             Summary: summary,
             Source: SchedulerSource,
-            CreatedAt: existing?.CreatedAt ?? now,
+            CreatedAt: now,
             UpdatedAt: now,
             RequiresAction: run.Status != AutomationRunStatus.Succeeded,
             Route: $"/automations/{run.AutomationId}",
             SessionId: run.SessionId,
-            CorrelationId: existing?.CorrelationId,
+            CorrelationId: null,
             ApprovalId: null,
             PayloadJson: payload,
             ResolvedAt: null);
@@ -356,15 +435,17 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
     private static DateTimeOffset ComputeNextDailyRun(AutomationSchedule schedule, DateTimeOffset now)
     {
+        // Use machine local time so that LocalTime="09:00" fires at 09:00 local, not 09:00 UTC.
+        var localNow = now.ToLocalTime();
         var localTime = ParseLocalTime(schedule.LocalTime);
         var candidate = new DateTimeOffset(
-            now.Year,
-            now.Month,
-            now.Day,
+            localNow.Year,
+            localNow.Month,
+            localNow.Day,
             localTime.Hour,
             localTime.Minute,
             0,
-            TimeSpan.Zero);
+            localNow.Offset);
         if (candidate <= now)
         {
             candidate = candidate.AddDays(1);
@@ -375,14 +456,15 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
     private static DateTimeOffset ComputeNextWeeklyRun(AutomationSchedule schedule, DateTimeOffset now)
     {
+        // Use machine local time so that LocalTime="09:00" fires at 09:00 local, not 09:00 UTC.
+        var localNow = now.ToLocalTime();
         var localTime = ParseLocalTime(schedule.LocalTime);
-        var activeDays = (schedule.DaysOfWeek is { Count: > 0 }
-            ? schedule.DaysOfWeek
-            : [AutomationScheduleDay.Monday]).ToHashSet();
+        // DaysOfWeek is validated non-empty by AutomationValidation.ValidateSchedule.
+        var activeDays = schedule.DaysOfWeek!.ToHashSet();
 
         for (var offset = 0; offset <= 7; offset++)
         {
-            var date = now.Date.AddDays(offset);
+            var date = localNow.Date.AddDays(offset);
             var day = ToScheduleDay(date.DayOfWeek);
             if (!activeDays.Contains(day))
             {
@@ -396,7 +478,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 localTime.Hour,
                 localTime.Minute,
                 0,
-                TimeSpan.Zero);
+                localNow.Offset);
             if (candidate > now)
             {
                 return candidate;
@@ -445,5 +527,15 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
         var normalized = value.Trim();
         return normalized.Length == 0 ? null : normalized;
+    }
+
+    private static string? TruncateText(string? value, int maxLength)
+    {
+        if (value is null || value.Length <= maxLength)
+        {
+            return value;
+        }
+
+        return value[..maxLength].TrimEnd() + "…";
     }
 }

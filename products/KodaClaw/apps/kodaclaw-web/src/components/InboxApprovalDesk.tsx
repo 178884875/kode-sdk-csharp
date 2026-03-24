@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   fetchApprovals,
   fetchInbox,
+  pushAutomationResultToChannel,
   submitApprovalDecision,
   updateInboxStatus,
 } from "../lib/api";
@@ -9,10 +12,13 @@ import { resolveGatewayPath } from "../lib/config";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Inbox, Zap } from "lucide-react";
 import type {
   Approval,
   ApprovalStatus,
+  ChannelPushResult,
   DeliveryMode,
   InboxItem,
   InboxItemStatus,
@@ -39,6 +45,45 @@ const INBOX_STATUS_OPTIONS: Array<InboxItemStatus> = [
   "Resolved",
   "Archived",
 ];
+
+function PushToChannelButton({
+  inboxId,
+  channels,
+  onSuccess,
+}: {
+  inboxId: string;
+  channels: string[];
+  onSuccess: () => void;
+}) {
+  const [pushing, setPushing] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const handlePush = async () => {
+    setPushing(true);
+    setError(null);
+    try {
+      await pushAutomationResultToChannel(inboxId, channels);
+      onSuccess();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "推送失败");
+    } finally {
+      setPushing(false);
+    }
+  };
+
+  return (
+    <div className="inbox-push-approval">
+      <Button
+        variant="primary"
+        onClick={() => void handlePush()}
+        disabled={pushing}
+      >
+        {pushing ? "推送中..." : "推送到渠道"}
+      </Button>
+      {error ? <span className="inbox-push-approval__error">{error}</span> : null}
+    </div>
+  );
+}
 
 export function InboxApprovalDesk() {
   const { formatDateTime } = useI18n();
@@ -411,28 +456,28 @@ export function InboxApprovalDesk() {
   }
 
   return (
-    <section data-testid="inbox-approval-desk" className="control-plane-stack">
+    <section data-testid="inbox-approval-desk" className="control-plane-stack" style={{ gap: 0 }}>
       <div>
         <h2 className="desk-section-title">{text.title}</h2>
         <p className="desk-section-desc">{text.intro}</p>
 
         <div className="control-plane-toolbar">
-          <button
-            type="button"
-            className="btn btn--secondary"
+          <Button
+            variant="secondary"
+            size="control"
             data-testid="inbox-refresh"
             disabled={isLoading || isRefreshing}
             onClick={() => { void handleRefresh(); }}
           >
             {isRefreshing ? text.refreshing : text.refresh}
-          </button>
+          </Button>
           <label className="metric-label" htmlFor="inbox-status-filter">
             {text.statusFilter}
           </label>
-          <select
+          <Select
             id="inbox-status-filter"
             data-testid="inbox-status-filter"
-            className="kc-select control-plane-filter"
+            className="control-plane-filter"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as InboxStatusFilter)}
           >
@@ -440,7 +485,7 @@ export function InboxApprovalDesk() {
             {INBOX_STATUS_OPTIONS.map((s) => (
               <option key={s} value={s}>{formatInboxStatus(s)}</option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
@@ -451,9 +496,9 @@ export function InboxApprovalDesk() {
         </section>
       ) : null}
 
-      <div className="control-plane-pane-shell">
+      <div className="control-plane-pane-shell inbox-desk__layout">
         {/* LEFT: Inbox list */}
-        <div className="control-plane-pane-rail">
+        <div className="control-plane-pane-rail inbox-desk__rail">
           <section className="timeline" data-testid="inbox-list">
             <div className="timeline__header">
               <span className="composer__status">
@@ -475,7 +520,7 @@ export function InboxApprovalDesk() {
               ))}
             </div>
 
-            <div className="timeline__body">
+            <div className="timeline__body inbox-desk__list-body">
               {isLoading ? <Skeleton height={52} count={3} /> : null}
               {!isLoading && filteredItems.length === 0 ? (
                 <EmptyState icon={<Inbox size={28} strokeWidth={1.5} />} title={text.emptyInbox} />
@@ -501,7 +546,7 @@ export function InboxApprovalDesk() {
                       <span>{formatTimestamp(item.updatedAt)}</span>
                     </div>
                     <strong>{item.title}</strong>
-                    <p className="control-plane-compact-copy">{item.summary}</p>
+                    <p className="control-plane-compact-copy inbox-card-summary">{item.summary}</p>
                     {item.requiresAction ? (
                       <span className="stream-indicator is-live">{text.actionRequired}</span>
                     ) : null}
@@ -513,7 +558,7 @@ export function InboxApprovalDesk() {
         </div>
 
         {/* RIGHT: Detail */}
-        <div className="control-plane-pane-stage" data-testid="inbox-detail">
+        <div className="control-plane-pane-stage inbox-desk__stage" data-testid="inbox-detail">
           {!selectedItem ? (
             <div className="control-plane-stage-hero">
               <EmptyState icon={<Inbox size={28} strokeWidth={1.5} />} title={text.emptyDetail} />
@@ -521,11 +566,7 @@ export function InboxApprovalDesk() {
           ) : (
             <div className="status-card status-card--normal control-plane-stage-hero control-plane-stack">
               {/* Hero header */}
-              <div className="control-plane-stage-hero__header">
-                <div>
-                  <h3 className="desk-section-title control-plane-card-title">{selectedItem.title}</h3>
-                  <p className="desk-section-desc control-plane-zero-margin">{selectedItem.summary}</p>
-                </div>
+              <div className="inbox-detail-hero">
                 <div className="control-plane-chip-row">
                   <span className="control-plane-chip">{formatKind(selectedItem.kind)}</span>
                   <span className="control-plane-chip">{formatInboxStatus(selectedItem.status)}</span>
@@ -535,7 +576,67 @@ export function InboxApprovalDesk() {
                     </span>
                   ) : null}
                 </div>
+                <h3 className="desk-section-title control-plane-card-title">{selectedItem.title}</h3>
+                <div className={`inbox-detail-markdown${selectedItem.kind === "AutomationResult" ? " inbox-detail-markdown--automation" : ""}`}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      a: ({ href, children }) => (
+                        <a href={href} target="_blank" rel="noopener noreferrer">
+                          {children}
+                        </a>
+                      ),
+                    }}
+                  >
+                    {selectedItem.summary ?? ""}
+                  </ReactMarkdown>
+                </div>
               </div>
+
+              {/* AutomationResult channel push status */}
+              {(() => {
+                if (selectedItem.kind !== "AutomationResult") return null;
+                let channelPushResults: ChannelPushResult[] | undefined;
+                let notifyMode: string | undefined;
+                let notificationChannels: string[] | undefined;
+                try {
+                  const p = JSON.parse(selectedItem.payloadJson ?? "{}") as Record<string, unknown>;
+                  channelPushResults = p.channelPushResults as ChannelPushResult[] | undefined;
+                  notifyMode = p.notifyMode as string | undefined;
+                  notificationChannels = p.notificationChannels as string[] | undefined;
+                } catch {
+                  // ignore parse errors
+                }
+
+                if (!notificationChannels || notificationChannels.length === 0) return null;
+
+                return (
+                  <div className="inbox-detail-push-status">
+                    {channelPushResults && channelPushResults.length > 0 ? (
+                      <div className="inbox-push-results">
+                        {channelPushResults.map((r) => (
+                          <div
+                            key={r.bindingId}
+                            className={`inbox-push-result ${r.ok ? "inbox-push-result--ok" : "inbox-push-result--fail"}`}
+                          >
+                            <span className="inbox-push-result__binding">{r.bindingId}</span>
+                            <span className="inbox-push-result__status">{r.ok ? "✓" : "✗"}</span>
+                            {!r.ok && r.errorMessage ? (
+                              <span className="inbox-push-result__error">{r.errorMessage}</span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : notifyMode === "Approval" ? (
+                      <PushToChannelButton
+                        inboxId={selectedItem.id}
+                        channels={notificationChannels}
+                        onSuccess={() => { void loadData("refresh"); }}
+                      />
+                    ) : null}
+                  </div>
+                );
+              })()}
 
               {/* Metadata grid */}
               <div className="control-plane-summary-grid">
@@ -607,24 +708,22 @@ export function InboxApprovalDesk() {
                         }
                       />
                       <div className="control-plane-inline-actions">
-                        <button
-                          type="button"
-                          className="btn btn--primary"
+                        <Button
+                          variant="primary"
                           data-testid="approval-approve"
                           disabled={pendingApprovalIds[linkedApproval.id] ?? false}
                           onClick={() => void handleApprovalDecision(linkedApproval.id, true)}
                         >
                           {text.approve}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
+                        </Button>
+                        <Button
+                          variant="secondary"
                           data-testid="approval-reject"
                           disabled={pendingApprovalIds[linkedApproval.id] ?? false}
                           onClick={() => void handleApprovalDecision(linkedApproval.id, false)}
                         >
                           {text.reject}
-                        </button>
+                        </Button>
                       </div>
                     </>
                   ) : null}
@@ -640,9 +739,8 @@ export function InboxApprovalDesk() {
               {/* Item actions */}
               <div className="control-plane-detail-actions">
                 {selectedItem.kind === "AutomationResult" ? (
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
+                  <Button
+                    variant="secondary"
                     data-testid={`inbox-mark-read-${selectedItem.id}`}
                     disabled={
                       (pendingInboxIds[selectedItem.id] ?? false) ||
@@ -651,16 +749,15 @@ export function InboxApprovalDesk() {
                     onClick={() => void handleStatusUpdate(selectedItem.id, "Acknowledged")}
                   >
                     {text.markRead}
-                  </button>
+                  </Button>
                 ) : (
                   <>
                     <label className="metric-label" htmlFor="inbox-detail-status">
                       {text.status}
                     </label>
-                    <select
+                    <Select
                       id="inbox-detail-status"
                       data-testid={`inbox-status-${selectedItem.id}`}
-                      className="kc-select"
                       value={selectedItem.status}
                       disabled={pendingInboxIds[selectedItem.id] ?? false}
                       onChange={(e) =>
@@ -670,7 +767,7 @@ export function InboxApprovalDesk() {
                       {INBOX_STATUS_OPTIONS.map((s) => (
                         <option key={s} value={s}>{formatInboxStatus(s)}</option>
                       ))}
-                    </select>
+                    </Select>
                   </>
                 )}
               </div>

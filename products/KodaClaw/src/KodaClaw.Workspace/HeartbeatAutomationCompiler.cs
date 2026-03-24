@@ -108,10 +108,59 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 
             if (TryReadFieldValue(bulletContent, "prompt", out var prompt))
             {
+                if (string.Equals(prompt, ">", StringComparison.Ordinal))
+                {
+                    // YAML-style block scalar: collect indented continuation lines until the
+                    // next top-level bullet or section header.
+                    lineIndex++;
+                    var sb = new StringBuilder();
+                    while (lineIndex < lines.Length)
+                    {
+                        var contLine = lines[lineIndex];
+                        var contTrimmed = contLine.Trim();
+                        if (contTrimmed.StartsWith("##", StringComparison.Ordinal) || IsTopLevelBullet(contLine))
+                        {
+                            break;
+                        }
+
+                        if (contTrimmed.Length > 0)
+                        {
+                            if (sb.Length > 0)
+                            {
+                                sb.Append(' ');
+                            }
+
+                            sb.Append(contTrimmed);
+                        }
+
+                        lineIndex++;
+                    }
+
+                    prompt = sb.ToString();
+                    if (prompt.Length == 0)
+                    {
+                        throw new HeartbeatCompilationException("Field 'prompt' block scalar cannot be empty.", lineNumber);
+                    }
+                }
+                else
+                {
+                    lineIndex++;
+                }
+
                 currentSection.Prompt = EnsureSingleAssignment(
                     currentSection.Prompt,
                     "prompt",
                     prompt,
+                    lineNumber);
+                continue;
+            }
+
+            if (TryReadFieldValue(bulletContent, "model", out var modelId))
+            {
+                currentSection.ModelId = EnsureSingleAssignment(
+                    currentSection.ModelId,
+                    "model",
+                    modelId,
                     lineNumber);
                 lineIndex++;
                 continue;
@@ -130,10 +179,57 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 continue;
             }
 
+            if (string.Equals(bulletContent, "channels:", StringComparison.OrdinalIgnoreCase))
+            {
+                lineIndex = ParseChannels(lines, lineIndex + 1, currentSection);
+                continue;
+            }
+
+            if (TryReadFieldValue(bulletContent, "delivery-mode", out var deliveryMode))
+            {
+                currentSection.NotifyMode = ParseNotifyMode(deliveryMode);
+                lineIndex++;
+                continue;
+            }
+
             throw new HeartbeatCompilationException($"Unsupported field '{bulletContent}'.", lineNumber);
         }
 
         return sections;
+    }
+
+    private static int ParseChannels(string[] lines, int startIndex, SectionDraft section)
+    {
+        var lineIndex = startIndex;
+        while (lineIndex < lines.Length)
+        {
+            var line = lines[lineIndex];
+            var trimmed = line.Trim();
+            var lineNumber = lineIndex + 1;
+
+            if (trimmed.Length == 0)
+            {
+                lineIndex++;
+                continue;
+            }
+
+            if (trimmed.StartsWith("##", StringComparison.Ordinal) || IsTopLevelBullet(line))
+            {
+                break;
+            }
+
+            if (!TryReadNestedBullet(line, out var bindingId))
+            {
+                throw new HeartbeatCompilationException(
+                    "Channels must be declared as nested bullets under '- channels:'.",
+                    lineNumber);
+            }
+
+            section.NotificationChannels.Add(bindingId);
+            lineIndex++;
+        }
+
+        return lineIndex;
     }
 
     private static int ParseInputs(string[] lines, int startIndex, SectionDraft section)
@@ -198,6 +294,16 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
         return newValue;
     }
 
+    private static AutomationNotifyMode ParseNotifyMode(string value)
+    {
+        return value.ToLowerInvariant() switch
+        {
+            "auto" => AutomationNotifyMode.Auto,
+            "approval" => AutomationNotifyMode.Approval,
+            _ => AutomationNotifyMode.None,
+        };
+    }
+
     private static bool ParseEnabled(string enabledText, int lineNumber)
     {
         if (bool.TryParse(enabledText, out var enabled))
@@ -246,6 +352,9 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 Schedule: schedule,
                 Enabled: section.Enabled,
                 InputPaths: section.Inputs.ToArray(),
+                ModelId: section.ModelId,
+                NotificationChannels: section.NotificationChannels.Count > 0 ? section.NotificationChannels.ToArray() : null,
+                NotifyMode: section.NotifyMode,
                 CreatedAt: DateTimeOffset.UnixEpoch,
                 UpdatedAt: DateTimeOffset.UnixEpoch,
                 LastRunAt: null,
@@ -514,8 +623,14 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 
         public string? Prompt { get; set; }
 
+        public string? ModelId { get; set; }
+
         public bool Enabled { get; set; } = true;
 
         public List<string> Inputs { get; } = [];
+
+        public List<string> NotificationChannels { get; } = [];
+
+        public AutomationNotifyMode NotifyMode { get; set; } = AutomationNotifyMode.None;
     }
 }

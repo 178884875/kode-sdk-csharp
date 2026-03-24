@@ -175,6 +175,7 @@ public sealed class AutomationSchedulerTests
             clock,
             options,
             resolvedSettings,
+            notificationService: null,
             NullLogger<AutomationScheduler>.Instance);
 
         return (scheduler, sessionService, definitionRepo, runRepo, inboxRepo);
@@ -192,6 +193,9 @@ public sealed class AutomationSchedulerTests
             Schedule: DefaultSchedule,
             Enabled: true,
             InputPaths: null,
+            ModelId: null,
+            NotificationChannels: null,
+            NotifyMode: AutomationNotifyMode.None,
             CreatedAt: now,
             UpdatedAt: now,
             LastRunAt: null,

@@ -214,6 +214,7 @@ public static partial class GatewayApp
             IConfiguration configuration,
             IWorkspaceService workspaceService,
             IDiagnosticsService diagnosticsService,
+            IModelRegistryRepository modelRegistryRepository,
             CancellationToken cancellationToken) =>
         {
             if (!TryAuthorize(context, configuration))
@@ -269,7 +270,22 @@ public static partial class GatewayApp
                     ["breakpointState"] = session.Status.BreakpointState,
                 });
 
-            return Results.Ok(session);
+            ModelEndpoint? chatModel = null;
+            try
+            {
+                chatModel = await modelRegistryRepository.ResolveDefaultForAsync(
+                    ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            }
+            catch { /* model not configured — return session without model info */ }
+
+            var enrichedSession = session with
+            {
+                ModelEndpointId = chatModel?.Id,
+                ModelEndpointName = chatModel?.DisplayName,
+                ModelCapabilities = (int)(chatModel?.Capabilities ?? ModelCapabilitySet.None),
+            };
+
+            return Results.Ok(enrichedSession);
         });
 
     }

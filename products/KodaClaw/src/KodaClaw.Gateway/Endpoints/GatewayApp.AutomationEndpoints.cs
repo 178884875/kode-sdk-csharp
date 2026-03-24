@@ -279,7 +279,6 @@ public static partial class GatewayApp
             string id,
             IConfiguration configuration,
             IAutomationDefinitionRepository definitionRepository,
-            IAutomationRunRepository runRepository,
             IAutomationScheduler automationScheduler,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
@@ -333,28 +332,16 @@ public static partial class GatewayApp
                     Message: "Automation is disabled and cannot be triggered manually."));
             }
 
-            var runId = $"run-{Guid.NewGuid():N}";
-            var now = DateTimeOffset.UtcNow;
-            var recentRuns = await runRepository.ListAsync(
-                new AutomationRunQuery(AutomationId: id, Status: null, Limit: 1),
-                cancellationToken);
-            var attempt = recentRuns.Count == 0 ? 1 : recentRuns[0].Attempt + 1;
-
-            var queuedRun = new AutomationRunRecord(
-                RunId: runId,
-                AutomationId: id,
-                Status: AutomationRunStatus.Queued,
-                Trigger: "manual",
-                Attempt: attempt,
-                SessionId: null,
-                StartedAt: now,
-                CompletedAt: null,
-                Summary: null,
-                ErrorMessage: null);
-            await runRepository.AddAsync(queuedRun, cancellationToken);
-
-            // Trigger the scheduler to pick up and execute queued runs immediately.
-            _ = Task.Run(() => automationScheduler.RunOnceAsync(CancellationToken.None), CancellationToken.None);
+            // TriggerDefinitionAsync synchronously creates the run record and returns its ID,
+            // then starts agent execution in the background. This avoids the race condition where
+            // RecoverStaleRunsAsync would immediately mark a freshly-created Queued run as Failed.
+            var runId = await automationScheduler.TriggerDefinitionAsync(id, cancellationToken);
+            if (runId is null)
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "automation.not_found",
+                    Message: "Automation was not found."));
+            }
 
             RecordDiagnosticEvent(
                 diagnosticsService,

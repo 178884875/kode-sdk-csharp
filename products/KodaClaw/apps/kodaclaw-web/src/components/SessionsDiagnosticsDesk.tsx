@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   exportDiagnosticBundle,
   fetchDiagnosticsTimeline,
@@ -8,6 +8,7 @@ import {
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { Button } from "./ui/Button";
 import { Search, ChevronDown, ChevronRight } from "lucide-react";
 import { getRuntimeConfig } from "../lib/config";
 import type {
@@ -18,6 +19,7 @@ import type {
   SessionSummary,
 } from "../types/contracts";
 import "./ControlPlaneDesk.css";
+import { RiskSection } from "./settings/RiskSection";
 
 type SessionsDiagnosticsDeskProps = {
   defaultLimit?: number;
@@ -188,6 +190,7 @@ export function SessionsDiagnosticsDesk({
         rawSecrets: "原始 Secrets",
         messageBodies: "消息正文",
       },
+      riskSectionTitle: "沙箱与风险简报",
       errors: {
         sessions: "拉取会话列表失败。",
         sessionDetail: "拉取会话详情失败。",
@@ -292,6 +295,7 @@ export function SessionsDiagnosticsDesk({
         rawSecrets: "Raw secrets",
         messageBodies: "Message bodies",
       },
+      riskSectionTitle: "Sandbox & Risk Briefing",
       errors: {
         sessions: "Failed to fetch sessions.",
         sessionDetail: "Failed to fetch session detail.",
@@ -319,6 +323,13 @@ export function SessionsDiagnosticsDesk({
   const [bundleExport, setBundleExport] =
     useState<DiagnosticBundleExportResponse | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
+
+  const selectedSessionIdRef = useRef<string | null>(null);
+  selectedSessionIdRef.current = selectedSessionId;
+
+  function truncateId(id: string): string {
+    return id.length > 12 ? `${id.slice(0, 8)}…` : id;
+  }
 
   const formatTimestamp = (value?: string | null): string =>
     formatDateTime(value, text.common.none);
@@ -357,7 +368,7 @@ export function SessionsDiagnosticsDesk({
         const payload = await fetchSessions(defaultLimit);
         if (isDisposed) return;
         setSessions(payload.sessions);
-        const preferredSessionId = focusRequest?.sessionId ?? selectedSessionId;
+        const preferredSessionId = focusRequest?.sessionId ?? selectedSessionIdRef.current;
         const hasPreferred = preferredSessionId
           ? payload.sessions.some((s) => s.sessionId === preferredSessionId)
           : false;
@@ -378,7 +389,7 @@ export function SessionsDiagnosticsDesk({
 
     void loadList();
     return () => { isDisposed = true; };
-  }, [defaultLimit, focusRequest?.sessionId, refreshToken, selectedSessionId, text.errors.sessions]);
+  }, [defaultLimit, focusRequest?.sessionId, refreshToken, text.errors.sessions]);
 
   useEffect(() => {
     let isDisposed = false;
@@ -458,15 +469,14 @@ export function SessionsDiagnosticsDesk({
         <h2 className="desk-section-title">{text.title}</h2>
         <p className="desk-section-desc">{summaryLine}</p>
         <div className="control-plane-toolbar">
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="secondary"
           data-testid="sessions-refresh"
           onClick={() => setRefreshToken((v) => v + 1)}
           disabled={isLoadingList || isLoadingDetail}
         >
           {isLoadingList || isLoadingDetail ? text.common.refreshing : text.refresh}
-        </button>
+        </Button>
         </div>
       </div>
 
@@ -507,7 +517,7 @@ export function SessionsDiagnosticsDesk({
                     </span>
                   ) : null}
                 </div>
-                <strong className="control-plane-session-card__title">{session.sessionId}</strong>
+                <strong className="control-plane-session-card__title" title={session.sessionId}>{truncateId(session.sessionId)}</strong>
                 <div className="control-plane-session-card__meta">
                   <span>{text.sessionDetail.breakpoint}: {session.status.breakpointState ?? text.sessionDetail.none}</span>
                   <span>{text.sessionDetail.lastEvent}: {formatTimestamp(session.lastEventAt)}</span>
@@ -537,7 +547,7 @@ export function SessionsDiagnosticsDesk({
                 {/* Header */}
                 <div className="control-plane-stage-hero__header">
                   <div>
-                    <h3 className="desk-section-title">{sessionDetail.sessionId}</h3>
+                    <h3 className="desk-section-title" title={sessionDetail.sessionId}>{truncateId(sessionDetail.sessionId)}</h3>
                     <p className="desk-section-desc">
                       {text.sessionDetail.sessionFocus} · {formatSessionKind(sessionDetail.sessionKind)}
                     </p>
@@ -718,96 +728,96 @@ export function SessionsDiagnosticsDesk({
             )}
           </section>
 
-          {/* Timeline + Bundle export */}
-          <div className="control-plane-two-pane control-plane-two-pane--diagnostics">
-            <section className="timeline control-plane-stage-panel" data-testid="diagnostics-timeline">
-              <div className="timeline__header">
-                <h3 className="desk-section-title">{text.sections.diagnosticsTimeline}</h3>
-                <span className="composer__status">{visibleTimeline.length}</span>
-              </div>
-              <div className="timeline__body">
-                {isHydratingSelection ? (
-                  <Skeleton height={36} count={5} />
-                ) : visibleTimeline.length > 0 ? (
-                  <div className="diag-event-log">
-                    {visibleTimeline.map((event) => (
-                      <div key={event.id} className={`diag-event diag-event--${event.level.toLowerCase()}`}>
-                        <span className="diag-event__time">{formatTimestamp(event.timestamp)}</span>
-                        <span className={`diag-event__level diag-event__level--${event.level.toLowerCase()}`}>{event.level}</span>
-                        <span className="diag-event__source">{event.source}</span>
-                        <span className="diag-event__msg">{event.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="desk-section-desc">{text.timeline.empty}</p>
-                )}
-              </div>
-            </section>
+          {/* Bundle export (top) + Timeline (bottom) */}
+          <section className="status-card status-card--normal control-plane-stage-panel" data-testid="diagnostic-bundle-export">
+            <div className="control-plane-summary-grid">
+              <MetricRow label={text.bundle.requestedSession}>
+                {selectedSessionId ?? text.bundle.crossSession}
+              </MetricRow>
+              <MetricRow label={text.bundle.timelineWindow}>
+                {text.bundle.timelineWindowValue}
+              </MetricRow>
+            </div>
 
-            <section className="status-card status-card--warning control-plane-stage-panel" data-testid="diagnostic-bundle-export">
-              <div className="control-plane-summary-grid">
-                <MetricRow label={text.bundle.requestedSession}>
-                  {selectedSessionId ?? text.bundle.crossSession}
-                </MetricRow>
-                <MetricRow label={text.bundle.timelineWindow}>
-                  {text.bundle.timelineWindowValue}
-                </MetricRow>
-              </div>
+            <div className="diag-bundle-action">
+              <Button
+                variant="secondary"
+                data-testid="diagnostic-bundle-export-button"
+                onClick={() => void handleExportBundle()}
+                disabled={isLoadingList || isHydratingSelection || isExportingBundle}
+              >
+                {isExportingBundle ? text.bundle.exporting : text.bundle.export}
+              </Button>
+            </div>
 
-              <div className="diag-bundle-action">
-                <button
-                  type="button"
-                  className="btn btn--secondary"
-                  data-testid="diagnostic-bundle-export-button"
-                  onClick={() => void handleExportBundle()}
-                  disabled={isLoadingList || isHydratingSelection || isExportingBundle}
-                >
-                  {isExportingBundle ? text.bundle.exporting : text.bundle.export}
-                </button>
-              </div>
+            {bundleError ? (
+              <p className="desk-feedback desk-feedback--error" data-testid="diagnostic-bundle-export-error">
+                {bundleError}
+              </p>
+            ) : null}
 
-              {bundleError ? (
-                <p className="desk-feedback desk-feedback--error" data-testid="diagnostic-bundle-export-error">
-                  {bundleError}
-                </p>
-              ) : null}
+            {bundleNote ? (
+              <p className="desk-feedback desk-feedback--success" data-testid="diagnostic-bundle-export-note">
+                {bundleNote}
+              </p>
+            ) : null}
 
-              {bundleNote ? (
-                <p className="desk-feedback desk-feedback--success" data-testid="diagnostic-bundle-export-note">
-                  {bundleNote}
-                </p>
-              ) : null}
-
-              {bundleExport ? (
-                <div className="control-plane-stack diag-bundle-result" data-testid="diagnostic-bundle-export-result">
-                  <div className="control-plane-summary-grid">
-                    <MetricRow label={text.bundle.bundlePath}>
-                      <span className="metric-value--path">{bundleExport.bundlePath}</span>
-                    </MetricRow>
-                    <MetricRow label={text.bundle.workspaceRoot}>
-                      <span className="metric-value--path">{bundleExport.workspaceRootPath}</span>
-                    </MetricRow>
-                    <MetricRow label={text.bundle.manifest}>
-                      {bundleExport.manifest.entries.length} entries · {formatTimestamp(bundleExport.generatedAt)}
-                    </MetricRow>
-                    <MetricRow label={text.bundle.redactionPosture}>
-                      {text.bundle.rawSecrets}: {bundleExport.manifest.redactionSummary.includesRawSecrets ? text.bundle.included : text.bundle.excluded}
-                      {" · "}
-                      {text.bundle.messageBodies}: {bundleExport.manifest.redactionSummary.includesMessageBodies ? text.bundle.included : text.bundle.excluded}
-                    </MetricRow>
-                  </div>
-                  <ul data-testid="diagnostic-bundle-redaction-notes" className="risk-briefing__list">
-                    {bundleExport.manifest.redactionSummary.notes.map((note) => (
-                      <li key={note} className="desk-section-desc">{note}</li>
-                    ))}
-                  </ul>
+            {bundleExport ? (
+              <div className="control-plane-stack diag-bundle-result" data-testid="diagnostic-bundle-export-result">
+                <div className="control-plane-summary-grid">
+                  <MetricRow label={text.bundle.bundlePath}>
+                    <span className="metric-value--path">{bundleExport.bundlePath}</span>
+                  </MetricRow>
+                  <MetricRow label={text.bundle.workspaceRoot}>
+                    <span className="metric-value--path">{bundleExport.workspaceRootPath}</span>
+                  </MetricRow>
+                  <MetricRow label={text.bundle.manifest}>
+                    {bundleExport.manifest.entries.length} entries · {formatTimestamp(bundleExport.generatedAt)}
+                  </MetricRow>
+                  <MetricRow label={text.bundle.redactionPosture}>
+                    {text.bundle.rawSecrets}: {bundleExport.manifest.redactionSummary.includesRawSecrets ? text.bundle.included : text.bundle.excluded}
+                    {" · "}
+                    {text.bundle.messageBodies}: {bundleExport.manifest.redactionSummary.includesMessageBodies ? text.bundle.included : text.bundle.excluded}
+                  </MetricRow>
                 </div>
-              ) : null}
-            </section>
-          </div>
+                <ul data-testid="diagnostic-bundle-redaction-notes" className="risk-briefing__list">
+                  {bundleExport.manifest.redactionSummary.notes.map((note) => (
+                    <li key={note} className="desk-section-desc">{note}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </section>
+
+          <section className="timeline control-plane-stage-panel" data-testid="diagnostics-timeline">
+            <div className="timeline__header">
+              <h3 className="desk-section-title">{text.sections.diagnosticsTimeline}</h3>
+              <span className="composer__status">{visibleTimeline.length}</span>
+            </div>
+            <div className="timeline__body">
+              {isHydratingSelection ? (
+                <Skeleton height={36} count={5} />
+              ) : visibleTimeline.length > 0 ? (
+                <div className="diag-event-log">
+                  {visibleTimeline.map((event) => (
+                    <div key={event.id} className={`diag-event diag-event--${event.level.toLowerCase()}`}>
+                      <span className="diag-event__time">{formatTimestamp(event.timestamp)}</span>
+                      <span className={`diag-event__level diag-event__level--${event.level.toLowerCase()}`}>{event.level}</span>
+                      <span className="diag-event__source">{event.source}</span>
+                      <span className="diag-event__msg">{event.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="desk-section-desc">{text.timeline.empty}</p>
+              )}
+            </div>
+          </section>
         </div>
       </div>
+      <CollapsibleSection title={text.riskSectionTitle} defaultOpen={false}>
+        <RiskSection />
+      </CollapsibleSection>
     </section>
   );
 }

@@ -124,6 +124,8 @@ public static partial class GatewayApp
         MapWorkspaceEndpoints(app);
         MapMcpServersEndpoints(app);
         MapMediaEndpoints(app);
+        MapAutomationNotificationEndpoints(app);
+        MapWeChatAuthEndpoints(app);
         MapRootEndpoint(app);
     }
 

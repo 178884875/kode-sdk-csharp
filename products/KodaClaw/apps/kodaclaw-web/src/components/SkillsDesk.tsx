@@ -4,6 +4,7 @@ import { buildHeaders } from "../lib/api";
 import { useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { Button } from "./ui/Button";
 import { Lightbulb } from "lucide-react";
 
 type SkillSource = "built-in" | "global" | "workspace";
@@ -135,15 +136,14 @@ export function SkillsDesk() {
         <h2 className="desk-section-title">{text.title}</h2>
         <p className="desk-section-desc">{text.copy}</p>
         <div className="control-plane-toolbar">
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="secondary"
           data-testid="skills-refresh"
           disabled={isLoading || isRefreshing}
           onClick={() => { void loadSkills("refresh"); }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
-        </button>
+        </Button>
         </div>
       </div>
 

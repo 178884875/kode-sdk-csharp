@@ -238,6 +238,26 @@ ACCEPTANCE_PACK 验收矩阵
 
 无进行中条目。
 
+**近期完成**（Iter 46，2026-03-24）：
+- 微信个人号渠道接入（KC-4601~4606）
+  - `ChannelConnectorKind.WeChat = 3`；`WeChatQrCodeResult` / `WeChatQrCodeStatus` contracts（KC-4601）
+  - `WeChatApiContracts.cs` iLink DTO；`IWeChatApiClient` + `HttpWeChatApiClient`（长轮询、发消息、二维码、登录验证）（KC-4602）
+  - `WeChatConnector`（长轮询主循环、`get_updates_buf` 游标持久化、500 LRU 去重、Markdown→纯文本剥离）；`WeChatConnectorConfiguration`（FromAccount 工厂）；`WeChatAuthManager`（syncBuf 读写）；`WeChatConnectorOptions`（KC-4603）
+  - `ServiceCollectionExtensions` 注册；`ChannelConnectorHostedService` + `ChannelInboundGatewayService` 加 WeChat arm；`POST /api/channels/wechat/get-qrcode`、`GET /api/channels/wechat/qrcode-status`、`POST /api/channels/wechat/test-credentials` 端点；扫码确认自动 upsert ChannelAccount + 启动 Connector（KC-4604）
+  - 前端：`WeChatQrLoginPanel.tsx`（扫码状态机，3 分钟超时，2s 轮询）；`ChannelSetupWizard.tsx` 加微信分支（pick→intro→qrlogin→delivery→success）；`ChannelsDesk.tsx` Degraded 重新扫码入口（KC-4605）
+  - 15 个新测试全绿：`WeChatConnectorConfigurationTests`（8 L1）+ `WeChatApiContractTests`（4 L3）+ `WeChatAuthApiIntegrationTests`（3 L2）；`dotnet build` 0 错 0 警告；`npm run typecheck` 通过（KC-4606）
+
+**近期完成**（Iter 45，2026-03-23）：
+- 自动化渠道推送闭环（KC-4501~4507）
+  - `AutomationNotifyMode` 枚举（None/Auto/Approval）；`IAutomationNotificationService` 接口 + `ChannelPushResult` record 加入 Contracts 层（KC-4501）
+  - `HeartbeatAutomationCompiler` 解析 `channels:` 嵌套列表 + `delivery-mode:` 字段；8 个新契约测试（KC-4502）
+  - SQLite 幂等迁移加 `notification_channels` + `notify_mode` 列；Repository CRUD 读写补齐（KC-4503）
+  - `AutomationScheduler` Auto 模式成功后调 `PushToChannelsIfAutoAsync`；Inbox PayloadJson 扩展 `channelPushResults`（KC-4504）
+  - `AutomationNotificationService`（ChannelHub 实现，单渠道隔离错误）；`POST /api/inbox/{id}/push-to-channel` 端点（KC-4505）
+  - 前端：AutomationsDesk 渠道 tag；InboxApprovalDesk 推送状态列表 + Approval 模式"推送"按钮；ChannelsDesk 复制 BindingId 按钮（KC-4506）
+  - 全量 test 修复（12 个文件补 `NotificationChannels: null, NotifyMode: None`）；新增 3 个调度器集成测试（Auto/None/失败隔离）（KC-4507）
+  - `dotnet test KodaClaw.sln -m:1` 全绿（预存在失败不计入）
+
 **近期完成**（Iter 38，2026-03-22）：
 - KodaClaw.McpHub 独立模块 + McpServersDesk（KC-3801~3807）
   - `WorkspaceMcpServerEntry` 加 `enabled` nullable bool 字段，缺省等价 true，向后兼容 Claude Desktop 格式（KC-3801）

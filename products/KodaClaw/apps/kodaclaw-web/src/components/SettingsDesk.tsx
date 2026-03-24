@@ -13,7 +13,7 @@ import { AppearanceSection } from './settings/AppearanceSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { SystemSection } from './settings/SystemSection';
 import { UpdatesSection } from './settings/UpdatesSection';
-import { RiskSection } from './settings/RiskSection';
+import { RiskSummaryCard } from './settings/RiskSummaryCard';
 import { useLocaleText } from '../i18n/I18nProvider';
 
 type SectionId =
@@ -241,7 +241,7 @@ export function SettingsDesk() {
         </div>
 
         <div ref={refs.risk} data-section="risk" className="settings-split__anchor">
-          <RiskSection />
+          <RiskSummaryCard />
         </div>
       </div>
     </div>

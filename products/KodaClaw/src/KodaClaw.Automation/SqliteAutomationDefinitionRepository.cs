@@ -41,6 +41,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 schedule_days_of_week,
                 enabled,
                 input_paths,
+                model_id,
+                notification_channels,
+                notify_mode,
                 created_at,
                 updated_at,
                 last_run_at,
@@ -60,6 +63,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 $scheduleDaysOfWeek,
                 $enabled,
                 $inputPaths,
+                $modelId,
+                $notificationChannels,
+                $notifyMode,
                 $createdAt,
                 $updatedAt,
                 $lastRunAt,
@@ -78,6 +84,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 schedule_days_of_week = excluded.schedule_days_of_week,
                 enabled = excluded.enabled,
                 input_paths = excluded.input_paths,
+                model_id = excluded.model_id,
+                notification_channels = excluded.notification_channels,
+                notify_mode = excluded.notify_mode,
                 created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 last_run_at = excluded.last_run_at,
@@ -113,6 +122,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 schedule_days_of_week,
                 enabled,
                 input_paths,
+                model_id,
+                notification_channels,
+                notify_mode,
                 created_at,
                 updated_at,
                 last_run_at,
@@ -175,6 +187,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 schedule_days_of_week,
                 enabled,
                 input_paths,
+                model_id,
+                notification_channels,
+                notify_mode,
                 created_at,
                 updated_at,
                 last_run_at,
@@ -226,6 +241,9 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
         command.Parameters.AddWithValue("$scheduleDaysOfWeek", (object?)SerializeDays(definition.Schedule.DaysOfWeek) ?? DBNull.Value);
         command.Parameters.AddWithValue("$enabled", definition.Enabled ? 1 : 0);
         command.Parameters.AddWithValue("$inputPaths", (object?)SerializeTextList(definition.InputPaths) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$modelId", (object?)NormalizeNullableText(definition.ModelId) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$notificationChannels", (object?)SerializeTextList(definition.NotificationChannels) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$notifyMode", (int)definition.NotifyMode);
         command.Parameters.AddWithValue("$createdAt", FormatTimestamp(definition.CreatedAt));
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(definition.UpdatedAt));
         command.Parameters.AddWithValue("$lastRunAt", (object?)FormatTimestampOrNull(definition.LastRunAt) ?? DBNull.Value);
@@ -249,12 +267,15 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 DaysOfWeek: DeserializeDays(ReadNullableText(reader, 8))),
             Enabled: reader.GetInt64(9) != 0,
             InputPaths: DeserializeTextList(ReadNullableText(reader, 10)),
-            CreatedAt: ParseTimestamp(reader.GetString(11)),
-            UpdatedAt: ParseTimestamp(reader.GetString(12)),
-            LastRunAt: reader.IsDBNull(13) ? null : ParseTimestamp(reader.GetString(13)),
-            NextRunAt: reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
-            LastRunStatus: reader.IsDBNull(15) ? null : ParseEnum<AutomationRunStatus>(reader.GetString(15)),
-            LastError: ReadNullableText(reader, 16));
+            ModelId: ReadNullableText(reader, 11),
+            NotificationChannels: DeserializeTextList(ReadNullableText(reader, 12)),
+            NotifyMode: (AutomationNotifyMode)reader.GetInt32(13),
+            CreatedAt: ParseTimestamp(reader.GetString(14)),
+            UpdatedAt: ParseTimestamp(reader.GetString(15)),
+            LastRunAt: reader.IsDBNull(16) ? null : ParseTimestamp(reader.GetString(16)),
+            NextRunAt: reader.IsDBNull(17) ? null : ParseTimestamp(reader.GetString(17)),
+            LastRunStatus: reader.IsDBNull(18) ? null : ParseEnum<AutomationRunStatus>(reader.GetString(18)),
+            LastError: ReadNullableText(reader, 19));
     }
 
     private static string? SerializeDays(IReadOnlyList<AutomationScheduleDay>? days)

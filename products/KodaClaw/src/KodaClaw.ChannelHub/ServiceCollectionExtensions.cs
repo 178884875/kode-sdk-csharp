@@ -2,6 +2,7 @@ using KodaClaw.Contracts;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.Webhook;
+using KodaClaw.ChannelHub.Connectors.WeChat;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -31,6 +32,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<GenericWebhookConnector>();
         services.TryAddSingleton<IFeishuApiClient, HttpFeishuApiClient>();
         services.TryAddSingleton<FeishuConnector>();
+        services.TryAddSingleton<IWeChatApiClient, HttpWeChatApiClient>();
+        services.TryAddSingleton<WeChatAuthManager>();
+        services.TryAddSingleton<WeChatConnector>();
+        services.TryAddSingleton<IAutomationNotificationService, AutomationNotificationService>();
         return services;
     }
 }

@@ -753,6 +753,24 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         KodaClawWorkspaceLayout.MemoryFile,
     ];
 
+    private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.MaxPromptCharacters;
+            // Allocate 20% of usable context window to system prompt (× 4 chars/token); min = fallback default.
+            var usableTokens = Math.Max(endpoint.ContextWindowSize - endpoint.MaxOutputTokens, 0);
+            return Math.Max(usableTokens / 5 * 4, _options.MaxPromptCharacters);
+        }
+        catch
+        {
+            return _options.MaxPromptCharacters;
+        }
+    }
+
     private async Task<PromptBuildResult> BuildSystemPromptAsync(CancellationToken cancellationToken)
     {
         var workspaceRoot = _workspaceService.RootPath;
@@ -772,9 +790,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         await TryAddContextDocumentAsync(yesterdayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
         await TryAddContextDocumentAsync(todayMemoryPath, workspaceRoot, seenPaths, documents, cancellationToken);
 
+        var promptCharBudget = await ResolvePromptCharacterBudgetAsync(cancellationToken);
         var sessionStartedAt = DateTimeOffset.Now;
         var builder = new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
-            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .WithCharacterBudget(promptCharBudget)
             .AddBody("Keep actions observable, local-first, and approval-aware.")
             .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}). Use get_current_datetime tool for a precise timestamp if the user asks later in the session.");
 

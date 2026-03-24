@@ -297,13 +297,91 @@ public sealed class AutomationSchedulerIntegrationTests
         afterSecondRun!.NextRunAt.Should().Be(new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero));
     }
 
+    [Fact]
+    public async Task Auto_notify_mode_should_call_notification_service_with_configured_binding_ids()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        var notificationService = new CapturingNotificationService();
+        using var fixture = new SchedulerFixture(now, notificationService: notificationService);
+        fixture.SessionService.SetResult(
+            "auto-push-test",
+            new AgentRunResult { Success = true, Response = "Push summary.", StopReason = StopReason.EndTurn });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-push-test",
+            notificationChannels: ["tg-main-abc", "feishu-ops-xyz"],
+            notifyMode: AutomationNotifyMode.Auto);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        await fixture.Scheduler.TickAsync();
+
+        notificationService.LastBindingIds.Should().Equal("tg-main-abc", "feishu-ops-xyz");
+        notificationService.LastText.Should().Be("Push summary.");
+    }
+
+    [Fact]
+    public async Task None_notify_mode_should_not_call_notification_service()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        var notificationService = new CapturingNotificationService();
+        using var fixture = new SchedulerFixture(now, notificationService: notificationService);
+        fixture.SessionService.SetResult(
+            "auto-no-push",
+            new AgentRunResult { Success = true, Response = "Done.", StopReason = StopReason.EndTurn });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-no-push",
+            notificationChannels: ["tg-main-abc"],
+            notifyMode: AutomationNotifyMode.None);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        await fixture.Scheduler.TickAsync();
+
+        notificationService.LastBindingIds.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Channel_push_failure_should_record_in_inbox_payload_without_affecting_run_status()
+    {
+        var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);
+        var notificationService = new CapturingNotificationService(failureMessage: "Binding not found");
+        using var fixture = new SchedulerFixture(now, notificationService: notificationService);
+        fixture.SessionService.SetResult(
+            "auto-push-fail",
+            new AgentRunResult { Success = true, Response = "Success despite push fail.", StopReason = StopReason.EndTurn });
+
+        var definition = fixture.BuildDefinition(
+            id: "auto-push-fail",
+            notificationChannels: ["bad-binding-id"],
+            notifyMode: AutomationNotifyMode.Auto);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        await fixture.Scheduler.TickAsync();
+
+        var runs = await fixture.Runs.ListAsync(new AutomationRunQuery(AutomationId: "auto-push-fail", Status: null, Limit: 10));
+        runs.Should().ContainSingle();
+        runs[0].Status.Should().Be(AutomationRunStatus.Succeeded);
+
+        var inboxItems = await fixture.Inbox.ListAsync(new InboxQuery(Limit: 10));
+        var resultItem = inboxItems.FirstOrDefault(i =>
+            i.Route == "/automations/auto-push-fail" && i.Kind == InboxItemKind.AutomationResult);
+        resultItem.Should().NotBeNull();
+
+        var payload = JsonDocument.Parse(resultItem!.PayloadJson!);
+        payload.RootElement.TryGetProperty("channelPushResults", out var pushResultsEl).Should().BeTrue();
+        var firstResult = pushResultsEl.EnumerateArray().First();
+        firstResult.GetProperty("ok").GetBoolean().Should().BeFalse();
+        firstResult.GetProperty("errorMessage").GetString().Should().Contain("Binding not found");
+    }
+
     private sealed class SchedulerFixture : IDisposable
     {
         private readonly ServiceProvider _provider;
 
         public SchedulerFixture(
             DateTimeOffset initialUtcNow,
-            Action<AutomationSchedulerOptions>? configureScheduler = null)
+            Action<AutomationSchedulerOptions>? configureScheduler = null,
+            IAutomationNotificationService? notificationService = null)
         {
             RootPath = Path.Combine(
                 Path.GetTempPath(),
@@ -317,6 +395,11 @@ public sealed class AutomationSchedulerIntegrationTests
             services.AddKodaClawControlPlane();
             services.AddSingleton<IAutomationClock>(Clock);
             services.AddSingleton<IAutomationSessionService>(SessionService);
+            if (notificationService is not null)
+            {
+                services.AddSingleton<IAutomationNotificationService>(notificationService);
+            }
+
             services.AddKodaClawAutomation(options =>
             {
                 options.Enabled = true;
@@ -360,7 +443,9 @@ public sealed class AutomationSchedulerIntegrationTests
         public AutomationDefinition BuildDefinition(
             string id,
             AutomationSchedule? schedule = null,
-            DateTimeOffset? nextRunAt = null)
+            DateTimeOffset? nextRunAt = null,
+            IReadOnlyList<string>? notificationChannels = null,
+            AutomationNotifyMode notifyMode = AutomationNotifyMode.None)
         {
             return new AutomationDefinition(
                 Id: id,
@@ -375,6 +460,9 @@ public sealed class AutomationSchedulerIntegrationTests
                     DaysOfWeek: null),
                 Enabled: true,
                 InputPaths: null,
+                ModelId: null,
+                NotificationChannels: notificationChannels,
+                NotifyMode: notifyMode,
                 CreatedAt: Clock.UtcNow,
                 UpdatedAt: Clock.UtcNow,
                 LastRunAt: null,
@@ -390,6 +478,36 @@ public sealed class AutomationSchedulerIntegrationTests
             {
                 Directory.Delete(RootPath, recursive: true);
             }
+        }
+    }
+
+    private sealed class CapturingNotificationService : IAutomationNotificationService
+    {
+        private readonly string? _failureMessage;
+
+        public CapturingNotificationService(string? failureMessage = null)
+        {
+            _failureMessage = failureMessage;
+        }
+
+        public IReadOnlyList<string>? LastBindingIds { get; private set; }
+
+        public string? LastText { get; private set; }
+
+        public Task<IReadOnlyList<ChannelPushResult>> PushAsync(
+            IReadOnlyList<string> bindingIds,
+            string text,
+            CancellationToken cancellationToken = default)
+        {
+            LastBindingIds = bindingIds;
+            LastText = text;
+
+            var results = bindingIds.Select(id => _failureMessage is null
+                ? new ChannelPushResult(id, Ok: true, ErrorMessage: null, SentAt: DateTimeOffset.UtcNow)
+                : new ChannelPushResult(id, Ok: false, ErrorMessage: _failureMessage, SentAt: null))
+                .ToArray();
+
+            return Task.FromResult<IReadOnlyList<ChannelPushResult>>(results);
         }
     }
 

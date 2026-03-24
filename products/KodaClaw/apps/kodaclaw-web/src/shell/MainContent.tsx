@@ -84,6 +84,10 @@ export function MainContent({
         </div>
         <div className="kc-chat-timeline">{chatTimeline}</div>
         <div className="kc-chat-composer">{chatComposer}</div>
+        <div className="kc-chat-disclaimer">
+          <span className="kc-chat-disclaimer__hint">Shift+Enter 换行</span>
+          <span className="kc-chat-disclaimer__center">Koda (AI) 也会犯错，请注意甄别。</span>
+        </div>
       </div>
     );
   }

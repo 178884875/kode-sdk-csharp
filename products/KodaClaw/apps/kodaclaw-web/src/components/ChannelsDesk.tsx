@@ -13,10 +13,13 @@ import {
   updateThreadSettings,
 } from "../lib/api";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { ConfirmModal } from "./ui/ConfirmModal";
-import { Radio } from "lucide-react";
+import { Copy, Radio } from "lucide-react";
+import { WeChatQrLoginPanel } from "./settings/WeChatQrLoginPanel";
 import type {
   ChannelAccount,
   ChannelAuditEntry,
@@ -157,6 +160,33 @@ export function ChannelsDesk() {
         Automation: "自动化",
         Plugin: "插件",
       },
+      copyBindingId: "复制 BindingId",
+      weChatRescan: "重新扫码",
+      weChatRescanSuccess: "重新登录成功",
+      addChannel: "+ 添加渠道",
+      disable: "禁用",
+      enable: "启用",
+      delete: "删除",
+      addForm: {
+        title: "添加渠道",
+        stepLabel: (step: number, total: number) => `步骤 ${step}/${total}`,
+        connectorType: "连接器类型",
+        telegramToken: "Bot Token",
+        feishuAppId: "App ID",
+        feishuAppSecret: "App Secret",
+        webhookPath: "Webhook 路径",
+        verifyToken: "验证 Token",
+        verifyCredentials: "验证凭证",
+        verifying: "验证中...",
+        deliveryRule: "投递规则",
+        displayName: "显示名称",
+        displayNamePlaceholder: "我的机器人",
+        next: "下一步",
+        back: "返回",
+        cancel: "取消",
+        save: "保存",
+        saving: "保存中...",
+      },
     },
     en: {
       eyebrow: "Channel Hub",
@@ -275,6 +305,33 @@ export function ChannelsDesk() {
         Automation: "Automation",
         Plugin: "Plugin",
       },
+      copyBindingId: "Copy BindingId",
+      weChatRescan: "Re-scan QR",
+      weChatRescanSuccess: "Re-login successful",
+      addChannel: "+ Add Channel",
+      disable: "Disable",
+      enable: "Enable",
+      delete: "Delete",
+      addForm: {
+        title: "Add Channel",
+        stepLabel: (step: number, total: number) => `Step ${step}/${total}`,
+        connectorType: "Connector type",
+        telegramToken: "Bot token",
+        feishuAppId: "App ID",
+        feishuAppSecret: "App Secret",
+        webhookPath: "Webhook path",
+        verifyToken: "Verify Token",
+        verifyCredentials: "Verify Credentials",
+        verifying: "Verifying...",
+        deliveryRule: "Delivery rule",
+        displayName: "Display name",
+        displayNamePlaceholder: "My Telegram Bot",
+        next: "Next",
+        back: "Back",
+        cancel: "Cancel",
+        save: "Save",
+        saving: "Saving...",
+      },
     },
   });
 
@@ -292,6 +349,7 @@ export function ChannelsDesk() {
   const [updatingDelivery, setUpdatingDelivery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [weChatRescanId, setWeChatRescanId] = useState<string | null>(null);
 
   // Add channel form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -738,9 +796,9 @@ export function ChannelsDesk() {
       <p className="desk-section-desc">{text.copy}</p>
 
       <div className="channels-desk__toolbar">
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="channels-refresh"
           disabled={isLoadingList || isRefreshing}
           onClick={() => {
@@ -748,28 +806,28 @@ export function ChannelsDesk() {
           }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
-        </button>
+        </Button>
         {isRefreshing ? (
           <span className="composer__status" data-testid="channels-refresh-indicator">
             {text.refreshing}
           </span>
         ) : null}
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="primary"
+          size="sm"
           data-testid="channel-add-btn"
           disabled={isLoadingList}
           onClick={handleOpenAddForm}
         >
-          + Add Channel
-        </button>
+          {text.addChannel}
+        </Button>
 
         <label className="metric-label" htmlFor="channels-connector-filter">
           {text.filters.connector}
         </label>
-        <select
+        <Select
           id="channels-connector-filter"
-          className="kc-select control-plane-filter channels-connector-select"
+          className="control-plane-filter channels-connector-select"
           data-testid="channels-connector-filter"
           value={connectorFilter}
           onChange={(event) => {
@@ -783,14 +841,14 @@ export function ChannelsDesk() {
               {connector.displayName}
             </option>
           ))}
-        </select>
+        </Select>
 
         <label className="metric-label" htmlFor="channels-account-filter">
           {text.filters.account}
         </label>
-        <select
+        <Select
           id="channels-account-filter"
-          className="kc-select control-plane-filter channels-account-select"
+          className="control-plane-filter channels-account-select"
           data-testid="channels-account-filter"
           value={accountFilter}
           onChange={(event) => setAccountFilter(event.target.value as AccountFilter)}
@@ -801,7 +859,7 @@ export function ChannelsDesk() {
               {resolveAccountLabel(account)}
             </option>
           ))}
-        </select>
+        </Select>
 
         <span className="composer__status" data-testid="channels-summary">
           {isLoadingList ? text.loading : text.summary(accounts.length, threads.length)}
@@ -809,12 +867,13 @@ export function ChannelsDesk() {
       </div>
 
       {error ? (
-        <p className="__feedback __feedback--error" data-testid="channels-error">
+        <p className="desk-feedback desk-feedback--error" data-testid="channels-error">
           {error}
         </p>
       ) : null}
 
       <div className="channels-desk__layout">
+        <div className="channels-desk__left">
         <section className="timeline" data-testid="channels-connectors-accounts">
           <div className="timeline__header">
             <h3 className="desk-section-title">{text.connectorsTitle}</h3>
@@ -822,45 +881,65 @@ export function ChannelsDesk() {
           </div>
           <div className="timeline__body channels-desk__connectors-body">
             {connectors.map((connector) => (
-              <article className="message message--assistant" key={connector.kind}>
-                <div className="message__meta">
-                  <span className="message__role">{connector.displayName}</span>
-                  <span>{connector.kind}</span>
-                </div>
-                <span>{summarizeConnector(connector)}</span>
-              </article>
+              <div className="channel-connector-card" key={connector.kind}>
+                <div className="channel-connector-card__name">{connector.displayName}</div>
+                <div className="channel-connector-card__meta">{connector.kind} · {summarizeConnector(connector)}</div>
+              </div>
             ))}
 
             {accounts.map((account) => (
-              <article className="message message--system" key={account.id}>
-                <div className="message__meta">
-                  <span className="message__role">{account.connectorKind}</span>
-                  <span>{resolveAccountStateLabel(account.state)}</span>
+              <div className="channel-account-card" key={account.id}>
+                <div className="channel-account-card__header">
+                  <div className="channel-account-card__title-row">
+                    <span className="channel-account-card__kind">{account.connectorKind}</span>
+                    <span className="channel-account-card__name">{account.displayName}</span>
+                  </div>
+                  <span className={`channel-account-card__state channel-account-card__state--${account.state}`}>
+                    {resolveAccountStateLabel(account.state)}
+                  </span>
                 </div>
-                <strong>{account.displayName}</strong>
-                <span className="metric-value metric-value--path">{account.id}</span>
                 <span className="metric-label">
                   {text.updatedAt(formatDateTime(account.updatedAt, text.unavailable))}
                 </span>
-                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
+                <div className="channel-account-card__actions">
+                  <Button
+                    variant={account.inboundEnabled ? "ghost" : "primary"}
+                    size="sm"
                     data-testid={`channel-account-toggle-${account.id}`}
                     onClick={() => { void handleToggleAccount(account); }}
                   >
-                    {account.inboundEnabled ? "Disable" : "Enable"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--secondary"
+                    {account.inboundEnabled ? text.disable : text.enable}
+                  </Button>
+                  <Button
+                    variant="danger"
+                    size="sm"
                     data-testid={`channel-account-delete-${account.id}`}
                     onClick={() => setDeleteConfirm({ id: account.id, name: account.displayName })}
                   >
-                    Delete
-                  </button>
+                    {text.delete}
+                  </Button>
+                  {account.connectorKind === 'WeChat' && account.state === 'Degraded' && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid={`channel-account-wechat-rescan-${account.id}`}
+                      onClick={() => setWeChatRescanId(weChatRescanId === account.id ? null : account.id)}
+                    >
+                      {text.weChatRescan}
+                    </Button>
+                  )}
                 </div>
-              </article>
+                {account.connectorKind === 'WeChat' && weChatRescanId === account.id && (
+                  <div className="channel-wechat-rescan-panel">
+                    <WeChatQrLoginPanel
+                      onLoginSuccess={() => {
+                        setWeChatRescanId(null);
+                        void handleRefresh();
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             ))}
 
             {isLoadingList ? <Skeleton height={52} count={3} /> : null}
@@ -869,39 +948,33 @@ export function ChannelsDesk() {
             ) : null}
 
             {showAddForm ? (
-              <div className="metric-item" data-testid="channel-config-form" style={{ marginTop: 12 }}>
-                <span className="metric-label">Add Channel — Step {addFormStep}/4</span>
+              <div className="channel-add-form" data-testid="channel-config-form">
+                <div className="channel-add-form__header">
+                  <span className="channel-add-form__title">{text.addForm.title}</span>
+                  <span className="channel-add-form__step">{text.addForm.stepLabel(addFormStep, 4)}</span>
+                </div>
 
                 {addFormStep === 1 ? (
                   <>
                     <label className="metric-label" htmlFor="channel-form-kind">
-                      Connector type
+                      {text.addForm.connectorType}
                     </label>
-                    <select
+                    <Select
                       id="channel-form-kind"
-                      className="kc-select"
                       value={addFormConnectorKind}
                       onChange={(e) => setAddFormConnectorKind(e.target.value as ChannelConnectorKind)}
                     >
                       <option value="Telegram">Telegram</option>
                       <option value="Feishu">飞书 / Lark</option>
                       <option value="GenericWebhook">Generic Webhook</option>
-                    </select>
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => setAddFormStep(2)}
-                      >
-                        Next
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={handleCancelAddForm}
-                      >
-                        Cancel
-                      </button>
+                    </Select>
+                    <div className="channel-add-form__actions">
+                      <Button variant="secondary" onClick={() => setAddFormStep(2)}>
+                        {text.addForm.next}
+                      </Button>
+                      <Button variant="secondary" onClick={handleCancelAddForm}>
+                        {text.addForm.cancel}
+                      </Button>
                     </div>
                   </>
                 ) : addFormStep === 2 ? (
@@ -909,7 +982,7 @@ export function ChannelsDesk() {
                     {addFormConnectorKind === "Telegram" ? (
                       <>
                         <label className="metric-label" htmlFor="channel-form-bot-token">
-                          Bot token
+                          {text.addForm.telegramToken}
                         </label>
                         <input
                           id="channel-form-bot-token"
@@ -923,7 +996,7 @@ export function ChannelsDesk() {
                     ) : addFormConnectorKind === "Feishu" ? (
                       <>
                         <label className="metric-label" htmlFor="channel-form-feishu-app-id">
-                          App ID
+                          {text.addForm.feishuAppId}
                         </label>
                         <input
                           id="channel-form-feishu-app-id"
@@ -934,7 +1007,7 @@ export function ChannelsDesk() {
                           placeholder="cli_xxxxxxxxxxxxxxxx"
                         />
                         <label className="metric-label" htmlFor="channel-form-feishu-app-secret">
-                          App Secret
+                          {text.addForm.feishuAppSecret}
                         </label>
                         <input
                           id="channel-form-feishu-app-secret"
@@ -948,7 +1021,7 @@ export function ChannelsDesk() {
                     ) : (
                       <>
                         <label className="metric-label" htmlFor="channel-form-webhook-path">
-                          Webhook path
+                          {text.addForm.webhookPath}
                         </label>
                         <input
                           id="channel-form-webhook-path"
@@ -961,52 +1034,36 @@ export function ChannelsDesk() {
                       </>
                     )}
                     {addFormError ? (
-                      <span className="metric-value" style={{ color: "var(--color-error, red)" }}>
-                        {addFormError}
-                      </span>
+                      <p className="desk-feedback desk-feedback--error">{addFormError}</p>
                     ) : null}
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <div className="channel-add-form__actions">
                       {addFormConnectorKind === "Telegram" ? (
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
+                        <Button
+                          variant="secondary"
                           disabled={addFormTesting || !addFormBotToken.trim()}
                           onClick={() => { void handleTestTelegramToken(); }}
                         >
-                          {addFormTesting ? "Verifying..." : "Verify Token"}
-                        </button>
+                          {addFormTesting ? text.addForm.verifying : text.addForm.verifyToken}
+                        </Button>
                       ) : addFormConnectorKind === "Feishu" ? (
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
+                        <Button
+                          variant="secondary"
                           disabled={addFormTesting || !addFormFeishuAppId.trim() || !addFormFeishuAppSecret.trim()}
                           onClick={() => { void handleTestFeishuCredentials(); }}
                         >
-                          {addFormTesting ? "Verifying..." : "Verify Credentials"}
-                        </button>
+                          {addFormTesting ? text.addForm.verifying : text.addForm.verifyCredentials}
+                        </Button>
                       ) : (
-                        <button
-                          type="button"
-                          className="btn btn--secondary"
-                          onClick={() => setAddFormStep(3)}
-                        >
-                          Next
-                        </button>
+                        <Button variant="secondary" onClick={() => setAddFormStep(3)}>
+                          {text.addForm.next}
+                        </Button>
                       )}
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => { setAddFormStep(1); setAddFormError(null); }}
-                      >
-                        Back
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={handleCancelAddForm}
-                      >
-                        Cancel
-                      </button>
+                      <Button variant="secondary" onClick={() => { setAddFormStep(1); setAddFormError(null); }}>
+                        {text.addForm.back}
+                      </Button>
+                      <Button variant="secondary" onClick={handleCancelAddForm}>
+                        {text.addForm.cancel}
+                      </Button>
                     </div>
                     {addFormTelegramTestResult ? (
                       <span className="metric-value">{addFormTelegramTestResult}</span>
@@ -1017,47 +1074,34 @@ export function ChannelsDesk() {
                 ) : addFormStep === 3 ? (
                   <>
                     <label className="metric-label" htmlFor="channel-form-delivery-rule">
-                      Delivery rule
+                      {text.addForm.deliveryRule}
                     </label>
-                    <select
+                    <Select
                       id="channel-form-delivery-rule"
-                      className="kc-select"
                       data-testid="channel-delivery-rule-select"
                       value={addFormDeliveryMode}
                       onChange={(e) => setAddFormDeliveryMode(e.target.value as DeliveryMode)}
                     >
-                      <option value="AutoSend">Auto send</option>
-                      <option value="DraftApproval">Draft approval</option>
-                      <option value="RequireApproval">Require approval</option>
-                    </select>
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => setAddFormStep(4)}
-                      >
-                        Next
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => setAddFormStep(2)}
-                      >
-                        Back
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={handleCancelAddForm}
-                      >
-                        Cancel
-                      </button>
+                      <option value="AutoSend">{text.deliveryMode.AutoSend}</option>
+                      <option value="DraftApproval">{text.deliveryMode.DraftApproval}</option>
+                      <option value="RequireApproval">{text.deliveryMode.RequireApproval}</option>
+                    </Select>
+                    <div className="channel-add-form__actions">
+                      <Button variant="secondary" onClick={() => setAddFormStep(4)}>
+                        {text.addForm.next}
+                      </Button>
+                      <Button variant="secondary" onClick={() => setAddFormStep(2)}>
+                        {text.addForm.back}
+                      </Button>
+                      <Button variant="secondary" onClick={handleCancelAddForm}>
+                        {text.addForm.cancel}
+                      </Button>
                     </div>
                   </>
                 ) : (
                   <>
                     <label className="metric-label" htmlFor="channel-form-display-name">
-                      Display name
+                      {text.addForm.displayName}
                     </label>
                     <input
                       id="channel-form-display-name"
@@ -1065,36 +1109,25 @@ export function ChannelsDesk() {
                       type="text"
                       value={addFormDisplayName}
                       onChange={(e) => setAddFormDisplayName(e.target.value)}
-                      placeholder="My Telegram Bot"
+                      placeholder={text.addForm.displayNamePlaceholder}
                     />
                     {addFormError ? (
-                      <span className="metric-value" style={{ color: "var(--color-error, red)" }}>
-                        {addFormError}
-                      </span>
+                      <p className="desk-feedback desk-feedback--error">{addFormError}</p>
                     ) : null}
-                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
+                    <div className="channel-add-form__actions">
+                      <Button
+                        variant="secondary"
                         disabled={addFormSaving}
                         onClick={() => { void handleSaveChannelAccount(); }}
                       >
-                        {addFormSaving ? "Saving..." : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={() => setAddFormStep(3)}
-                      >
-                        Back
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
-                        onClick={handleCancelAddForm}
-                      >
-                        Cancel
-                      </button>
+                        {addFormSaving ? text.addForm.saving : text.addForm.save}
+                      </Button>
+                      <Button variant="secondary" onClick={() => setAddFormStep(3)}>
+                        {text.addForm.back}
+                      </Button>
+                      <Button variant="secondary" onClick={handleCancelAddForm}>
+                        {text.addForm.cancel}
+                      </Button>
                     </div>
                   </>
                 )}
@@ -1103,31 +1136,47 @@ export function ChannelsDesk() {
           </div>
         </section>
 
-        <section className="status-card status-card--normal" data-testid="channels-threads">
-          <h3 className="desk-section-title">{text.threadTitle}</h3>
-
-          <div className="channels-desk__thread-list">
+        {/* Col 2: Thread list */}
+        <section className="timeline" data-testid="channels-threads">
+          <div className="timeline__header">
+            <h3 className="desk-section-title">{text.threadTitle}</h3>
+            <span className="composer__status">{threads.length}</span>
+          </div>
+          <div className="timeline__body channels-desk__thread-list">
             {threads.map((thread) => {
               const selected = selectedBindingId === thread.bindingId;
               return (
-                <button
+                <Button
                   key={thread.bindingId}
-                  type="button"
-                  className="btn btn--secondary channel-thread-btn"
+                  variant="ghost"
+                  shape="pill"
+                  selected={selected}
+                  className={`channel-thread-btn${selected ? " channel-thread-btn--selected" : ""}`}
                   data-testid={`channel-thread-select-${thread.bindingId}`}
                   aria-pressed={selected}
                   onClick={() => {
                     void handleSelectThread(thread.bindingId);
                   }}
                 >
-                  <div className="message__meta">
-                    <span className="message__role">{thread.connectorKind}</span>
-                    <span>{resolveDeliveryModeLabel(thread.deliveryMode)}</span>
+                  <div className="channel-thread-btn__topline">
+                    <span className="channel-thread-btn__kind">{thread.connectorKind}</span>
+                    <span className="channel-thread-btn__delivery">{resolveDeliveryModeLabel(thread.deliveryMode)}</span>
+                    <Button
+                      variant="ghost"
+                      className="copy-binding-id-btn"
+                      title={text.copyBindingId}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void navigator.clipboard.writeText(thread.bindingId);
+                      }}
+                    >
+                      <Copy size={12} strokeWidth={2} />
+                    </Button>
                   </div>
-                  <strong>{thread.displayTitle}</strong>
-                  <div>{trimText(thread.lastMessagePreview)}</div>
-                  <div className="metric-label">{resolveThreadState(thread)}</div>
-                </button>
+                  <div className="channel-thread-btn__title">{thread.displayTitle}</div>
+                  <div className="channel-thread-btn__preview">{trimText(thread.lastMessagePreview)}</div>
+                  <div className="channel-thread-btn__state">{resolveThreadState(thread)}</div>
+                </Button>
               );
             })}
 
@@ -1137,112 +1186,113 @@ export function ChannelsDesk() {
               </div>
             ) : null}
           </div>
+        </section>
+        </div>{/* /channels-desk__left */}
 
-          <div className="channels-desk__detail-panel" data-testid="channel-thread-detail">
-            {isLoadingDetail ? (
-              <Skeleton height={52} count={3} />
-            ) : threadDetail && selectedThread ? (
-              <>
-                <div className="metric-item">
-                  <span className="metric-label">{text.detail.binding}</span>
-                  <span className="metric-value metric-value--path">{threadDetail.binding.id}</span>
-                  <span className="metric-label">{text.detail.sessionKind}</span>
-                  <span className="metric-value">
-                    {resolveSessionKindLabel(threadDetail.binding.sessionKind)}
-                  </span>
-                  <span className="metric-label">{text.detail.deliveryMode}</span>
-                  <select
-                    className="kc-select"
-                    data-testid="channel-thread-delivery-mode-select"
-                    value={threadDetail.deliveryRule.mode}
-                    disabled={updatingDelivery}
-                    onChange={(event) => {
-                      void handleDeliveryModeChange(
-                        threadDetail.binding.id,
-                        event.target.value as DeliveryMode,
-                      );
-                    }}
-                  >
-                    <option value="AutoSend">{text.deliveryMode.AutoSend}</option>
-                    <option value="DraftApproval">{text.deliveryMode.DraftApproval}</option>
-                    <option value="RequireApproval">{text.deliveryMode.RequireApproval}</option>
-                  </select>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">{text.detail.policy}</span>
-                  <span className="metric-value">
-                    {text.policySummary(
-                      threadDetail.policy.loadUserProfile ? text.on : text.off,
-                      threadDetail.policy.loadLongTermMemory ? text.on : text.off,
-                    )}
-                  </span>
-                  <span className="metric-label">{text.detail.replyGuard}</span>
-                  <span className="metric-value">
-                    {text.replyGuardSummary(
-                      threadDetail.policy.allowDirectReply ? text.on : text.off,
-                      threadDetail.policy.requireExplicitMention ? text.yes : text.no,
-                    )}
-                  </span>
-                  <span className="metric-label">{text.detail.pending}</span>
-                  <span className="metric-value">
-                    {threadDetail.pendingApprovalId
-                      ? text.detailPendingApproval(threadDetail.pendingApprovalId)
-                      : threadDetail.hasPendingDraft
-                        ? text.detailPendingDraft
-                        : text.detailNoPending}
-                  </span>
-                  <span className="metric-label">{text.detail.lastOutcome}</span>
-                  <span className="metric-value">
-                    {threadDetail.lastTurnOutcome
-                      ? `${resolveOutcomeKindLabel(threadDetail.lastTurnOutcome.kind)} · ${threadDetail.lastTurnOutcome.summary}`
-                      : text.noLastOutcome}
-                  </span>
-                  {threadDetail.lastTurnOutcome ? (
-                    <>
-                      <span className="metric-label">{text.detail.outcomeReason}</span>
-                      <span className="metric-value">
-                        {resolveOutcomeReasonLabel(threadDetail.lastTurnOutcome.reasonCode)}
-                      </span>
-                      <span className="metric-label">{text.detail.mentionSignal}</span>
-                      <span className="metric-value">
-                        {resolveMentionSignalLabel(threadDetail.lastTurnOutcome.hasExplicitMention)}
-                      </span>
-                    </>
-                  ) : null}
-                  {threadDetail.lastTurnOutcome?.replyText ? (
-                    <>
-                      <span className="metric-label">{text.detail.replyPreview}</span>
-                      <span className="metric-value">{trimText(threadDetail.lastTurnOutcome.replyText, 140)}</span>
-                    </>
-                  ) : null}
-                </div>
-
-                <div className="metric-item" data-testid="channel-thread-policy-evidence">
-                  <span className="metric-label">{text.detail.policyEvidence}</span>
-                  {resolvePolicyEvidence(threadDetail, threadAudit).map((item) => (
-                    <span key={item} className="metric-value">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-
-                <div className="metric-item" data-testid="channel-thread-audit">
-                  <span className="metric-label">{text.detail.recentAudit}</span>
-                  {threadAudit.length > 0 ? (
-                    threadAudit.map((entry) => (
-                      <span key={entry.id} className="metric-value">
-                        {entry.eventType} · {entry.summary ?? text.unavailable} · {formatDateTime(entry.createdAt, text.unavailable)}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="metric-value">{text.detail.noAudit}</span>
+        {/* Col 2 (right): Thread detail */}
+        <section className="status-card status-card--normal" data-testid="channel-thread-detail">
+          {isLoadingDetail ? (
+            <Skeleton height={52} count={3} />
+          ) : threadDetail && selectedThread ? (
+            <div className="channel-detail-body">
+              <div className="metric-item">
+                <span className="metric-label">{text.detail.binding}</span>
+                <span className="metric-value metric-value--path">{threadDetail.binding.id}</span>
+                <span className="metric-label">{text.detail.sessionKind}</span>
+                <span className="metric-value">
+                  {resolveSessionKindLabel(threadDetail.binding.sessionKind)}
+                </span>
+                <span className="metric-label">{text.detail.deliveryMode}</span>
+                <Select
+                  data-testid="channel-thread-delivery-mode-select"
+                  value={threadDetail.deliveryRule.mode}
+                  disabled={updatingDelivery}
+                  onChange={(event) => {
+                    void handleDeliveryModeChange(
+                      threadDetail.binding.id,
+                      event.target.value as DeliveryMode,
+                    );
+                  }}
+                >
+                  <option value="AutoSend">{text.deliveryMode.AutoSend}</option>
+                  <option value="DraftApproval">{text.deliveryMode.DraftApproval}</option>
+                  <option value="RequireApproval">{text.deliveryMode.RequireApproval}</option>
+                </Select>
+              </div>
+              <div className="metric-item">
+                <span className="metric-label">{text.detail.policy}</span>
+                <span className="metric-value">
+                  {text.policySummary(
+                    threadDetail.policy.loadUserProfile ? text.on : text.off,
+                    threadDetail.policy.loadLongTermMemory ? text.on : text.off,
                   )}
-                </div>
-              </>
-            ) : (
-              <EmptyState icon={<Radio size={28} strokeWidth={1.5} />} title={text.emptyDetail} />
-            )}
-          </div>
+                </span>
+                <span className="metric-label">{text.detail.replyGuard}</span>
+                <span className="metric-value">
+                  {text.replyGuardSummary(
+                    threadDetail.policy.allowDirectReply ? text.on : text.off,
+                    threadDetail.policy.requireExplicitMention ? text.yes : text.no,
+                  )}
+                </span>
+                <span className="metric-label">{text.detail.pending}</span>
+                <span className="metric-value">
+                  {threadDetail.pendingApprovalId
+                    ? text.detailPendingApproval(threadDetail.pendingApprovalId)
+                    : threadDetail.hasPendingDraft
+                      ? text.detailPendingDraft
+                      : text.detailNoPending}
+                </span>
+                <span className="metric-label">{text.detail.lastOutcome}</span>
+                <span className="metric-value">
+                  {threadDetail.lastTurnOutcome
+                    ? `${resolveOutcomeKindLabel(threadDetail.lastTurnOutcome.kind)} · ${threadDetail.lastTurnOutcome.summary}`
+                    : text.noLastOutcome}
+                </span>
+                {threadDetail.lastTurnOutcome ? (
+                  <>
+                    <span className="metric-label">{text.detail.outcomeReason}</span>
+                    <span className="metric-value">
+                      {resolveOutcomeReasonLabel(threadDetail.lastTurnOutcome.reasonCode)}
+                    </span>
+                    <span className="metric-label">{text.detail.mentionSignal}</span>
+                    <span className="metric-value">
+                      {resolveMentionSignalLabel(threadDetail.lastTurnOutcome.hasExplicitMention)}
+                    </span>
+                  </>
+                ) : null}
+                {threadDetail.lastTurnOutcome?.replyText ? (
+                  <>
+                    <span className="metric-label">{text.detail.replyPreview}</span>
+                    <span className="metric-value">{trimText(threadDetail.lastTurnOutcome.replyText, 140)}</span>
+                  </>
+                ) : null}
+              </div>
+
+              <div className="metric-item" data-testid="channel-thread-policy-evidence">
+                <span className="metric-label">{text.detail.policyEvidence}</span>
+                {resolvePolicyEvidence(threadDetail, threadAudit).map((item) => (
+                  <span key={item} className="metric-value">
+                    {item}
+                  </span>
+                ))}
+              </div>
+
+              <div className="metric-item" data-testid="channel-thread-audit">
+                <span className="metric-label">{text.detail.recentAudit}</span>
+                {threadAudit.length > 0 ? (
+                  threadAudit.map((entry) => (
+                    <span key={entry.id} className="metric-value">
+                      {entry.eventType} · {entry.summary ?? text.unavailable} · {formatDateTime(entry.createdAt, text.unavailable)}
+                    </span>
+                  ))
+                ) : (
+                  <span className="metric-value">{text.detail.noAudit}</span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <EmptyState icon={<Radio size={28} strokeWidth={1.5} />} title={text.emptyDetail} />
+          )}
         </section>
       </div>
 

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   fetchAutomationRuns,
   fetchAutomations,
@@ -11,6 +13,9 @@ import {
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { ConfirmModal } from "./ui/ConfirmModal";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Zap } from "lucide-react";
 import type {
   AutomationDefinition,
@@ -22,18 +27,29 @@ import type {
 
 type EnabledFilter = "all" | "enabled";
 type SourceFilter = "all" | AutomationDefinitionSource;
+type ConfirmState =
+  | { kind: "disable"; automation: AutomationDefinition }
+  | { kind: "trigger"; automationId: string; title: string }
+  | null;
 
 const SOURCE_FILTER_OPTIONS: AutomationDefinitionSource[] = ["Manual", "Heartbeat"];
 
+/** Strip XML/tool-call blocks (e.g. <function_calls>…</function_calls>) from LLM output. */
+function stripXml(value: string | null | undefined, maxLength = 200): string {
+  if (!value) return "";
+  const cleaned = value
+    .replace(/<[^>]+>[\s\S]*?<\/[^>]+>/g, "")
+    .replace(/<[^>]+\/>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  return `${cleaned.slice(0, maxLength - 3)}...`;
+}
 
-
-function summarizePrompt(prompt: string, maxLength = 180): string {
-  const normalized = prompt.replace(/\s+/g, " ").trim();
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, maxLength - 3)}...`;
+function resolveChannelLabel(bindingId: string): string {
+  if (bindingId.startsWith("tg-")) return `Telegram · ${bindingId.slice(3)}`;
+  if (bindingId.startsWith("feishu-")) return `飞书 · ${bindingId.slice(7)}`;
+  return bindingId;
 }
 
 export function AutomationsDesk() {
@@ -67,13 +83,19 @@ export function AutomationsDesk() {
         enabled: "已启用",
         disabled: "已停用",
       },
+      model: "模型",
+      modelDefault: "默认模型",
+      channels: "渠道",
+      notifyMode: "推送方式",
+      notifyModeAuto: "自动",
+      notifyModeApproval: "审批后推送",
       nextRun: "下次运行",
       lastRunStatus: "上次运行状态",
       toggleEnable: "启用自动化",
       toggleDisable: "停用自动化",
       saving: "保存中...",
       nextRunHint: (value: string) => `下次运行 ${value}`,
-      promptSummary: "提示词摘要",
+      promptSummary: "提示词",
       inputPaths: "输入路径",
       noInputPaths: "未配置显式输入路径。",
       lastError: "最近错误",
@@ -106,7 +128,7 @@ export function AutomationsDesk() {
       promptBudgetValue: (count: number, budget: number, remaining: number | null | undefined) =>
         `${count.toLocaleString()} / ${budget.toLocaleString()}${remaining === null || remaining === undefined ? "" : `（剩余 ${remaining.toLocaleString()}）`}`,
       promptBudgetUnavailable: "未配置字符预算",
-      emptyDetail: "选择一个自动化以查看提示词摘要、运行记录与开关状态。",
+      emptyDetail: "选择一个自动化以查看提示词、运行记录与开关状态。",
       sourceLabels: {
         Manual: "手动",
         Heartbeat: "心跳",
@@ -150,9 +172,26 @@ export function AutomationsDesk() {
       triggerNow: "立即执行",
       triggering: "执行中...",
       triggerError: "触发自动化失败。",
-      engineDisabledBanner: "自动化引擎当前已关闭。前往设置页启用「启用自动化引擎」后，所有已开启的自动化才会按计划执行。",
-      engineEnabled: "已启用",
-      engineDisabled: "已禁用",
+      engineDisabledBanner: "自动化引擎当前已关闭。请在「设置」中启用「自动化引擎」，已启用的自动化才会按计划执行。",
+      engineEnabled: "引擎已启用",
+      engineDisabled: "引擎已关闭",
+      confirmDisableTitle: "停用此自动化？",
+      confirmDisableDesc: "停用后，该自动化将不再按计划执行，直到重新启用。",
+      confirmDisableLabel: "停用",
+      confirmTriggerTitle: (title: string) => `立即触发「${title}」？`,
+      confirmTriggerDesc: "将立即创建一次手动执行。如有渠道推送配置，完成后会按设置发送。",
+      confirmTriggerLabel: "立即执行",
+      cancel: "取消",
+      durationSecs: (s: number) => `${s}s`,
+      durationMins: (m: number, s: number) => `${m}m ${s}s`,
+      relativeNow: "刚刚",
+      relativeSoon: "即将",
+      relativeMinutesAgo: (n: number) => `${n} 分钟前`,
+      relativeMinutesLater: (n: number) => `${n} 分钟后`,
+      relativeHoursAgo: (n: number) => `${n} 小时前`,
+      relativeHoursLater: (n: number) => `${n} 小时后`,
+      relativeDaysAgo: (n: number) => `${n} 天前`,
+      relativeDaysLater: (n: number) => `${n} 天后`,
     },
     en: {
       eyebrow: "Control Plane",
@@ -182,13 +221,19 @@ export function AutomationsDesk() {
         enabled: "Enabled",
         disabled: "Disabled",
       },
+      model: "Model",
+      modelDefault: "Default model",
+      channels: "Channels",
+      notifyMode: "Push Mode",
+      notifyModeAuto: "Auto",
+      notifyModeApproval: "On Approval",
       nextRun: "Next run",
       lastRunStatus: "Last run status",
       toggleEnable: "Enable automation",
       toggleDisable: "Disable automation",
       saving: "Saving...",
       nextRunHint: (value: string) => `Next run ${value}`,
-      promptSummary: "Prompt summary",
+      promptSummary: "Prompt",
       inputPaths: "Input paths",
       noInputPaths: "No explicit input paths configured.",
       lastError: "Last error",
@@ -221,7 +266,7 @@ export function AutomationsDesk() {
       promptBudgetValue: (count: number, budget: number, remaining: number | null | undefined) =>
         `${count.toLocaleString()} / ${budget.toLocaleString()}${remaining === null || remaining === undefined ? "" : ` (${remaining.toLocaleString()} remaining)`}`,
       promptBudgetUnavailable: "No character budget configured",
-      emptyDetail: "Select an automation to inspect prompt summary, runs, and toggle state.",
+      emptyDetail: "Select an automation to inspect prompt, runs, and toggle state.",
       sourceLabels: {
         Manual: "Manual",
         Heartbeat: "Heartbeat",
@@ -265,9 +310,26 @@ export function AutomationsDesk() {
       triggerNow: "Run now",
       triggering: "Running...",
       triggerError: "Failed to trigger automation.",
-      engineDisabledBanner: "The automations engine is currently disabled. Go to Settings and enable \"Automations engine enabled\" so scheduled automations can run.",
-      engineEnabled: "Enabled",
-      engineDisabled: "Disabled",
+      engineDisabledBanner: "The automations engine is currently disabled. Go to Settings and enable \"Automations engine\" so scheduled automations can run.",
+      engineEnabled: "Engine on",
+      engineDisabled: "Engine off",
+      confirmDisableTitle: "Disable this automation?",
+      confirmDisableDesc: "This automation will no longer run on schedule until re-enabled.",
+      confirmDisableLabel: "Disable",
+      confirmTriggerTitle: (title: string) => `Run "${title}" now?`,
+      confirmTriggerDesc: "A manual run will be triggered immediately. If channels are configured, results will be pushed per the delivery mode.",
+      confirmTriggerLabel: "Run now",
+      cancel: "Cancel",
+      durationSecs: (s: number) => `${s}s`,
+      durationMins: (m: number, s: number) => `${m}m ${s}s`,
+      relativeNow: "just now",
+      relativeSoon: "soon",
+      relativeMinutesAgo: (n: number) => `${n}m ago`,
+      relativeMinutesLater: (n: number) => `in ${n}m`,
+      relativeHoursAgo: (n: number) => `${n}h ago`,
+      relativeHoursLater: (n: number) => `in ${n}h`,
+      relativeDaysAgo: (n: number) => `${n}d ago`,
+      relativeDaysLater: (n: number) => `in ${n}d`,
     },
   });
 
@@ -287,10 +349,18 @@ export function AutomationsDesk() {
   const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
   const [automationsEngineEnabled, setAutomationsEngineEnabled] = useState<boolean | null>(null);
   const [isTogglingEngine, setIsTogglingEngine] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState>(null);
+  const [isPolling, setIsPolling] = useState(false);
 
   const listRequestIdRef = useRef(0);
   const runsRequestIdRef = useRef(0);
   const promptDiagnosticsRequestIdRef = useRef(0);
+  const selectedAutomationIdRef = useRef<string | null>(null);
+
+  // Keep ref in sync for use inside polling effect
+  useEffect(() => {
+    selectedAutomationIdRef.current = selectedAutomationId;
+  }, [selectedAutomationId]);
 
   const selectedAutomation = useMemo(
     () => automations.find((item) => item.id === selectedAutomationId) ?? null,
@@ -348,10 +418,35 @@ export function AutomationsDesk() {
     return text.schedule.weekly(days, schedule.localTime);
   }
 
-  function formatRunWindow(run: AutomationRunRecord): string {
-    const started = formatDateTime(run.startedAt, text.unavailable);
-    const completed = formatDateTime(run.completedAt, text.unavailable);
-    return `${started} -> ${completed}`;
+  function formatDuration(
+    startedAt: string | null | undefined,
+    completedAt: string | null | undefined,
+  ): string {
+    if (!startedAt || !completedAt) return "";
+    const ms = new Date(completedAt).getTime() - new Date(startedAt).getTime();
+    if (ms <= 0) return "";
+    const secs = Math.round(ms / 1000);
+    if (secs < 60) return text.durationSecs(secs);
+    return text.durationMins(Math.floor(secs / 60), secs % 60);
+  }
+
+  function formatRelativeTime(dateStr: string | null | undefined): string {
+    if (!dateStr) return text.unavailable;
+    const ms = new Date(dateStr).getTime() - Date.now();
+    const abs = Math.abs(ms);
+    const future = ms > 0;
+
+    if (abs < 30000) return future ? text.relativeSoon : text.relativeNow;
+    if (abs < 3600000) {
+      const mins = Math.round(abs / 60000);
+      return future ? text.relativeMinutesLater(mins) : text.relativeMinutesAgo(mins);
+    }
+    if (abs < 86400000) {
+      const hours = Math.round(abs / 3600000);
+      return future ? text.relativeHoursLater(hours) : text.relativeHoursAgo(hours);
+    }
+    const days = Math.round(abs / 86400000);
+    return future ? text.relativeDaysLater(days) : text.relativeDaysAgo(days);
   }
 
   function formatPromptSize(characterCount: number): string {
@@ -498,6 +593,55 @@ export function AutomationsDesk() {
     }
   }
 
+  // Polling: after a manual trigger, poll automations every 3s until no active runs
+  useEffect(() => {
+    if (!isPolling) return;
+
+    let stopped = false;
+    let attempts = 0;
+    const maxAttempts = 20; // ~60 seconds
+
+    const tick = async () => {
+      if (stopped) return;
+      attempts++;
+
+      try {
+        const payload = await fetchAutomations({ limit: 60 });
+        if (stopped) return;
+        setAutomations(payload.items);
+
+        const hasActive = payload.items.some(
+          (a) => a.lastRunStatus === "Running" || a.lastRunStatus === "Queued",
+        );
+
+        if (!hasActive || attempts >= maxAttempts) {
+          stopped = true;
+          setIsPolling(false);
+          const currentId = selectedAutomationIdRef.current;
+          if (currentId) {
+            void loadAutomationRuns(currentId);
+          }
+        }
+      } catch {
+        if (attempts >= 3) {
+          stopped = true;
+          setIsPolling(false);
+        }
+      }
+    };
+
+    const interval = setInterval(() => {
+      void tick();
+    }, 3000);
+    void tick();
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPolling]);
+
   useEffect(() => {
     fetchSettings()
       .then((s) => setAutomationsEngineEnabled(s.automationsEnabled))
@@ -519,7 +663,17 @@ export function AutomationsDesk() {
     void loadAutomationRuns(automationId);
   }
 
-  async function handleToggleAutomation(automation: AutomationDefinition) {
+  // Step 1: show confirm or immediately enable
+  function handleToggleAutomation(automation: AutomationDefinition) {
+    if (automation.enabled) {
+      setConfirmState({ kind: "disable", automation });
+    } else {
+      void doToggleAutomation(automation);
+    }
+  }
+
+  // Step 2: actual toggle after confirmation
+  async function doToggleAutomation(automation: AutomationDefinition) {
     setPendingToggleIds((current) => ({ ...current, [automation.id]: true }));
     setError(null);
 
@@ -537,16 +691,19 @@ export function AutomationsDesk() {
     }
   }
 
-  async function handleTriggerAutomation(automationId: string) {
+  // Step 1: show confirm before trigger
+  function handleTriggerAutomation(automation: AutomationDefinition) {
+    setConfirmState({ kind: "trigger", automationId: automation.id, title: automation.title });
+  }
+
+  // Step 2: actual trigger after confirmation
+  async function doTriggerAutomation(automationId: string) {
     setPendingTriggerIds((current) => ({ ...current, [automationId]: true }));
     setError(null);
 
     try {
       await triggerAutomation(automationId);
-      // Refresh runs list after a short delay to allow the scheduler to pick up the queued run.
-      setTimeout(() => {
-        void loadAutomationRuns(automationId);
-      }, 1500);
+      setIsPolling(true);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : text.triggerError);
     } finally {
@@ -555,6 +712,18 @@ export function AutomationsDesk() {
         delete next[automationId];
         return next;
       });
+    }
+  }
+
+  async function handleConfirm() {
+    if (!confirmState) return;
+    const state = confirmState;
+    setConfirmState(null);
+
+    if (state.kind === "disable") {
+      await doToggleAutomation(state.automation);
+    } else if (state.kind === "trigger") {
+      await doTriggerAutomation(state.automationId);
     }
   }
 
@@ -593,39 +762,37 @@ export function AutomationsDesk() {
       )}
 
       <div className="automations-desk__toolbar">
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="secondary"
+          size="control"
           data-testid="automations-refresh"
           disabled={isLoadingList || isRefreshing}
-          onClick={() => {
-            void handleRefresh();
-          }}
+          onClick={() => { void handleRefresh(); }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
-        </button>
+        </Button>
 
         <label className="metric-label" htmlFor="automations-enabled-filter">
           {text.filters.scope}
         </label>
-        <select
+        <Select
           id="automations-enabled-filter"
           data-testid="automations-enabled-filter"
-          className="kc-select control-plane-filter"
+          className="control-plane-filter"
           value={enabledFilter}
           onChange={(event) => setEnabledFilter(event.target.value as EnabledFilter)}
         >
           <option value="all">{text.enabledFilter.all}</option>
           <option value="enabled">{text.enabledFilter.enabled}</option>
-        </select>
+        </Select>
 
         <label className="metric-label" htmlFor="automations-source-filter">
           {text.filters.source}
         </label>
-        <select
+        <Select
           id="automations-source-filter"
           data-testid="automations-source-filter"
-          className="kc-select control-plane-filter"
+          className="control-plane-filter"
           value={sourceFilter}
           onChange={(event) => setSourceFilter(event.target.value as SourceFilter)}
         >
@@ -635,21 +802,22 @@ export function AutomationsDesk() {
               {resolveSourceLabel(source)}
             </option>
           ))}
-        </select>
+        </Select>
 
         {automationsEngineEnabled !== null && (
-          <label className="automations-engine-toggle" data-testid="automations-engine-toggle">
-            <input
-              type="checkbox"
-              checked={automationsEngineEnabled}
-              disabled={isTogglingEngine}
-              onChange={() => { void handleToggleEngine(); }}
-              aria-label={automationsEngineEnabled ? text.engineEnabled : text.engineDisabled}
-            />
-            <span className="automations-engine-toggle__label">
+          <button
+            type="button"
+            className={`automations-engine-toggle-pill${automationsEngineEnabled ? " automations-engine-toggle-pill--on" : ""}`}
+            data-testid="automations-engine-toggle"
+            disabled={isTogglingEngine}
+            onClick={() => { void handleToggleEngine(); }}
+            aria-pressed={automationsEngineEnabled}
+          >
+            <span className="automations-engine-toggle-pill__dot" />
+            <span className="automations-engine-toggle-pill__label">
               {automationsEngineEnabled ? text.engineEnabled : text.engineDisabled}
             </span>
-          </label>
+          </button>
         )}
       </div>
 
@@ -679,54 +847,80 @@ export function AutomationsDesk() {
 
             {automations.map((automation) => {
               const isSelected = automation.id === selectedAutomationId;
+              const isRunningNow =
+                automation.lastRunStatus === "Running" ||
+                automation.lastRunStatus === "Queued";
 
               return (
                 <article
                   key={automation.id}
-                  className={`${automation.enabled ? "message message--assistant" : "message message--system"}${isSelected ? " automation-item--selected" : ""}`}
+                  className={`automation-card${automation.enabled ? "" : " automation-card--disabled"}${isSelected ? " automation-card--selected" : ""}`}
                   data-testid={`automation-item-${automation.id}`}
                 >
-                  <div className="message__meta">
-                    <span className="message__role">{resolveSourceLabel(automation.source)}</span>
-                    <span>
+                  <div className="automation-card__header">
+                    <span className="automation-card__source">{resolveSourceLabel(automation.source)}</span>
+                    <span className={automation.enabled ? "mode-badge mode-badge--main" : "mode-badge"}>
                       {automation.enabled ? text.states.enabled : text.states.disabled}
                     </span>
                   </div>
-                  <strong>{automation.title}</strong>
-                  <span>{formatSchedule(automation.schedule)}</span>
-                  <div className="metric-item metric-item--compact">
-                    <span className="metric-label">{text.nextRun}</span>
-                    <span className="metric-value">
-                      {formatDateTime(automation.nextRunAt, text.unavailable)}
+                  <strong className="automation-card__title">{automation.title}</strong>
+                  <span className="automation-card__schedule">{formatSchedule(automation.schedule)}</span>
+                  <div className="automation-card__meta">
+                    <span className="automation-card__meta-item">
+                      <span className="metric-label">{text.nextRun}</span>
+                      <span
+                        className="metric-value"
+                        title={formatDateTime(automation.nextRunAt, text.unavailable)}
+                      >
+                        {formatRelativeTime(automation.nextRunAt)}
+                      </span>
                     </span>
-                    <span className="metric-label">{text.lastRunStatus}</span>
-                    <span className="metric-value">
+                    <span className="automation-card__meta-sep">·</span>
+                    <span
+                      className={`automation-card__meta-item automation-card__status--${(automation.lastRunStatus ?? "none").toLowerCase()}${isRunningNow ? " automation-card__status--live" : ""}`}
+                    >
+                      {isRunningNow && <span className="automation-status-spinner" aria-hidden="true" />}
                       {resolveRunStatusLabel(automation.lastRunStatus)}
                     </span>
+                    {automation.modelId ? (
+                      <>
+                        <span className="automation-card__meta-sep">·</span>
+                        <span className="automation-card__meta-item automation-card__model-tag" title={automation.modelId}>
+                          {automation.modelId}
+                        </span>
+                      </>
+                    ) : null}
+                    {automation.notificationChannels && automation.notificationChannels.length > 0 ? (
+                      <>
+                        <span className="automation-card__meta-sep">·</span>
+                        <span className="automation-card__meta-item automation-card__channels-tag">
+                          {automation.notificationChannels.length} {text.channels}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   <div className="automation-item-actions">
-                    <button
-                      type="button"
-                      className="btn btn--secondary"
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      selected={isSelected}
                       data-testid={`automation-select-${automation.id}`}
                       aria-pressed={isSelected}
                       onClick={() => handleSelectAutomation(automation.id)}
                       disabled={isLoadingList || isRefreshing}
                     >
                       {isSelected ? text.inspecting : text.inspectDetail}
-                    </button>
+                    </Button>
                     {automation.enabled ? (
-                      <button
-                        type="button"
-                        className="btn btn--secondary"
+                      <Button
+                        variant="primary"
+                        size="sm"
                         data-testid={`automation-trigger-${automation.id}`}
-                        onClick={() => {
-                          void handleTriggerAutomation(automation.id);
-                        }}
-                        disabled={pendingTriggerIds[automation.id] ?? false}
+                        onClick={() => { handleTriggerAutomation(automation); }}
+                        disabled={pendingTriggerIds[automation.id] ?? isRunningNow}
                       >
                         {pendingTriggerIds[automation.id] ? text.triggering : text.triggerNow}
-                      </button>
+                      </Button>
                     ) : null}
                   </div>
                 </article>
@@ -735,7 +929,7 @@ export function AutomationsDesk() {
           </div>
         </section>
 
-        <section className="status-card status-card--normal" data-testid="automation-detail">
+        <section className="status-card status-card--normal automations-desk__detail-panel" data-testid="automation-detail">
           {selectedAutomation ? (
             <>
               <h3 className="desk-section-title">{selectedAutomation.title}</h3>
@@ -753,13 +947,12 @@ export function AutomationsDesk() {
                 >
                   {selectedAutomation.enabled ? text.states.enabled : text.states.disabled}
                 </span>
-                <button
-                  type="button"
-                  className="btn btn--secondary"
+                <Button
+                  variant={selectedAutomation.enabled ? "danger" : "secondary"}
+                  size="sm"
+                  shape="pill"
                   data-testid={`automation-toggle-${selectedAutomation.id}`}
-                  onClick={() => {
-                    void handleToggleAutomation(selectedAutomation);
-                  }}
+                  onClick={() => { handleToggleAutomation(selectedAutomation); }}
                   disabled={pendingToggleIds[selectedAutomation.id] ?? false}
                 >
                   {pendingToggleIds[selectedAutomation.id]
@@ -767,15 +960,49 @@ export function AutomationsDesk() {
                     : selectedAutomation.enabled
                       ? text.toggleDisable
                       : text.toggleEnable}
-                </button>
+                </Button>
                 <span className="metric-label">
-                  {text.nextRunHint(formatDateTime(selectedAutomation.nextRunAt, text.unavailable))}
+                  {text.nextRunHint(formatRelativeTime(selectedAutomation.nextRunAt))}
                 </span>
               </div>
 
+              <div className="metric-item automation-detail-metric" data-testid="automation-detail-model">
+                <span className="metric-label">{text.model}</span>
+                <span className="metric-value">
+                  {selectedAutomation.modelId
+                    ? <code className="automation-detail-model-id">{selectedAutomation.modelId}</code>
+                    : <span className="metric-value--muted">{text.modelDefault}</span>
+                  }
+                </span>
+              </div>
+              {selectedAutomation.notificationChannels && selectedAutomation.notificationChannels.length > 0 ? (
+                <div className="metric-item automation-detail-metric" data-testid="automation-detail-channels">
+                  <span className="metric-label">{text.channels}</span>
+                  <div className="automation-channels-list">
+                    {selectedAutomation.notificationChannels.map((id) => (
+                      <span key={id} className="automation-channel-chip">
+                        {resolveChannelLabel(id)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {selectedAutomation.notifyMode && selectedAutomation.notifyMode !== "None" ? (
+                <div className="metric-item automation-detail-metric" data-testid="automation-detail-notify-mode">
+                  <span className="metric-label">{text.notifyMode}</span>
+                  <span className="metric-value">
+                    {selectedAutomation.notifyMode === "Auto" ? text.notifyModeAuto : text.notifyModeApproval}
+                  </span>
+                </div>
+              ) : null}
+
               <div className="metric-item automation-detail-metric" data-testid="automation-detail-prompt">
                 <span className="metric-label">{text.promptSummary}</span>
-                <span className="metric-value">{summarizePrompt(selectedAutomation.prompt)}</span>
+                <div className="automation-prompt-body">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {selectedAutomation.prompt}
+                  </ReactMarkdown>
+                </div>
               </div>
 
               <div
@@ -796,15 +1023,26 @@ export function AutomationsDesk() {
                 )}
               </div>
 
-              <div
-                className="metric-item automation-detail-error"
-                data-testid="automation-detail-last-error"
-              >
-                <span className="metric-label">{text.lastError}</span>
-                <span className="metric-value">
-                  {displayedLastError ?? text.noRecentError}
-                </span>
-              </div>
+              {displayedLastError ? (
+                <div
+                  className="metric-item automation-detail-error"
+                  data-testid="automation-detail-last-error"
+                >
+                  <span className="metric-label">{text.lastError}</span>
+                  <span className="metric-value metric-value--error">{displayedLastError}</span>
+                </div>
+              ) : (
+                // Keep test ID in DOM even when no error so tests can query it
+                <div
+                  className="metric-item automation-detail-error"
+                  data-testid="automation-detail-last-error"
+                  style={{ display: "none" }}
+                  aria-hidden="true"
+                >
+                  <span className="metric-label">{text.lastError}</span>
+                  <span className="metric-value">{text.noRecentError}</span>
+                </div>
+              )}
 
               <div data-testid="automation-runs">
                 <p className="metric-label">{text.recentRuns}</p>
@@ -814,17 +1052,31 @@ export function AutomationsDesk() {
                 ) : null}
                 {!isLoadingRuns && recentRuns.length > 0 ? (
                   <ul className="automation-runs-list">
-                    {recentRuns.map((run) => (
-                      <li key={run.runId} className="metric-item" data-testid={`automation-run-${run.runId}`}>
-                        <span className="metric-label">
-                          {resolveRunStatusLabel(run.status)} · {text.runAttempt(run.attempt)}
-                        </span>
-                        <span className="metric-value">
-                          {run.summary ?? resolveTriggerLabel(run.trigger)}
-                        </span>
-                        <span className="metric-label">{formatRunWindow(run)}</span>
-                      </li>
-                    ))}
+                    {recentRuns.map((run) => {
+                      const runSummary = stripXml(run.summary) || resolveTriggerLabel(run.trigger);
+                      const duration = formatDuration(run.startedAt, run.completedAt);
+                      const isRunning = run.status === "Running" || run.status === "Queued";
+                      return (
+                        <li key={run.runId} className="automation-run-item" data-testid={`automation-run-${run.runId}`}>
+                          <div className="automation-run-item__header">
+                            <span className={`automation-run-item__status automation-run-item__status--${run.status.toLowerCase()}`}>
+                              {isRunning && <span className="automation-status-spinner" aria-hidden="true" />}
+                              {resolveRunStatusLabel(run.status)}
+                            </span>
+                            <span className="automation-run-item__attempt">{text.runAttempt(run.attempt)}</span>
+                            {duration ? (
+                              <span className="automation-run-item__duration">{duration}</span>
+                            ) : null}
+                            <span className="automation-run-item__window">
+                              {run.startedAt ? formatRelativeTime(run.startedAt) : text.unavailable}
+                            </span>
+                          </div>
+                          {runSummary ? (
+                            <p className="automation-run-item__summary">{runSummary}</p>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
               </div>
@@ -915,6 +1167,30 @@ export function AutomationsDesk() {
           )}
         </section>
       </div>
+
+      {/* Confirm: disable automation */}
+      <ConfirmModal
+        open={confirmState?.kind === "disable"}
+        title={text.confirmDisableTitle}
+        description={text.confirmDisableDesc}
+        confirmLabel={text.confirmDisableLabel}
+        cancelLabel={text.cancel}
+        variant="danger"
+        onConfirm={() => { void handleConfirm(); }}
+        onCancel={() => setConfirmState(null)}
+      />
+
+      {/* Confirm: trigger automation */}
+      <ConfirmModal
+        open={confirmState?.kind === "trigger"}
+        title={confirmState?.kind === "trigger" ? text.confirmTriggerTitle(confirmState.title) : ""}
+        description={text.confirmTriggerDesc}
+        confirmLabel={text.confirmTriggerLabel}
+        cancelLabel={text.cancel}
+        variant="warning"
+        onConfirm={() => { void handleConfirm(); }}
+        onCancel={() => setConfirmState(null)}
+      />
     </section>
   );
 }

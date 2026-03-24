@@ -4,5 +4,6 @@ public sealed record ModelConnectionTestResponse(
     bool Ok,
     int LatencyMs,
     string? ModelId,
-    string? Error
+    string? Error,
+    string? ErrorMessage = null
 );

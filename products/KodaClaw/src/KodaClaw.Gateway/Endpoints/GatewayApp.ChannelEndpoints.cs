@@ -70,6 +70,15 @@ public static partial class GatewayApp
                     SupportsOutbound = true,
                     ProductOwned = true,
                 },
+                new
+                {
+                    Kind = ChannelConnectorKind.WeChat,
+                    DisplayName = "微信",
+                    Implemented = true,
+                    SupportsInbound = true,
+                    SupportsOutbound = true,
+                    ProductOwned = true,
+                },
             });
         });
 

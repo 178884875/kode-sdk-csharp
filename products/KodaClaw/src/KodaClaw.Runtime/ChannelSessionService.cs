@@ -48,7 +48,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
         var contextDocuments = await LoadContextDocumentsAsync(snapshot.RootPath, binding, policy, cancellationToken);
-        var prompt = BuildSystemPrompt(binding, policy, contextDocuments);
+        var promptCharBudget = await ResolvePromptCharacterBudgetAsync(cancellationToken);
+        var prompt = BuildSystemPrompt(binding, policy, contextDocuments, promptCharBudget);
         var systemPrompt = prompt.SystemPrompt;
         var sessionDirectory = _workspaceService.GetSessionDirectory(binding.SessionId);
 
@@ -345,10 +346,28 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             _modelRegistryRepository,
             cancellationToken);
 
+    private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.MaxPromptCharacters;
+            var usableTokens = Math.Max(endpoint.ContextWindowSize - endpoint.MaxOutputTokens, 0);
+            return Math.Max(usableTokens / 5 * 4, _options.MaxPromptCharacters);
+        }
+        catch
+        {
+            return _options.MaxPromptCharacters;
+        }
+    }
+
     private PromptBuildResult BuildSystemPrompt(
         ThreadBinding binding,
         ChannelPolicy policy,
-        IReadOnlyList<PromptContextDocument> contextDocuments)
+        IReadOnlyList<PromptContextDocument> contextDocuments,
+        int promptCharBudget)
     {
         var scope = ResolveEffectiveScope(policy);
         var displayTitle = binding.ChannelIdentity.DisplayName
@@ -357,7 +376,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         var sessionStartedAt = DateTimeOffset.Now;
         var prompt = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
-            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .WithCharacterBudget(promptCharBudget)
             .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}).")
             .AddSection(
                 "Channel Session",

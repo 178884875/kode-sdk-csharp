@@ -1,7 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
-import { Cpu, Plus } from "lucide-react";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
+import { Cpu, Plus, RefreshCw } from "lucide-react";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
@@ -51,6 +53,9 @@ type ModelDraft = {
   apiKeyValue: string;
   enabled: boolean;
   capabilities: number;
+  contextWindowSize: number;
+  maxOutputTokens: number;
+  isReasoning: boolean;
 };
 
 const DEFAULT_MODEL_DRAFT: ModelDraft = {
@@ -62,7 +67,24 @@ const DEFAULT_MODEL_DRAFT: ModelDraft = {
   apiKeyValue: "",
   enabled: true,
   capabilities: CAP_TEXT_CHAT | CAP_TOOL_CALLING,
+  contextWindowSize: 128000,
+  maxOutputTokens: 8192,
+  isReasoning: false,
 };
+
+/** Format large token counts as "128K" / "200K" */
+function fmtK(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+}
+
+const CAP_CHIP_LABELS_ZH: [number, string][] = [
+  [1 << 0, '对话'], [1 << 1, '工具'], [1 << 2, '视觉'],
+  [1 << 3, '图像'], [1 << 4, 'TTS'], [1 << 5, 'STT'], [1 << 6, '向量'],
+];
+const CAP_CHIP_LABELS_EN: [number, string][] = [
+  [1 << 0, 'Chat'], [1 << 1, 'Tools'], [1 << 2, 'Vision'],
+  [1 << 3, 'Image'], [1 << 4, 'TTS'], [1 << 5, 'STT'], [1 << 6, 'Embed'],
+];
 
 function toOptionalText(value: string): string | null {
   const next = value.trim();
@@ -79,6 +101,9 @@ function toCreateRequest(draft: ModelDraft): CreateModelEndpointRequest {
     apiKeyValue: toOptionalText(draft.apiKeyValue),
     enabled: draft.enabled,
     capabilities: draft.capabilities,
+    contextWindowSize: draft.contextWindowSize,
+    maxOutputTokens: draft.maxOutputTokens,
+    isReasoning: draft.isReasoning,
   };
 }
 
@@ -92,6 +117,9 @@ function toUpdateRequest(draft: ModelDraft): UpdateModelEndpointRequest {
     apiKeyValue: toOptionalText(draft.apiKeyValue),
     enabled: draft.enabled,
     capabilities: draft.capabilities,
+    contextWindowSize: draft.contextWindowSize,
+    maxOutputTokens: draft.maxOutputTokens,
+    isReasoning: draft.isReasoning,
   };
 }
 
@@ -105,6 +133,9 @@ function toDraft(endpoint: ModelEndpoint): ModelDraft {
     apiKeyValue: "",
     enabled: endpoint.enabled,
     capabilities: endpoint.capabilities,
+    contextWindowSize: endpoint.contextWindowSize ?? 128000,
+    maxOutputTokens: endpoint.maxOutputTokens ?? 8192,
+    isReasoning: endpoint.isReasoning ?? false,
   };
 }
 
@@ -193,6 +224,19 @@ export function ModelsSettingsDesk() {
         replaceKey: "重新输入",
         connectionOk: "连接成功",
         connectionFail: "连接失败",
+        errorCodes: {
+          authentication_error: "API Key 无效或未授权",
+          permission_denied: "权限不足，请检查 API Key 的访问权限",
+          rate_limit_exceeded: "触发速率限制，请稍后重试",
+          model_not_found: "模型不存在，请确认 Model ID 是否正确",
+          model_id_required: "未填写 Model ID",
+          timeout: "请求超时（15s），请检查网络或 Base URL",
+          network_error: "无法连接到服务器，请检查 Base URL 和网络",
+        } as Record<string, string>,
+        contextWindowSize: "上下文窗口大小（token）",
+        maxOutputTokens: "最大输出 Token",
+        isReasoning: "推理模型（禁用工具调用）",
+        advancedOptions: "高级选项",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -282,7 +326,20 @@ export function ModelsSettingsDesk() {
         cancel: "Cancel",
         replaceKey: "Replace",
         connectionOk: "Connected",
-        connectionFail: "Failed",
+        connectionFail: "Connection failed",
+        errorCodes: {
+          authentication_error: "Invalid or unauthorized API key",
+          permission_denied: "Permission denied — check API key access scope",
+          rate_limit_exceeded: "Rate limit exceeded, please retry later",
+          model_not_found: "Model not found — verify the Model ID",
+          model_id_required: "Model ID is required",
+          timeout: "Request timed out (15s) — check Base URL and network",
+          network_error: "Cannot reach server — check Base URL and network",
+        } as Record<string, string>,
+        contextWindowSize: "Context window size (tokens)",
+        maxOutputTokens: "Max output tokens",
+        isReasoning: "Reasoning model (no tool calls)",
+        advancedOptions: "Advanced options",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -478,22 +535,12 @@ export function ModelsSettingsDesk() {
     setModelDraft(DEFAULT_MODEL_DRAFT);
   }
 
+  const capChipLabels = locale === 'zh-CN' ? CAP_CHIP_LABELS_ZH : CAP_CHIP_LABELS_EN;
+
   return (
     <section data-testid="models-settings-desk">
       <h2 className="desk-section-title">{text.title}</h2>
       <p className="desk-section-desc">{text.intro}</p>
-
-      <div className="control-plane-toolbar">
-        <button
-          className="btn btn--secondary"
-          type="button"
-          data-testid="models-settings-refresh"
-          onClick={() => void refreshDesk()}
-          disabled={isLoading || isMutating}
-        >
-          {isLoading ? text.common.refreshing : text.common.refresh}
-        </button>
-      </div>
 
       {error ? (
         <p className="desk-feedback desk-feedback--error" data-testid="models-settings-error">
@@ -508,15 +555,21 @@ export function ModelsSettingsDesk() {
 
       <section className="timeline" data-testid="models-list">
             <div className="timeline__header">
-              <div>
-                <h3 className="desk-section-title">{text.sections.modelRegistryTitle}</h3>
-                <p className="desk-section-desc">{text.stageNav.modelSummary}</p>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <h3 className="desk-section-title">{text.sections.modelRegistryTitle}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                 <span className="composer__status">{isLoading ? text.common.loading : models.length}</span>
-                <button
-                  className="btn btn--primary"
-                  type="button"
+                <Button
+                  variant="ghost"
+                  data-testid="models-settings-refresh"
+                  onClick={() => void refreshDesk()}
+                  disabled={isLoading || isMutating}
+                  title={text.common.refresh}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-1)' }}
+                >
+                  <RefreshCw size={13} strokeWidth={2} className={isLoading ? 'icon-spinning' : ''} />
+                </Button>
+                <Button
+                  variant="primary"
                   data-testid="model-create"
                   onClick={() => { resetModelComposer(); setEndpointModalOpen(true); }}
                   disabled={isLoading}
@@ -524,73 +577,108 @@ export function ModelsSettingsDesk() {
                 >
                   <Plus size={14} strokeWidth={2.5} />
                   {text.sections.modelComposerCreate}
-                </button>
+                </Button>
               </div>
             </div>
             <div className="timeline__body">
               {isLoading ? <Skeleton height={40} count={4} /> : null}
               {!isLoading && models.length === 0 ? (
                 <EmptyState icon={<Cpu size={28} strokeWidth={1.5} />} title={text.sections.modelRegistryEmpty}>
-                  <button
-                    className="btn btn--primary"
-                    type="button"
+                  <Button
+                    variant="primary"
                     onClick={() => { resetModelComposer(); setEndpointModalOpen(true); }}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}
                   >
                     <Plus size={14} strokeWidth={2.5} />
                     {text.sections.modelComposerCreate}
-                  </button>
+                  </Button>
                 </EmptyState>
               ) : null}
               <ul className="control-plane-list control-plane-session-list">
                 {models.map((item) => {
                   const isSelected = selectedModelId === item.id;
+                  const ctxK = item.contextWindowSize ? fmtK(item.contextWindowSize) : null;
+                  const maxOutK = item.maxOutputTokens ? fmtK(item.maxOutputTokens) : null;
+                  const enabledCaps = capChipLabels.filter(([flag]) => item.capabilities & flag);
                   return (
                     <li key={item.id}>
                       <article
-                        className={`control-plane-session-card control-plane-stack ${isSelected ? "control-plane-list-button--selected" : ""}`}
+                        className={`control-plane-session-card model-endpoint-card ${isSelected ? "control-plane-list-button--selected" : ""} ${!item.enabled ? "control-plane-session-card--disabled" : ""}`}
                         data-testid={`model-item-${item.id}`}
                       >
+                        {/* Top: provider label + badges */}
                         <div className="control-plane-session-card__topline">
-                          <span className="metric-label">{text.providerLabels[item.provider]}</span>
-                          {item.isDefault ? (
-                            <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
-                          ) : null}
+                          <span className="metric-label model-endpoint-card__provider">{text.providerLabels[item.provider]}</span>
+                          <div className="control-plane-chip-row">
+                            {item.isDefault && (
+                              <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
+                            )}
+                            {item.isReasoning && (
+                              <span className="control-plane-chip">{locale === 'zh-CN' ? '推理' : 'Reasoning'}</span>
+                            )}
+                            {!item.enabled && (
+                              <span className="control-plane-chip control-plane-chip--inactive">{text.detail.disabled}</span>
+                            )}
+                          </div>
                         </div>
-                        <strong className="control-plane-session-card__title">{item.displayName}</strong>
-                        <div className="control-plane-session-card__meta">
-                          <span>{item.modelId}</span>
-                          <span>
-                            {text.detail.lastUpdated}: {formatTimestamp(item.updatedAt)}
+
+                        {/* Title + model id */}
+                        <div className="model-endpoint-card__title-row">
+                          <strong className="control-plane-session-card__title">{item.displayName}</strong>
+                          <code className="model-endpoint-card__model-id">{item.modelId}</code>
+                        </div>
+
+                        {/* Context / output tokens */}
+                        {(ctxK || maxOutK) && (
+                          <div className="model-endpoint-card__tokens">
+                            {ctxK && <span>{ctxK} {locale === 'zh-CN' ? '上下文' : 'ctx'}</span>}
+                            {ctxK && maxOutK && <span className="model-endpoint-card__sep">·</span>}
+                            {maxOutK && <span>{maxOutK} {locale === 'zh-CN' ? '最大输出' : 'max out'}</span>}
+                          </div>
+                        )}
+
+                        {/* Capability chips */}
+                        {enabledCaps.length > 0 && (
+                          <div className="control-plane-chip-row model-endpoint-card__caps">
+                            {enabledCaps.map(([flag, label]) => (
+                              <span key={flag} className="control-plane-chip control-plane-chip--cap">{label}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Footer: updated + actions */}
+                        <div className="model-endpoint-card__footer">
+                          <span className="model-endpoint-card__updated">
+                            {formatTimestamp(item.updatedAt)}
                           </span>
-                        </div>
-                        <div className="control-plane-item-actions">
-                          <button
-                            className="btn btn--secondary"
-                            type="button"
-                            onClick={() => { handleSelectModel(item); setEndpointModalOpen(true); }}
-                            disabled={isMutating}
-                          >
-                            {text.modelList.edit}
-                          </button>
-                          <button
-                            className="btn btn--secondary"
-                            type="button"
-                            data-testid="model-default"
-                            onClick={() => void handleSetDefault(item.id)}
-                            disabled={isMutating || item.isDefault || !item.enabled}
-                          >
-                            {text.modelList.setDefault}
-                          </button>
-                          <button
-                            className="btn btn--danger"
-                            type="button"
-                            data-testid={`model-delete-${item.id}`}
-                            onClick={() => setDeleteConfirm({ id: item.id, name: item.displayName })}
-                            disabled={isMutating}
-                          >
-                            {text.modelList.delete}
-                          </button>
+                          <div className="control-plane-item-actions">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => { handleSelectModel(item); setEndpointModalOpen(true); }}
+                              disabled={isMutating}
+                            >
+                              {text.modelList.edit}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              data-testid="model-default"
+                              onClick={() => void handleSetDefault(item.id)}
+                              disabled={isMutating || item.isDefault || !item.enabled}
+                            >
+                              {text.modelList.setDefault}
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              data-testid={`model-delete-${item.id}`}
+                              onClick={() => setDeleteConfirm({ id: item.id, name: item.displayName })}
+                              disabled={isMutating}
+                            >
+                              {text.modelList.delete}
+                            </Button>
+                          </div>
                         </div>
                       </article>
                     </li>
@@ -609,83 +697,39 @@ export function ModelsSettingsDesk() {
         width={560}
         footer={
           <>
-            <button type="button" className="btn btn--ghost" onClick={() => { setEndpointModalOpen(false); setTestResult(null); setSelectedPresetForFill(null); }} disabled={isMutating}>
+            <Button variant="ghost" onClick={() => { setEndpointModalOpen(false); setTestResult(null); setSelectedPresetForFill(null); }} disabled={isMutating}>
               {text.composer.cancel}
-            </button>
+            </Button>
             {selectedModelId ? (
-              <button
-                type="button"
-                className="btn btn--primary"
+              <Button
+                variant="primary"
                 data-testid="model-update-submit"
                 onClick={() => void handleUpdateModel()}
                 disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
               >
                 {isMutating ? (text.common.loading) : text.composer.save}
-              </button>
+              </Button>
             ) : (
-              <button
+              <Button
                 type="submit"
                 form="model-endpoint-form"
-                className="btn btn--primary"
+                variant="primary"
                 data-testid="model-create-submit"
                 disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
               >
                 {isMutating ? (text.common.loading) : text.composer.create}
-              </button>
+              </Button>
             )}
           </>
         }
       >
         <div data-testid="model-detail">
             <form id="model-endpoint-form" className="bootstrap-form" onSubmit={handleCreateModel}>
-            <div className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.presetSection}</span>
-              <select
-                data-testid="preset-model-select"
-                className="kc-select"
-                value={selectedPresetForFill?.presetId ?? ''}
-                onChange={e => {
-                  const preset = presets.find(p => p.presetId === e.target.value);
-                  if (preset) {
-                    setSelectedPresetForFill(preset);
-                    setModelDraft(current => ({
-                      ...current,
-                      displayName: current.displayName || preset.displayName,
-                      provider: preset.provider as ModelProviderKind,
-                      modelId: preset.modelId,
-                      baseUrl: preset.baseUrl ?? PROVIDER_DEFAULT_BASE_URLS[preset.provider as ModelProviderKind] ?? '',
-                      capabilities: preset.defaultCapabilities,
-                    }));
-                    setTestResult(null);
-                  } else {
-                    setSelectedPresetForFill(null);
-                  }
-                }}
-              >
-                <option value="">{text.composer.presetPlaceholder}</option>
-                {presets
-                  .filter(p => p.provider === modelDraft.provider)
-                  .map(p => (
-                    <option key={p.presetId} value={p.presetId}>
-                      {p.displayName} ({p.tier})
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.displayName}</span>
-              <input
-                data-testid="model-display-name"
-                className="kc-input"
-                value={modelDraft.displayName}
-                onChange={(event) => setModelDraft((current) => ({ ...current, displayName: event.target.value }))}
-              />
-            </label>
+            {/* 1. Provider */}
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.provider}</span>
-              <select
+              <Select
                 data-testid="model-provider"
-                className="kc-select"
                 value={modelDraft.provider}
                 onChange={(event) => {
                   const next = event.target.value as ModelProviderKind;
@@ -705,8 +749,56 @@ export function ModelsSettingsDesk() {
                 <option value="Anthropic">{text.providerLabels.Anthropic}</option>
                 <option value="OpenAICompatible">{text.providerLabels.OpenAICompatible}</option>
                 <option value="AnthropicCompatible">{text.providerLabels.AnthropicCompatible}</option>
-              </select>
+              </Select>
             </label>
+            {/* 2. Preset (filtered by provider) */}
+            <div className="bootstrap-form__field">
+              <span className="bootstrap-form__label">{text.composer.presetSection}</span>
+              <Select
+                data-testid="preset-model-select"
+                value={selectedPresetForFill?.presetId ?? ''}
+                onChange={e => {
+                  const preset = presets.find(p => p.presetId === e.target.value);
+                  if (preset) {
+                    setSelectedPresetForFill(preset);
+                    setModelDraft(current => ({
+                      ...current,
+                      displayName: current.displayName || preset.displayName,
+                      provider: preset.provider as ModelProviderKind,
+                      modelId: preset.modelId,
+                      baseUrl: preset.baseUrl ?? PROVIDER_DEFAULT_BASE_URLS[preset.provider as ModelProviderKind] ?? '',
+                      capabilities: preset.defaultCapabilities,
+                      contextWindowSize: preset.contextWindowSize ?? current.contextWindowSize,
+                      maxOutputTokens: preset.maxOutputTokens ?? current.maxOutputTokens,
+                      isReasoning: preset.isReasoning ?? current.isReasoning,
+                    }));
+                    setTestResult(null);
+                  } else {
+                    setSelectedPresetForFill(null);
+                  }
+                }}
+              >
+                <option value="">{text.composer.presetPlaceholder}</option>
+                {presets
+                  .filter(p => p.provider === modelDraft.provider)
+                  .map(p => (
+                    <option key={p.presetId} value={p.presetId}>
+                      {p.displayName} ({p.tier})
+                    </option>
+                  ))}
+              </Select>
+            </div>
+            {/* 3. Display Name */}
+            <label className="bootstrap-form__field">
+              <span className="bootstrap-form__label">{text.composer.displayName}</span>
+              <input
+                data-testid="model-display-name"
+                className="kc-input"
+                value={modelDraft.displayName}
+                onChange={(event) => setModelDraft((current) => ({ ...current, displayName: event.target.value }))}
+              />
+            </label>
+            {/* 4. Model ID */}
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.modelId}</span>
               <input
@@ -716,6 +808,7 @@ export function ModelsSettingsDesk() {
                 onChange={(event) => setModelDraft((current) => ({ ...current, modelId: event.target.value }))}
               />
             </label>
+            {/* 5. Base URL */}
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">
                 {modelDraft.provider.includes('Compatible') ? text.composer.baseUrlRequired : text.composer.baseUrl}
@@ -727,20 +820,20 @@ export function ModelsSettingsDesk() {
                 onChange={(event) => setModelDraft((current) => ({ ...current, baseUrl: event.target.value }))}
               />
             </label>
+            {/* 6. API Key */}
             <label className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.apiKey}</span>
-              {selectedModel?.apiKeySecretRef?.startsWith("platform:models:") && !modelDraft.apiKeyValue ? (
+              {selectedModel?.apiKeySecretRef?.startsWith("keychain:models:") && !modelDraft.apiKeyValue ? (
                 <div className="api-key-configured-row">
                   <span className="api-key-configured-badge" data-testid="model-api-key-configured">
                     {text.composer.apiKeyConfigured}
                   </span>
-                  <button
-                    type="button"
-                    className="btn btn--link"
+                  <Button
+                    variant="link"
                     onClick={() => setModelDraft((current) => ({ ...current, apiKeyValue: " " }))}
                   >
                     {text.composer.replaceKey}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <input
@@ -756,24 +849,28 @@ export function ModelsSettingsDesk() {
                 />
               )}
             </label>
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.apiKeyEnv}</span>
-              <input
-                data-testid="model-api-key-env"
-                className="kc-input"
-                value={modelDraft.apiKeyEnvironmentVariable}
-                onChange={(event) =>
-                  setModelDraft((current) => ({
-                    ...current,
-                    apiKeyEnvironmentVariable: event.target.value,
-                  }))
-                }
-              />
-            </label>
+            {/* 7. Advanced: API Key env var */}
+            <details className="bootstrap-form__advanced">
+              <summary className="bootstrap-form__advanced-toggle">{text.composer.advancedOptions}</summary>
+              <label className="bootstrap-form__field" style={{ marginTop: 'var(--space-2)' }}>
+                <span className="bootstrap-form__label">{text.composer.apiKeyEnv}</span>
+                <input
+                  data-testid="model-api-key-env"
+                  className="kc-input"
+                  value={modelDraft.apiKeyEnvironmentVariable}
+                  onChange={(event) =>
+                    setModelDraft((current) => ({
+                      ...current,
+                      apiKeyEnvironmentVariable: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </details>
+            {/* 8. Test connection */}
             <div className="bootstrap-form__field">
-              <button
-                type="button"
-                className="btn btn--secondary"
+              <Button
+                variant="secondary"
                 data-testid="test-connection-btn"
                 onClick={() => {
                   setTestingConnection(true);
@@ -791,18 +888,31 @@ export function ModelsSettingsDesk() {
                 disabled={testingConnection || !modelDraft.modelId}
               >
                 {testingConnection ? text.composer.testingConnection : text.composer.testConnection}
-              </button>
+              </Button>
               {testResult && (
-                <p
+                <div
                   className={`desk-feedback ${testResult.ok ? 'desk-feedback--success' : 'desk-feedback--error'}`}
                   data-testid="connection-result"
                 >
-                  {testResult.ok
-                    ? `${text.composer.connectionOk}（${testResult.latencyMs}ms）`
-                    : `${text.composer.connectionFail}：${testResult.error ?? 'unknown'}`}
-                </p>
+                  {testResult.ok ? (
+                    <span>{text.composer.connectionOk}（{testResult.latencyMs}ms）</span>
+                  ) : (
+                    <>
+                      <span>
+                        {text.composer.connectionFail}
+                        {testResult.error
+                          ? `：${text.composer.errorCodes[testResult.error] ?? testResult.error}`
+                          : ''}
+                      </span>
+                      {testResult.errorMessage && (
+                        <pre className="connection-error-detail">{testResult.errorMessage}</pre>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
+            {/* 9. Enabled */}
             <label className="bootstrap-form__toggle">
               <input
                 type="checkbox"
@@ -811,6 +921,40 @@ export function ModelsSettingsDesk() {
               />
               <span>{text.composer.enabled}</span>
             </label>
+            {/* 10. Context window + Max output tokens */}
+            <label className="bootstrap-form__field">
+              <span className="bootstrap-form__label">{text.composer.contextWindowSize}</span>
+              <input
+                data-testid="model-context-window-size"
+                type="number"
+                min={1}
+                className="kc-input"
+                value={modelDraft.contextWindowSize}
+                onChange={(event) => setModelDraft((current) => ({ ...current, contextWindowSize: Number(event.target.value) || current.contextWindowSize }))}
+              />
+            </label>
+            <label className="bootstrap-form__field">
+              <span className="bootstrap-form__label">{text.composer.maxOutputTokens}</span>
+              <input
+                data-testid="model-max-output-tokens"
+                type="number"
+                min={1}
+                className="kc-input"
+                value={modelDraft.maxOutputTokens}
+                onChange={(event) => setModelDraft((current) => ({ ...current, maxOutputTokens: Number(event.target.value) || current.maxOutputTokens }))}
+              />
+            </label>
+            {/* 11. isReasoning */}
+            <label className="bootstrap-form__toggle">
+              <input
+                data-testid="model-is-reasoning"
+                type="checkbox"
+                checked={modelDraft.isReasoning}
+                onChange={(event) => setModelDraft((current) => ({ ...current, isReasoning: event.target.checked }))}
+              />
+              <span>{text.composer.isReasoning}</span>
+            </label>
+            {/* 12. Capabilities */}
             <div className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.capabilitiesTitle}</span>
               {(

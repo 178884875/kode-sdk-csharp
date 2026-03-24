@@ -39,7 +39,24 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         "Use target=ontology to update epistemology, methodology, values, or meta-cognition frameworks. " +
         "Use target=heartbeat to add or modify a ## SectionTitle automation rule in HEARTBEAT.md. " +
         "Changes to identity/soul/ontology/user/memory/agents take effect at the next session start. " +
-        "Changes to heartbeat take effect immediately via the hot-sync pipeline.";
+        "Changes to heartbeat take effect immediately via the hot-sync pipeline.\n\n" +
+        "HEARTBEAT.md section syntax (all fields are bullet items under a ## Title heading):\n" +
+        "  Required: `- schedule: <expr>` and `- prompt: <text>`\n" +
+        "  Schedule expressions: `hourly 2h` | `daily 09:00` | `weekdays 09:00` | `weekly mon,wed,fri 18:30`\n" +
+        "  Optional: `- enabled: true|false` (default true)\n" +
+        "  Optional: `- inputs:` followed by indented `- <workspace-relative-path>` bullets\n" +
+        "  Optional: `- channels:` followed by indented `- <bindingId>` bullets (BindingId is copied from ChannelsDesk)\n" +
+        "  Optional: `- delivery-mode: auto|approval|none` (default none)\n" +
+        "    none     = Agent handles delivery itself (use when prompt instructs Agent to call channel_send)\n" +
+        "    auto     = Scheduler pushes the Agent's final response text after success (use when prompt only asks Agent to generate content, NOT to send it — if Agent already calls channel_send the result will be sent twice)\n" +
+        "    approval = Queue result to Inbox; user manually triggers push\n" +
+        "  IMPORTANT: never combine a prompt that says 'push/send to Telegram' with delivery-mode: auto — that causes double-sending. Use auto only when the prompt is purely generative (e.g. 'summarize today\\'s news') and does not instruct the Agent to send anything.\n" +
+        "  Example section content:\n" +
+        "    - schedule: daily 09:00\n" +
+        "    - prompt: Summarize yesterday's tasks and prepare today's plan.\n" +
+        "    - channels:\n" +
+        "      - tg-main-abc123\n" +
+        "    - delivery-mode: auto";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<WorkspaceProtocolUpdateArgs>();
 
@@ -159,6 +176,6 @@ public sealed class WorkspaceProtocolUpdateArgs
     [ToolParameter(Description = "The ## section heading to update. If omitted, replaces everything after the # title line.", Required = false)]
     public string? Section { get; init; }
 
-    [ToolParameter(Description = "The new content for the section. Agent decides the full markdown content.")]
+    [ToolParameter(Description = "The new content for the section body (everything after the ## heading line). For heartbeat sections, use the bullet-item syntax described in the tool description. For other targets, use plain markdown prose.")]
     public required string Content { get; init; }
 }

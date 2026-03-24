@@ -215,4 +215,127 @@ prompt: missing bullet marker
             .Throw<HeartbeatCompilationException>()
             .WithMessage("*title is required*");
     }
+
+    [Fact]
+    public void Compile_should_parse_single_channel_binding_id()
+    {
+        var markdown = """
+## Daily Push
+- schedule: daily 09:00
+- prompt: Push daily summary.
+- channels:
+  - tg-main-abc123
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotificationChannels.Should().ContainSingle()
+            .Which.Should().Be("tg-main-abc123");
+    }
+
+    [Fact]
+    public void Compile_should_parse_multiple_channel_binding_ids_in_order()
+    {
+        var markdown = """
+## Multi Push
+- schedule: daily 09:00
+- prompt: Push to multiple channels.
+- channels:
+  - tg-main-abc123
+  - feishu-ops-xyz456
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotificationChannels.Should().Equal("tg-main-abc123", "feishu-ops-xyz456");
+    }
+
+    [Fact]
+    public void Compile_should_parse_delivery_mode_auto()
+    {
+        var markdown = """
+## Auto Push
+- schedule: daily 09:00
+- prompt: Auto push.
+- channels:
+  - tg-main-abc123
+- delivery-mode: auto
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotifyMode.Should().Be(AutomationNotifyMode.Auto);
+    }
+
+    [Fact]
+    public void Compile_should_parse_delivery_mode_approval()
+    {
+        var markdown = """
+## Approval Push
+- schedule: daily 09:00
+- prompt: Approval push.
+- channels:
+  - tg-main-abc123
+- delivery-mode: approval
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotifyMode.Should().Be(AutomationNotifyMode.Approval);
+    }
+
+    [Fact]
+    public void Compile_should_default_notify_mode_to_none_when_field_absent()
+    {
+        var markdown = """
+## No Push
+- schedule: daily 09:00
+- prompt: No push configured.
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotifyMode.Should().Be(AutomationNotifyMode.None);
+        definitions[0].NotificationChannels.Should().BeNull();
+    }
+
+    [Fact]
+    public void Compile_should_treat_unknown_delivery_mode_value_as_none()
+    {
+        var markdown = """
+## Unknown Mode
+- schedule: daily 09:00
+- prompt: Unknown mode.
+- channels:
+  - tg-main-abc123
+- delivery-mode: manual
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotifyMode.Should().Be(AutomationNotifyMode.None);
+    }
+
+    [Fact]
+    public void Compile_should_treat_delivery_mode_as_case_insensitive()
+    {
+        var markdown = """
+## Case Test
+- schedule: daily 09:00
+- prompt: Case test.
+- channels:
+  - tg-main-abc123
+- delivery-mode: AUTO
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotifyMode.Should().Be(AutomationNotifyMode.Auto);
+    }
+
+    [Fact]
+    public void Compile_should_return_null_notification_channels_when_channels_field_absent()
+    {
+        var markdown = """
+## No Channels
+- schedule: daily 09:00
+- prompt: No channels.
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].NotificationChannels.Should().BeNull();
+    }
 }

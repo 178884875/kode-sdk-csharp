@@ -19,4 +19,6 @@ export interface ChatMessage {
   durationMs?: number | null;
   // history fields
   isHistory?: boolean;
+  // local preview URLs for sent images (user messages only)
+  mediaUrls?: string[];
 }

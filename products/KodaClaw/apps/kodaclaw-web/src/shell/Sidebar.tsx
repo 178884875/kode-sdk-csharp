@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { MainDesk } from '../shell-shared/types';
 import { useInboxUnreadCount } from '../hooks/useInboxUnreadCount';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 type HealthTone = 'healthy' | 'warning' | 'error' | 'unknown';
 
@@ -129,6 +130,7 @@ export function Sidebar({
       <div className="kc-sidebar__footer">
         <Activity size={12} strokeWidth={STROKE} aria-hidden="true" className={`kc-sidebar__status-icon kc-sidebar__status-icon--${healthTone}`} />
         <span className="kc-sidebar__status-text">{STATUS_LABELS[healthTone]}</span>
+        <ThemeToggle />
       </div>
     </aside>
   );

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChatComposer } from './components/ChatComposer';
+import { ChatComposer, type AttachedMedia } from './components/ChatComposer';
 import { MessageTimeline } from './components/MessageTimeline';
 import { SessionHistoryPanel } from './components/chat/SessionHistoryPanel';
 import { useChatConsole } from './hooks/useChatConsole';
@@ -12,7 +12,8 @@ import {
   type DesktopDeskId,
   type DesktopLaunchTarget,
 } from './lib/config';
-import { fetchOnboardingState, rotateSession } from './lib/api';
+import { fetchOnboardingState, rotateSession, fetchModels, setDefaultModelEndpoint, uploadMedia } from './lib/api';
+import type { ModelOption } from './components/ChatComposer';
 import { OnboardingShell } from './onboarding/OnboardingShell';
 import { AppShell } from './shell/AppShell';
 import { MainContent } from './shell/MainContent';
@@ -77,6 +78,16 @@ export default function App() {
     const desc = document.querySelector('meta[name="description"]');
     if (desc) desc.setAttribute('content', text.documentDescription);
   }, [text.documentTitle, text.documentDescription]);
+
+  // Internal desk navigation via custom event (e.g. from RiskSummaryCard)
+  useEffect(() => {
+    function handler(e: Event) {
+      const desk = (e as CustomEvent<{ desk: string }>).detail?.desk;
+      if (isMainDesk(desk)) setMainDesk(desk);
+    }
+    window.addEventListener('kc:desk-navigate', handler);
+    return () => window.removeEventListener('kc:desk-navigate', handler);
+  }, []);
 
   // Desktop launch targets
   useEffect(() => {
@@ -144,6 +155,76 @@ export default function App() {
 
   const activeSessionId = snapshot?.activeMainSessionId ?? null;
 
+  // KC-4403/4404: model info + attachment state
+  const [modelName, setModelName] = useState<string | null>(null);
+  const [modelCapabilities, setModelCapabilities] = useState<number>(0);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  const [attachedMedia, setAttachedMedia] = useState<AttachedMedia[]>([]);
+
+  // Load available chat models once gateway is ready (snapshot present, not loading)
+  const modelsLoadedRef = useRef(false);
+  useEffect(() => {
+    if (isLoading || !snapshot || modelsLoadedRef.current) return;
+    modelsLoadedRef.current = true;
+    const CAP_TEXT_CHAT = 1;
+    fetchModels()
+      .then(res => {
+        const eligible = res.items.filter(m => m.enabled && (m.capabilities & CAP_TEXT_CHAT) !== 0);
+        setAvailableModels(eligible.map(m => ({ id: m.id, displayName: m.displayName })));
+        const ep = eligible.find(m => m.isDefault) ?? eligible[0];
+        setModelName(ep?.displayName ?? null);
+        setModelCapabilities(ep?.capabilities ?? 0);
+        setSelectedModelId(ep?.id ?? null);
+      })
+      .catch(() => { modelsLoadedRef.current = false; }); // allow retry on error
+  }, [isLoading, snapshot]);
+
+  const handleModelChange = useCallback(async (modelId: string) => {
+    try {
+      const updated = await setDefaultModelEndpoint(modelId);
+      setModelName(updated.displayName);
+      setModelCapabilities(updated.capabilities);
+      setSelectedModelId(updated.id);
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleAttachMedia = useCallback(async (files: File[]) => {
+    const placeholders: AttachedMedia[] = files.map(f => ({
+      mediaId: `pending-${Date.now()}-${f.name}`,
+      previewUrl: URL.createObjectURL(f),
+      contentType: f.type,
+      uploading: true,
+    }));
+    setAttachedMedia(prev => [...prev, ...placeholders]);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const placeholder = placeholders[i];
+      try {
+        const meta = await uploadMedia(file);
+        setAttachedMedia(prev => prev.map(m =>
+          m.mediaId === placeholder.mediaId
+            ? { mediaId: meta.id, previewUrl: placeholder.previewUrl, contentType: meta.contentType, uploading: false }
+            : m
+        ));
+      } catch {
+        setAttachedMedia(prev => prev.filter(m => m.mediaId !== placeholder.mediaId));
+      }
+    }
+  }, []);
+
+  const handleRemoveMedia = useCallback((mediaId: string) => {
+    setAttachedMedia(prev => prev.filter(m => m.mediaId !== mediaId));
+  }, []);
+
+  const handleChatSubmit = useCallback(() => {
+    const ready = attachedMedia.filter(m => !m.uploading);
+    const mediaIds = ready.map(m => m.mediaId);
+    const mediaUrls = ready.map(m => m.previewUrl);
+    sendMessage(mediaIds.length > 0 ? mediaIds : undefined, mediaUrls.length > 0 ? mediaUrls : undefined);
+    setAttachedMedia([]);
+  }, [attachedMedia, sendMessage]);
+
   const chatHeaderActions = useMemo(() => (
     <SessionHistoryPanel
       activeSessionId={activeSessionId}
@@ -172,9 +253,17 @@ export default function App() {
       isStreaming={isStreaming}
       activeToolName={activeToolName}
       onChange={setDraft}
-      onSubmit={sendMessage}
+      onSubmit={handleChatSubmit}
+      modelName={modelName}
+      modelCapabilities={modelCapabilities}
+      selectedModelId={selectedModelId}
+      availableModels={availableModels}
+      onModelChange={handleModelChange}
+      attachedMedia={attachedMedia}
+      onAttachMedia={handleAttachMedia}
+      onRemoveMedia={handleRemoveMedia}
     />
-  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, sendMessage]);
+  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, handleChatSubmit, modelName, modelCapabilities, selectedModelId, availableModels, handleModelChange, attachedMedia, handleAttachMedia, handleRemoveMedia]);
 
   // Onboarding gate
   if (onboardingState && !onboardingState.isCompleted) {

@@ -193,7 +193,7 @@ export function UpdatesSection() {
 
   return (
     <section
-      className="status-card status-card--normal update-watch control-plane-stage-panel"
+      className="settings-section update-watch"
       data-testid="settings-update-watch"
     >
       <div className="update-watch__header">

@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Puzzle } from "lucide-react";
 import {
   disablePlugin,
@@ -633,79 +635,63 @@ export function PluginsDesk() {
       <p className="desk-section-desc">{text.intro}</p>
 
       <div className="control-plane-toolbar">
-        <button
-          type="button"
-          className="btn btn--secondary"
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="plugins-refresh"
           disabled={isLoadingList || isRefreshing || isMutating}
-          onClick={() => {
-            void handleRefresh();
-          }}
+          onClick={() => { void handleRefresh(); }}
         >
           {isRefreshing ? text.common.refreshing : text.common.refresh}
-        </button>
-        <button
-          type="button"
-          className="btn btn--secondary"
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
           data-testid="plugins-discover"
           disabled={isMutating}
-          onClick={() => {
-            void handleAction("discover");
-          }}
+          onClick={() => { void handleAction("discover"); }}
         >
           {text.filters.discover}
-        </button>
-        <label className="metric-label" htmlFor="plugins-type-filter">
-          {text.filters.type}
-        </label>
-        <select
+        </Button>
+        <label className="metric-label" htmlFor="plugins-type-filter">{text.filters.type}</label>
+        <Select
           id="plugins-type-filter"
           data-testid="plugins-type-filter"
-          className="kc-select control-plane-filter"
+          className="control-plane-filter"
           value={typeFilter}
           onChange={(event) => setTypeFilter(event.target.value as PluginTypeFilter)}
         >
           <option value="all">{text.common.allTypes}</option>
           {PLUGIN_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {text.typeLabels[type]}
-            </option>
+            <option key={type} value={type}>{text.typeLabels[type]}</option>
           ))}
-        </select>
-        <label className="metric-label" htmlFor="plugins-trust-filter">
-          {text.filters.trust}
-        </label>
-        <select
+        </Select>
+        <label className="metric-label" htmlFor="plugins-trust-filter">{text.filters.trust}</label>
+        <Select
           id="plugins-trust-filter"
           data-testid="plugins-trust-filter"
-          className="kc-select control-plane-filter"
+          className="control-plane-filter"
           value={trustFilter}
           onChange={(event) => setTrustFilter(event.target.value as PluginTrustFilter)}
         >
           <option value="all">{text.common.allStates}</option>
           {PLUGIN_TRUST_STATES.map((state) => (
-            <option key={state} value={state}>
-              {text.trustStateLabels[state]}
-            </option>
+            <option key={state} value={state}>{text.trustStateLabels[state]}</option>
           ))}
-        </select>
-        <label className="metric-label" htmlFor="plugins-runtime-filter">
-          {text.filters.runtime}
-        </label>
-        <select
+        </Select>
+        <label className="metric-label" htmlFor="plugins-runtime-filter">{text.filters.runtime}</label>
+        <Select
           id="plugins-runtime-filter"
           data-testid="plugins-runtime-filter"
-          className="kc-select control-plane-filter control-plane-filter--wide"
+          className="control-plane-filter control-plane-filter--wide"
           value={runtimeFilter}
           onChange={(event) => setRuntimeFilter(event.target.value as PluginRuntimeFilter)}
         >
           <option value="all">{text.common.allStates}</option>
           {PLUGIN_RUNTIME_STATES.map((state) => (
-            <option key={state} value={state}>
-              {text.runtimeStateLabels[state]}
-            </option>
+            <option key={state} value={state}>{text.runtimeStateLabels[state]}</option>
           ))}
-        </select>
+        </Select>
         <label className="bootstrap-form__toggle" htmlFor="plugins-enabled-only">
           <input
             id="plugins-enabled-only"
@@ -724,47 +710,46 @@ export function PluginsDesk() {
           event.preventDefault();
           void handleAction("install");
         }}
-        className="control-plane-install-form"
+        className="plugins-install-form"
       >
-        <label className="bootstrap-form__field">
-          <span className="bootstrap-form__label">{text.install.label}</span>
+        <label className="plugins-install-form__label">
+          {text.install.label}
           <input
             data-testid="plugin-install-path"
-            className="kc-input"
+            className="plugins-install-form__input kc-input"
             value={installPath}
             onChange={(event) => setInstallPath(event.target.value)}
             placeholder={text.install.placeholder}
           />
         </label>
-        <button
+        <Button
           type="submit"
-          className="btn btn--secondary control-plane-install-submit"
+          variant="primary"
+          size="sm"
           data-testid="plugin-install-submit"
           disabled={isMutating}
         >
           {text.install.submit}
-        </button>
+        </Button>
       </form>
 
       {error ? (
-        <p className="__feedback __feedback--error" data-testid="plugins-error">
-          {error}
-        </p>
+        <p className="desk-feedback desk-feedback--error" data-testid="plugins-error">{error}</p>
       ) : null}
       {note ? (
-        <p className="__feedback __feedback--success" data-testid="plugins-note">
-          {note}
-        </p>
+        <p className="desk-feedback desk-feedback--success" data-testid="plugins-note">{note}</p>
       ) : null}
 
-      <div className="control-plane-split-pane">
+      <div className="plugins-desk__layout">
         <section className="timeline" data-testid="plugins-list">
           <div className="timeline__header">
             <h3 className="desk-section-title">{text.list.title}</h3>
-            <span className="composer__status">{isLoadingList ? text.common.loading : `${plugins.length} ${text.list.pluginsSuffix}`}</span>
+            <span className="composer__status">
+              {isLoadingList ? text.common.loading : `${plugins.length} ${text.list.pluginsSuffix}`}
+            </span>
           </div>
 
-          <div className="timeline__body" style={{ maxHeight: "min(52vh, 680px)" }}>
+          <div className="plugins-list-body">
             {isLoadingList ? <Skeleton height={52} count={3} /> : null}
             {!isLoadingList && plugins.length === 0 ? (
               <EmptyState icon={<Puzzle size={28} strokeWidth={1.5} />} title={text.list.empty} />
@@ -772,35 +757,36 @@ export function PluginsDesk() {
 
             {plugins.map((plugin) => {
               const isSelected = plugin.id === selectedPluginId;
+              const runtimeMod = plugin.runtimeState.toLowerCase() as Lowercase<typeof plugin.runtimeState>;
               return (
                 <button
                   type="button"
                   key={plugin.id}
-                  className={`${plugin.runtimeState === "Running" ? "message message--assistant" : "message message--system"} control-plane-list-button ${isSelected ? "control-plane-list-button--selected" : ""}`}
+                  className={`plugin-card${isSelected ? " plugin-card--selected" : ""}`}
                   data-testid={`plugin-item-${plugin.id}`}
                   aria-pressed={isSelected}
-                  onClick={() => {
-                    void handleSelectPlugin(plugin.id);
-                  }}
+                  onClick={() => { void handleSelectPlugin(plugin.id); }}
                 >
-                  <div className="message__meta">
-                    <span className="message__role">{summarizeTypes(plugin.types)}</span>
-                    <span>{describeRuntime(plugin.runtimeState)}</span>
+                  <div className="plugin-card__header">
+                    <span className={`plugin-card__runtime plugin-card__runtime--${runtimeMod}`}>
+                      {describeRuntime(plugin.runtimeState)}
+                    </span>
+                    <span className="plugin-card__type">{summarizeTypes(plugin.types)}</span>
                   </div>
-                  <strong>{plugin.name}</strong>
-                  <span>{plugin.id}</span>
-                  <div className="control-plane-chip-row">
-                    <span className={`stream-indicator ${plugin.trustState === "Trusted" || plugin.trustState === "Signed" ? "is-live" : ""}`}>
+                  <span className="plugin-card__name">{plugin.name}</span>
+                  <span className="plugin-card__id">{plugin.id}</span>
+                  <div className="plugin-card__footer">
+                    <span className={`plugin-card__trust plugin-card__trust--${plugin.trustState.toLowerCase()}`}>
                       {describeTrust(plugin.trustState)}
                     </span>
-                    <span className={`stream-indicator ${plugin.enabled ? "is-live" : ""}`}>
+                    <span className={`plugin-card__trust ${plugin.enabled ? "plugin-card__trust--trusted" : ""}`}>
                       {plugin.enabled ? text.detail.enabled : text.detail.disabled}
                     </span>
                   </div>
                   {plugin.lastError ? (
-                    <span className="control-plane-text-danger">{plugin.lastError}</span>
+                    <span className="plugin-card__error">{plugin.lastError}</span>
                   ) : (
-                    <span className="metric-value metric-value--path">{plugin.rootPath}</span>
+                    <span className="plugin-card__id">{plugin.rootPath}</span>
                   )}
                 </button>
               );
@@ -808,103 +794,167 @@ export function PluginsDesk() {
           </div>
         </section>
 
-        <div className="desk-column control-plane-stack">
-          <section className="status-card status-card--warning" data-testid="plugin-detail">
-            <div className="timeline__header">
+        <div className="plugins-detail-panel">
+          <section className="plugin-identity-card" data-testid="plugin-detail">
+            <div className="plugin-identity-card__header">
               <div>
-                <p className="section-eyebrow control-plane-compact-copy">{text.detail.eyebrow}</p>
-                <h3 className="desk-section-title control-plane-card-title">{detail?.record.manifest.name ?? selectedSummary?.name ?? text.detail.empty}</h3>
+                <p className="plugin-identity-card__eyebrow">{text.detail.eyebrow}</p>
+                <h3 className="plugin-identity-card__name">
+                  {detail?.record.manifest.name ?? selectedSummary?.name ?? text.detail.empty}
+                </h3>
               </div>
-              <span className={`stream-indicator ${detail?.healthSummary.isHealthy ? "is-live" : ""}`}>
+              <span className={`plugin-identity-card__health${detail?.healthSummary.isHealthy ? " plugin-identity-card__health--healthy" : " plugin-identity-card__health--unhealthy"}`}>
                 {detail?.healthSummary.status ?? text.detail.idle}
               </span>
             </div>
 
-            <div data-testid="plugin-detail-core" className="control-plane-detail-grid">
-              <div className="metric-item">
-                <span className="metric-label">{text.detail.pluginId}</span>
-                <span className="metric-value metric-value--path">{detail?.record.id ?? selectedSummary?.id ?? text.common.none}</span>
-                <span className="metric-label">{text.detail.installSource}</span>
-                <span className="metric-value">{detail?.record.installSource ?? selectedSummary?.installSource ?? text.common.none}</span>
+            <div data-testid="plugin-detail-core" className="plugin-fields-grid">
+              <div>
+                <span className="plugin-field__label">{text.detail.pluginId}</span>
+                <span className="plugin-field__value plugin-field__value--mono">
+                  {detail?.record.id ?? selectedSummary?.id ?? text.common.none}
+                </span>
               </div>
-              <div className="metric-item">
-                <span className="metric-label">{text.detail.runtimeState}</span>
-                <span className="metric-value">{detail?.record.runtimeState ?? selectedSummary?.runtimeState ?? text.common.none}</span>
-                <span className="metric-label">{text.detail.health}</span>
-                <span className="metric-value">{detail?.healthSummary.message ?? text.detail.noHealthSummary}</span>
+              <div>
+                <span className="plugin-field__label">{text.detail.installSource}</span>
+                <span className="plugin-field__value">
+                  {detail?.record.installSource ?? selectedSummary?.installSource ?? text.common.none}
+                </span>
               </div>
-              <div className="metric-item">
-                <span className="metric-label">{text.detail.trust}</span>
-                <span className="metric-value">{detail?.record.trustState ?? selectedSummary?.trustState ?? text.common.none}</span>
-                <span className="metric-label">{text.detail.verification}</span>
-                <span className="metric-value">{detail?.record.trustEvidence?.verificationState ?? text.common.none}</span>
+              <div>
+                <span className="plugin-field__label">{text.detail.runtimeState}</span>
+                <span className="plugin-field__value">
+                  {detail?.record.runtimeState ?? selectedSummary?.runtimeState ?? text.common.none}
+                </span>
               </div>
-              <div className="metric-item">
-                <span className="metric-label">{text.detail.trustSource}</span>
-                <span className="metric-value">{detail?.record.trustEvidence?.source ?? text.common.none}</span>
-                <span className="metric-label">{text.detail.enablement}</span>
-                <span className="metric-value" data-testid="plugin-enabled-chip">{currentEnabled ? text.detail.enabled : text.detail.disabled}</span>
+              <div>
+                <span className="plugin-field__label">{text.detail.health}</span>
+                <span className="plugin-field__value">
+                  {detail?.healthSummary.message ?? text.detail.noHealthSummary}
+                </span>
               </div>
-              <div className="metric-item">
-                <span className="metric-label">{text.detail.lastHealth}</span>
-                <span className="metric-value">{formatDateTime(detail?.healthSummary.lastHealthAt, text.common.none)}</span>
-                <span className="metric-label">{text.detail.restartCount}</span>
-                <span className="metric-value">{currentRestartCount}</span>
+              <div>
+                <span className="plugin-field__label">{text.detail.trust}</span>
+                <span className="plugin-field__value">
+                  {detail?.record.trustState ?? selectedSummary?.trustState ?? text.common.none}
+                </span>
+              </div>
+              <div>
+                <span className="plugin-field__label">{text.detail.verification}</span>
+                <span className="plugin-field__value">
+                  {detail?.record.trustEvidence?.verificationState ?? text.common.none}
+                </span>
+              </div>
+              <div>
+                <span className="plugin-field__label">{text.detail.trustSource}</span>
+                <span className="plugin-field__value">
+                  {detail?.record.trustEvidence?.source ?? text.common.none}
+                </span>
+              </div>
+              <div>
+                <span className="plugin-field__label">{text.detail.enablement}</span>
+                <span className="plugin-field__value" data-testid="plugin-enabled-chip">
+                  {currentEnabled ? text.detail.enabled : text.detail.disabled}
+                </span>
+              </div>
+              <div>
+                <span className="plugin-field__label">{text.detail.lastHealth}</span>
+                <span className="plugin-field__value">
+                  {formatDateTime(detail?.healthSummary.lastHealthAt, text.common.none)}
+                </span>
+              </div>
+              <div>
+                <span className="plugin-field__label">{text.detail.restartCount}</span>
+                <span className="plugin-field__value">{currentRestartCount}</span>
               </div>
             </div>
 
-            <div className="control-plane-detail-actions">
-              <button type="button" className="btn btn--secondary" data-testid="plugin-action-trust" disabled={!trustButtonEnabled} onClick={() => { void handleAction("trust"); }}>
+            <div className="plugin-action-bar">
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="plugin-action-trust"
+                disabled={!trustButtonEnabled}
+                onClick={() => { void handleAction("trust"); }}
+              >
                 {text.actions.trust}
-              </button>
-              <button type="button" className="btn btn--secondary" data-testid="plugin-action-enable" disabled={!enableButtonEnabled} onClick={() => { void handleAction("enable"); }}>
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="plugin-action-enable"
+                disabled={!enableButtonEnabled}
+                onClick={() => { void handleAction("enable"); }}
+              >
                 {text.actions.enable}
-              </button>
-              <button type="button" className="btn btn--secondary" data-testid="plugin-action-disable" disabled={!disableButtonEnabled} onClick={() => { void handleAction("disable"); }}>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="plugin-action-disable"
+                disabled={!disableButtonEnabled}
+                onClick={() => { void handleAction("disable"); }}
+              >
                 {text.actions.disable}
-              </button>
-              <button type="button" className="btn btn--secondary" data-testid="plugin-action-start" disabled={!startButtonEnabled} onClick={() => { void handleAction("start"); }}>
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="plugin-action-start"
+                disabled={!startButtonEnabled}
+                onClick={() => { void handleAction("start"); }}
+              >
                 {text.actions.start}
-              </button>
-              <button type="button" className="btn btn--secondary" data-testid="plugin-action-stop" disabled={!stopButtonEnabled} onClick={() => { void handleAction("stop"); }}>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="plugin-action-stop"
+                disabled={!stopButtonEnabled}
+                onClick={() => { void handleAction("stop"); }}
+              >
                 {text.actions.stop}
-              </button>
+              </Button>
             </div>
 
-            <div className="timeline control-plane-panel" data-testid="plugin-trust-evidence">
+            <div className="timeline" data-testid="plugin-trust-evidence">
               <div className="timeline__header">
                 <h3 className="desk-section-title">{text.trustEvidence.title}</h3>
-                <span className={`composer__status ${detail?.record.trustEvidence?.verificationState === "Verified" ? "is-live" : ""}`}>
+                <span className={`composer__status${detail?.record.trustEvidence?.verificationState === "Verified" ? " is-live" : ""}`}>
                   {detail?.record.trustEvidence?.verificationState ?? text.trustEvidence.unavailable}
                 </span>
               </div>
               <div className="timeline__body">
-                <article className="message message--assistant">
-                  <div className="message__meta">
-                    <span className="message__role">{text.trustEvidence.verification}</span>
-                    <span>{formatDateTime(detail?.record.trustEvidence?.verifiedAt, text.common.none)}</span>
+                <article className="plugin-evidence-row">
+                  <div className="plugin-evidence-row__header">
+                    <span className="plugin-evidence-row__label">{text.trustEvidence.verification}</span>
+                    <span className="plugin-evidence-row__meta">
+                      {formatDateTime(detail?.record.trustEvidence?.verifiedAt, text.common.none)}
+                    </span>
                   </div>
-                  <p className="message__text">{describeVerificationState(detail)}</p>
+                  <p className="plugin-evidence-row__text">{describeVerificationState(detail)}</p>
                 </article>
-                <article className="message message--system">
-                  <div className="message__meta">
-                    <span className="message__role">{text.trustEvidence.launchGate}</span>
+                <article className="plugin-evidence-row">
+                  <div className="plugin-evidence-row__header">
+                    <span className="plugin-evidence-row__label">{text.trustEvidence.launchGate}</span>
                   </div>
-                  <p className="message__text">{describeTrustGate(detail)}</p>
+                  <p className="plugin-evidence-row__text">{describeTrustGate(detail)}</p>
                 </article>
-                <article className="message message--assistant">
-                  <div className="message__meta">
-                    <span className="message__role">{text.trustEvidence.digest}</span>
-                    <span>{detail?.record.trustEvidence?.signer ?? text.trustEvidence.signerUnavailable}</span>
+                <article className="plugin-evidence-row">
+                  <div className="plugin-evidence-row__header">
+                    <span className="plugin-evidence-row__label">{text.trustEvidence.digest}</span>
+                    <span className="plugin-evidence-row__meta">
+                      {detail?.record.trustEvidence?.signer ?? text.trustEvidence.signerUnavailable}
+                    </span>
                   </div>
-                  <p className="message__text">
+                  <p className="plugin-evidence-row__digest">
                     Manifest {formatDigest(detail?.record.trustEvidence?.manifestDigestSha256)} · Package {formatDigest(detail?.record.trustEvidence?.packageDigestSha256)}
                   </p>
                   {detail?.record.trustEvidence?.signatureFilePath ? (
-                    <p className="message__text">{detail.record.trustEvidence.signatureFilePath}</p>
+                    <p className="plugin-evidence-row__text">{detail.record.trustEvidence.signatureFilePath}</p>
                   ) : null}
                   {detail?.record.trustEvidence?.summary ? (
-                    <p className="message__text">{detail.record.trustEvidence.summary}</p>
+                    <p className="plugin-evidence-row__text">{detail.record.trustEvidence.summary}</p>
                   ) : null}
                 </article>
               </div>
@@ -914,25 +964,22 @@ export function PluginsDesk() {
           <section className="timeline" data-testid="plugin-permissions">
             <div className="timeline__header">
               <h3 className="desk-section-title">{text.permissions.title}</h3>
-              <span className={`composer__status ${detail?.permissionSummary.hasHighRisk ? "" : "is-live"}`}>
+              <span className={`composer__status${detail?.permissionSummary.hasHighRisk ? "" : " is-live"}`}>
                 {detail?.permissionSummary.hasHighRisk ? text.permissions.reviewRequired : text.permissions.lowFriction}
               </span>
             </div>
             <div className="timeline__body">
               {permissionSummary.map((item, index) => (
-                <article className="message message--assistant" key={`${item}-${index}`}>
-                  <div className="message__meta">
-                    <span className="message__role">{text.permissions.declaredScope}</span>
-                    <span>{index + 1}</span>
-                  </div>
-                  <p className="message__text">{item}</p>
+                <article className="plugin-permission-item" key={`${item}-${index}`}>
+                  <span className="plugin-permission-item__label">
+                    {text.permissions.declaredScope} {index + 1}
+                  </span>
+                  <p className="plugin-permission-item__text">{item}</p>
                 </article>
               ))}
-              <article className="message message--system">
-                <div className="message__meta">
-                  <span className="message__role">{text.permissions.capabilities}</span>
-                </div>
-                <p className="message__text">{summarizeCapabilities(detail)}</p>
+              <article className="plugin-permission-item">
+                <span className="plugin-permission-item__label">{text.permissions.capabilities}</span>
+                <p className="plugin-permission-item__text">{summarizeCapabilities(detail)}</p>
               </article>
             </div>
           </section>
@@ -940,20 +987,18 @@ export function PluginsDesk() {
           <section className="timeline" data-testid="plugin-tools">
             <div className="timeline__header">
               <h3 className="desk-section-title">{text.tools.title}</h3>
-              <span className="composer__status">{isLoadingDetail ? text.common.loading : `${toolNames.length} ${text.tools.toolsSuffix}`}</span>
+              <span className="composer__status">
+                {isLoadingDetail ? text.common.loading : `${toolNames.length} ${text.tools.toolsSuffix}`}
+              </span>
             </div>
             <div className="timeline__body">
               {toolNames.length === 0 ? (
-                <article className="message message--system">
-                  <p className="message__text">{text.tools.empty}</p>
-                </article>
+                <p className="desk-section-desc">{text.tools.empty}</p>
               ) : (
                 toolNames.map((toolName) => (
-                  <article className="message message--assistant" key={toolName}>
-                    <div className="message__meta">
-                      <span className="message__role">{text.tools.namespacedTool}</span>
-                    </div>
-                    <p className="message__text">{toolName}</p>
+                  <article className="plugin-tool-item" key={toolName}>
+                    <span className="plugin-field__label">{text.tools.namespacedTool}</span>
+                    <span className="plugin-field__value plugin-field__value--mono">{toolName}</span>
                   </article>
                 ))
               )}
@@ -966,32 +1011,29 @@ export function PluginsDesk() {
                 <h3 className="desk-section-title">{text.logs.title}</h3>
                 <p className="desk-section-desc">{text.logs.copy}</p>
               </div>
-              <a data-testid="plugin-logs-link" className="btn btn--secondary" href={selectedPluginId ? `/api/plugins/${selectedPluginId}/logs?limit=${PLUGIN_LOG_LIMIT}` : "#"}>
+              <a
+                data-testid="plugin-logs-link"
+                className="btn btn--ghost btn--sm"
+                href={selectedPluginId ? `/api/plugins/${selectedPluginId}/logs?limit=${PLUGIN_LOG_LIMIT}` : "#"}
+              >
                 {text.logs.rawLogs}
               </a>
             </div>
             <div className="timeline__body">
               {logs.length === 0 ? (
-                <article className="message message--system">
-                  <p className="message__text">{text.logs.empty}</p>
-                </article>
+                <p className="desk-section-desc">{text.logs.empty}</p>
               ) : (
                 logs.map((entry) => (
-                  <article className="message message--assistant" key={entry.entryId}>
-                    <div className="message__meta">
-                      <span className="message__role">{entry.source}</span>
-                      <span>{formatDateTime(entry.timestamp, text.common.none)}</span>
-                    </div>
-                    <p className="message__text">{entry.message}</p>
+                  <article className="plugin-log-entry" key={entry.entryId}>
+                    <span className="plugin-log-entry__source">{entry.source}</span>
+                    <span className="plugin-log-entry__message">{entry.message}</span>
+                    <span className="plugin-log-entry__time">
+                      {formatDateTime(entry.timestamp, text.common.none)}
+                    </span>
                   </article>
                 ))
               )}
             </div>
-          </section>
-
-          <section className="status-card status-card--normal" data-testid="plugin-settings-placeholder">
-            <h3 className="desk-section-title">{text.future.title}</h3>
-            <p className="desk-section-desc">{text.future.copy}</p>
           </section>
         </div>
       </div>

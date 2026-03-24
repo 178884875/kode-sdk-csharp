@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { testTelegramToken, testFeishuCredentials, createChannelAccount } from '../../lib/api';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import type { ChannelConnectorKind } from '../../types/contracts';
+import { WeChatQrLoginPanel } from './WeChatQrLoginPanel';
 
 type ChannelSetupWizardProps = {
   onComplete: () => void;
   onDismiss: () => void;
 };
 
-type SubPhase = 'pick' | 'intro' | 'instructions' | 'credentials' | 'delivery' | 'success';
+type SubPhase = 'pick' | 'intro' | 'instructions' | 'credentials' | 'qrlogin' | 'delivery' | 'success';
 
 export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizardProps) {
   const [phase, setPhase] = useState<SubPhase>('pick');
@@ -33,6 +34,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       pickDesc: '绑定外部渠道，通过手机或企业通讯工具与 Koda 对话',
       pickTelegram: 'Telegram',
       pickFeishu: '飞书 / Lark',
+      pickWeChat: '微信',
       pickNext: '下一步 →',
       // Telegram intro
       tgIntroTitle: '绑定 Telegram',
@@ -63,6 +65,12 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       fsAppSecretLabel: 'App Secret',
       fsAppSecretPlaceholder: 'App Secret',
       fsTestBtn: '验证凭证',
+      // WeChat
+      wxIntroTitle: '绑定微信',
+      wxIntroDesc: '通过扫码登录，将个人微信绑定为 Koda 的消息渠道，支持私信对话',
+      wxIntroStart: '开始扫码绑定',
+      wxSuccessTitle: '微信已绑定 ✓',
+      wxSuccessDesc: '用另一个微信账号给你发一条私信试试！Koda 会自动回复。',
       // Shared
       testing: '验证中...',
       credError: '验证失败，请重新检查',
@@ -95,6 +103,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       pickDesc: 'Connect a channel to chat with Koda from your phone or work apps.',
       pickTelegram: 'Telegram',
       pickFeishu: 'Feishu / Lark',
+      pickWeChat: 'WeChat',
       pickNext: 'Next →',
       // Telegram intro
       tgIntroTitle: 'Connect Telegram',
@@ -125,6 +134,12 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       fsAppSecretLabel: 'App Secret',
       fsAppSecretPlaceholder: 'App Secret',
       fsTestBtn: 'Verify credentials',
+      // WeChat
+      wxIntroTitle: 'Connect WeChat',
+      wxIntroDesc: 'Scan a QR code to link your personal WeChat account as a messaging channel for Koda.',
+      wxIntroStart: 'Start QR scan',
+      wxSuccessTitle: 'WeChat connected ✓',
+      wxSuccessDesc: 'Have another WeChat account send you a DM to test it — Koda will reply automatically.',
       // Shared
       testing: 'Verifying...',
       credError: 'Verification failed, please double-check',
@@ -155,6 +170,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
   });
 
   const isTelegram = connectorKind === 'Telegram';
+  const isWeChat = connectorKind === 'WeChat';
 
   const handleTestTelegram = async () => {
     setTesting(true);
@@ -203,7 +219,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           configurationJson: JSON.stringify({ botToken }),
           inboundEnabled: true,
         });
-      } else {
+      } else if (!isWeChat) {
         await createChannelAccount({
           id: `feishu-${Date.now()}`,
           connectorKind: 'Feishu',
@@ -212,6 +228,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           inboundEnabled: true,
         });
       }
+      // WeChat: account already created server-side on QR login confirmation
     } catch {
       // best-effort
     } finally {
@@ -243,6 +260,14 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
             >
               <div className="delivery-option-label">{text.pickFeishu}</div>
             </button>
+            <button
+              type="button"
+              className={`delivery-option-card${connectorKind === 'WeChat' ? ' is-selected' : ''}`}
+              onClick={() => setConnectorKind('WeChat')}
+              style={{ flex: 1 }}
+            >
+              <div className="delivery-option-label">{text.pickWeChat}</div>
+            </button>
           </div>
           <button className="onboarding-next-btn" onClick={() => setPhase('intro')}>
             {text.pickNext}
@@ -256,13 +281,16 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'intro' && (
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-            {isTelegram ? text.tgIntroTitle : text.fsIntroTitle}
+            {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : text.fsIntroTitle}
           </h2>
           <p className="onboarding-step-desc">
-            {isTelegram ? text.tgIntroDesc : text.fsIntroDesc}
+            {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : text.fsIntroDesc}
           </p>
-          <button className="onboarding-next-btn" onClick={() => setPhase('instructions')}>
-            {isTelegram ? text.tgIntroStart : text.fsIntroStart}
+          <button
+            className="onboarding-next-btn"
+            onClick={() => setPhase(isWeChat ? 'qrlogin' : 'instructions')}
+          >
+            {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : text.fsIntroStart}
           </button>
           <button className="onboarding-skip-step-btn" onClick={() => setPhase('pick')}>
             {text.back}
@@ -363,6 +391,21 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
         </div>
       )}
 
+      {phase === 'qrlogin' && (
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{text.wxIntroTitle}</h2>
+          <WeChatQrLoginPanel
+            onLoginSuccess={(_token) => {
+              setVerifiedName('微信');
+              setPhase('delivery');
+            }}
+          />
+          <button className="onboarding-skip-step-btn" style={{ marginTop: 12 }} onClick={() => setPhase('intro')}>
+            {text.back}
+          </button>
+        </div>
+      )}
+
       {phase === 'delivery' && (
         <div>
           <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{text.deliveryTitle}</h2>
@@ -400,6 +443,13 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
                 {text.successTitle('Telegram')}
               </h2>
               <p>{text.successDesc}</p>
+            </>
+          ) : isWeChat ? (
+            <>
+              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+                {text.wxSuccessTitle}
+              </h2>
+              <p className="onboarding-step-desc">{text.wxSuccessDesc}</p>
             </>
           ) : (
             <>

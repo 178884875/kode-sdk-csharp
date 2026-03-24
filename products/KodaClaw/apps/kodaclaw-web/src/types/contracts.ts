@@ -56,7 +56,7 @@ export type PluginTrustState = "Untrusted" | "Trusted" | "Signed";
 export type PluginTrustEvidenceSource = "LocalDigest" | "SignatureSidecar";
 export type PluginTrustVerificationState = "DigestOnly" | "Verified" | "Mismatch" | "Invalid";
 export type PluginRuntimeState = "Stopped" | "Starting" | "Running" | "Degraded";
-export type ChannelConnectorKind = "Telegram" | "GenericWebhook" | "Feishu";
+export type ChannelConnectorKind = "Telegram" | "GenericWebhook" | "Feishu" | "WeChat";
 export type ChannelAccountState = "Disconnected" | "Connecting" | "Connected" | "Degraded";
 export type ChannelThreadType = "DirectMessage" | "Group";
 export type ChannelTurnOutcomeKind = "NoAction" | "DraftCreated" | "ApprovalRequested" | "Delivered" | "Failed";
@@ -342,6 +342,15 @@ export interface BootstrapCompletionResult {
 export interface ChatStreamRequest {
   message: string;
   sessionId?: string | null;
+  mediaIds?: string[] | null;
+}
+
+export interface MediaMeta {
+  id: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  storedAt: string;
 }
 
 export interface ChatStreamEvent {
@@ -431,12 +440,26 @@ export interface AutomationDefinition {
   schedule: AutomationSchedule;
   enabled: boolean;
   inputPaths?: string[] | null;
+  modelId?: string | null;
+  notificationChannels?: string[] | null;
+  notifyMode?: "None" | "Auto" | "Approval";
   createdAt: string;
   updatedAt: string;
   lastRunAt?: string | null;
   nextRunAt?: string | null;
   lastRunStatus?: AutomationRunStatus | null;
   lastError?: string | null;
+}
+
+export interface ChannelPushResult {
+  bindingId: string;
+  ok: boolean;
+  errorMessage?: string | null;
+  sentAt?: string | null;
+}
+
+export interface PushToChannelResponse {
+  results: ChannelPushResult[];
 }
 
 export interface AutomationDefinitionsQueryResponse {
@@ -498,6 +521,10 @@ export interface SessionDetail {
   promptReport?: PromptReport | null;
   promptReportDelta?: PromptReportDelta | null;
   recentPromptReports?: PromptReport[] | null;
+  title?: string | null;
+  modelEndpointId?: string | null;
+  modelEndpointName?: string | null;
+  modelCapabilities?: number;
 }
 
 export interface PromptReport {
@@ -611,6 +638,9 @@ export interface ModelEndpoint {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+  contextWindowSize?: number;
+  maxOutputTokens?: number;
+  isReasoning?: boolean;
 }
 
 export interface ModelsQueryResponse {
@@ -929,6 +959,23 @@ export interface TestFeishuCredentialsResponse {
   error?: string | null;
 }
 
+export interface WeChatQrCodeResult {
+  qrcode: string;
+  qrcodeImgUrl: string;
+}
+
+export type WeChatQrCodeStatusValue = "wait" | "scaned" | "confirmed" | "expired";
+
+export interface WeChatQrCodeStatus {
+  status: WeChatQrCodeStatusValue;
+  botToken?: string | null;
+}
+
+export interface TestWeChatCredentialsResponse {
+  ok: boolean;
+  error?: string | null;
+}
+
 export interface CreateChannelAccountRequest {
   id: string;
   connectorKind: ChannelConnectorKind;
@@ -955,6 +1002,9 @@ export interface CreateModelEndpointRequest {
   apiKeySecretRef?: string | null;
   enabled?: boolean;
   capabilities?: number;
+  contextWindowSize?: number;
+  maxOutputTokens?: number;
+  isReasoning?: boolean;
   apiKeyValue?: string | null;
 }
 
@@ -968,6 +1018,8 @@ export interface UpdateModelEndpointRequest {
   enabled?: boolean;
   capabilities?: number;
   contextWindowSize?: number;
+  maxOutputTokens?: number;
+  isReasoning?: boolean;
   apiKeyValue?: string | null;
 }
 
@@ -1074,6 +1126,8 @@ export interface ModelPreset {
   modelId: string;
   baseUrl?: string;
   contextWindowSize: number;
+  maxOutputTokens?: number;
+  isReasoning?: boolean;
   tier: 'Recommended' | 'Advanced' | 'Fast' | 'Reasoning' | 'Local';
   description: string;
   costHint?: string;
@@ -1093,6 +1147,7 @@ export interface ModelConnectionTestResponse {
   latencyMs: number;
   modelId?: string;
   error?: string;
+  errorMessage?: string;
 }
 
 export interface PersonaPreset {

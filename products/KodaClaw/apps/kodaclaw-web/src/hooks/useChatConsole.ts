@@ -56,13 +56,17 @@ export function useChatConsole(copy: ChatConsoleCopy) {
 
   const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
-  const sendMessage = useCallback(async () => {
+  const sendMessage = useCallback(async (mediaIds?: string[], mediaUrls?: string[]) => {
     const content = draft.trim();
-    if (!content || isStreaming) {
+    const hasMedia = mediaIds != null && mediaIds.length > 0;
+    if ((!content && !hasMedia) || isStreaming) {
       return;
     }
 
-    const userMessage = createMessage("user", content, "done");
+    const userMessage: ChatMessage = {
+      ...createMessage("user", content || "📎", "done"),
+      ...(mediaUrls && mediaUrls.length > 0 ? { mediaUrls } : {}),
+    };
     const assistantMessage = createMessage("assistant", "", "streaming");
 
     setDraft("");
@@ -72,7 +76,7 @@ export function useChatConsole(copy: ChatConsoleCopy) {
 
     try {
       let lastStep: number | null = null;
-      for await (const event of streamChatEvents({ message: content })) {
+      for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null })) {
         if (event.type === "text_chunk") {
           const stepChanged =
             lastStep !== null && event.step != null && event.step !== lastStep;

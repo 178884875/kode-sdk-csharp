@@ -1,6 +1,8 @@
 using System.Runtime.CompilerServices;
 using KodaClaw.Contracts;
+using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace KodaClaw.Runtime;
@@ -9,10 +11,12 @@ public sealed class ChatSessionService : IChatSessionService
 {
     private const string RuntimeErrorCode = "runtime.error";
     private readonly IMainSessionService _mainSessionService;
+    private readonly IMediaStore? _mediaStore;
 
-    public ChatSessionService(IMainSessionService mainSessionService)
+    public ChatSessionService(IMainSessionService mainSessionService, IMediaStore? mediaStore = null)
     {
         _mainSessionService = mainSessionService ?? throw new ArgumentNullException(nameof(mainSessionService));
+        _mediaStore = mediaStore;
     }
 
     public async IAsyncEnumerable<ChatStreamEvent> StreamMainSessionAsync(
@@ -58,6 +62,9 @@ public sealed class ChatSessionService : IChatSessionService
 
         var workspaceUpdated = false;
 
+        // Build content blocks for multimodal messages
+        var contentBlocks = await BuildContentBlocksAsync(request, cancellationToken);
+
         var stream = agent.Subscribe(
             channels: ["progress", "monitor", "control"],
             opts: new AgentRuntime.SubscribeOptions
@@ -69,7 +76,11 @@ public sealed class ChatSessionService : IChatSessionService
 
         await using var enumerator = stream.GetAsyncEnumerator(cancellationToken);
         var moveNextTask = enumerator.MoveNextAsync().AsTask();
-        agent.Send(request.Message);
+
+        if (contentBlocks is { Count: > 1 })
+            agent.Send(contentBlocks);
+        else
+            agent.Send(request.Message);
 
         while (true)
         {
@@ -201,6 +212,41 @@ public sealed class ChatSessionService : IChatSessionService
 
             moveNextTask = enumerator.MoveNextAsync().AsTask();
         }
+    }
+
+    private async Task<IReadOnlyList<ContentBlock>?> BuildContentBlocksAsync(
+        ChatStreamRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (_mediaStore is null || request.MediaIds is not { Count: > 0 })
+            return null;
+
+        var blocks = new List<ContentBlock>();
+
+        foreach (var mediaId in request.MediaIds)
+        {
+            var meta = await _mediaStore.GetMetaAsync(mediaId, cancellationToken);
+            if (meta is null)
+                continue; // skip missing media, do not abort the whole message
+
+            var stream = await _mediaStore.OpenReadAsync(mediaId, cancellationToken);
+            if (stream is null)
+                continue;
+
+            await using (stream)
+            {
+                using var ms = new System.IO.MemoryStream();
+                await stream.CopyToAsync(ms, cancellationToken);
+                var base64 = Convert.ToBase64String(ms.ToArray());
+                blocks.Add(ImageContent.FromBase64(meta.ContentType, base64));
+            }
+        }
+
+        if (blocks.Count == 0)
+            return null;
+
+        blocks.Add(new TextContent { Text = request.Message });
+        return blocks;
     }
 
     private static ChatStreamEvent CreateErrorEvent(string sessionId, string message)

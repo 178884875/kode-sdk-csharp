@@ -11,7 +11,9 @@ public static partial class GatewayApp
         string? ApiKeySecretRef,
         bool Enabled,
         ModelCapabilitySet Capabilities,
-        int ContextWindowSize = 128_000);
+        int ContextWindowSize = 128_000,
+        int MaxOutputTokens = 8192,
+        bool IsReasoning = false);
 
     private static bool TryValidateModelEndpointRequest(
         CreateModelEndpointRequest request,
@@ -28,6 +30,8 @@ public static partial class GatewayApp
             request.Enabled,
             request.Capabilities,
             request.ContextWindowSize,
+            request.MaxOutputTokens,
+            request.IsReasoning,
             out validated,
             out error);
     }
@@ -47,6 +51,8 @@ public static partial class GatewayApp
             request.Enabled,
             request.Capabilities,
             request.ContextWindowSize,
+            request.MaxOutputTokens,
+            request.IsReasoning,
             out validated,
             out error);
     }
@@ -61,6 +67,8 @@ public static partial class GatewayApp
         bool enabled,
         ModelCapabilitySet capabilities,
         int contextWindowSize,
+        int maxOutputTokens,
+        bool isReasoning,
         out ValidatedModelEndpointRequest validated,
         out ErrorResponse? error)
     {
@@ -120,7 +128,9 @@ public static partial class GatewayApp
             ApiKeySecretRef: normalizedApiKeySecretRef,
             Enabled: enabled,
             Capabilities: capabilities,
-            ContextWindowSize: contextWindowSize);
+            ContextWindowSize: contextWindowSize,
+            MaxOutputTokens: maxOutputTokens > 0 ? maxOutputTokens : 8192,
+            IsReasoning: isReasoning);
         return true;
     }
 

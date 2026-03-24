@@ -1,5 +1,7 @@
 using System.Text.Json;
+using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
+using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
 
@@ -13,6 +15,8 @@ public sealed class ChannelDeliveryDispatchService
     private readonly IThreadBindingRepository _threadBindingRepository;
     private readonly IChannelAuditRepository? _channelAuditRepository;
     private readonly TelegramConnector _telegramConnector;
+    private readonly FeishuConnector _feishuConnector;
+    private readonly WeChatConnector _weChatConnector;
     private readonly GenericWebhookConnector _genericWebhookConnector;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
@@ -20,6 +24,8 @@ public sealed class ChannelDeliveryDispatchService
     public ChannelDeliveryDispatchService(
         IThreadBindingRepository threadBindingRepository,
         TelegramConnector telegramConnector,
+        FeishuConnector feishuConnector,
+        WeChatConnector weChatConnector,
         GenericWebhookConnector genericWebhookConnector,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
@@ -27,6 +33,8 @@ public sealed class ChannelDeliveryDispatchService
     {
         _threadBindingRepository = threadBindingRepository ?? throw new ArgumentNullException(nameof(threadBindingRepository));
         _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
+        _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
+        _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
         _genericWebhookConnector = genericWebhookConnector ?? throw new ArgumentNullException(nameof(genericWebhookConnector));
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
@@ -173,6 +181,12 @@ public sealed class ChannelDeliveryDispatchService
             case ChannelConnectorKind.Telegram:
                 await EnsureTelegramStartedAsync(account, cancellationToken);
                 await _telegramConnector.SendAsync(draft, cancellationToken);
+                return;
+            case ChannelConnectorKind.Feishu:
+                await _feishuConnector.SendAsync(draft, cancellationToken);
+                return;
+            case ChannelConnectorKind.WeChat:
+                await _weChatConnector.SendAsync(draft, cancellationToken);
                 return;
             case ChannelConnectorKind.GenericWebhook:
                 await _genericWebhookConnector.SendAsync(draft, cancellationToken);

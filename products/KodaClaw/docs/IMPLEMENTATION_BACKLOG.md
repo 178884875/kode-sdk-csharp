@@ -2,6 +2,29 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 46 — 微信个人号渠道接入（2026-03-23）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-4601 | Contracts | `ChannelConnectorKind.WeChat = 3`；`WeChatQrCodeResult` / `WeChatQrCodeStatus` records | `dotnet build` 0 错 | Completed |
+| KC-4602 | ChannelHub | `WeChatApiContracts.cs` iLink DTO；`IWeChatApiClient` + `HttpWeChatApiClient`（长轮询、发消息、二维码、登录验证） | `dotnet build` 0 错 | Completed |
+| KC-4603 | ChannelHub | `WeChatConnector`（长轮询主循环、游标持久化、消息去重、Markdown 剥离）+ `WeChatConnectorConfiguration` + `WeChatAuthManager` + `WeChatConnectorOptions` | `dotnet build` 0 错 | Completed |
+| KC-4604 | Gateway + ChannelHub | `ServiceCollectionExtensions` 注册；`ChannelConnectorHostedService` + `ChannelInboundGatewayService` 加 WeChat arm；`/api/channels/wechat/get-qrcode`、`/api/channels/wechat/qrcode-status`、`/api/channels/test-wechat-credentials` 端点 | `dotnet test --filter WeChatApiIntegrationTests` | Completed |
+| KC-4605 | kodaclaw-web | `contracts.ts` + `api.ts` 扩展；`WeChatQrLoginPanel.tsx`（扫码轮询流程）；`ChannelSetupWizard.tsx` 加微信分支；`ChannelsDesk.tsx` 加 Degraded 重新扫码入口 | `npm run typecheck` | Completed |
+| KC-4606 | Tests | `WeChatConnectorConfigurationTests`（8 个 L1）+ `WeChatApiContractTests`（4 个 L3）+ `WeChatAuthApiIntegrationTests`（3 个 L2）；全量回归 预存失败不计 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 45 — 自动化渠道推送（2026-03-23）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-4501 | Contracts | `AutomationDefinition` 加 `NotificationChannels` + `NotifyMode`；`IAutomationNotificationService` 接口 + `ChannelPushResult` record；枚举 `AutomationNotifyMode` | `dotnet build` 0 错 | Completed |
+| KC-4502 | Workspace | `HeartbeatAutomationCompiler` 解析 `- channels:` 嵌套列表 + `- delivery-mode:`；8 个契约测试 | `dotnet test --filter HeartbeatAutomationCompilerContractTests` | Completed |
+| KC-4503 | Automation/Storage | SQLite 迁移 `notification_channels` + `notify_mode` 列；Repository CRUD round-trip 测试 | `dotnet test --filter SqliteAutomationDefinitionRepositoryTests` | Completed |
+| KC-4504 | Automation | `AutomationScheduler` Auto 模式执行后调 `IAutomationNotificationService.PushAsync`；Inbox PayloadJson 含 `channelPushResults` | `dotnet test --filter AutomationSchedulerIntegrationTests` | Completed |
+| KC-4505 | Gateway + ChannelHub | `AutomationNotificationService` 实现；`POST /api/inbox/{id}/push-to-channel` 端点 | `dotnet test --filter AutomationNotificationEndpointTests` | Completed |
+| KC-4506 | kodaclaw-web | `contracts.ts` + `api.ts` 扩展；AutomationsDesk 渠道 tag；InboxApprovalDesk 推送状态/按钮；ChannelsDesk 复制 BindingId | `npm run typecheck` | Completed |
+| KC-4507 | Tests | 全量测试回归，所有新增测试调用补 `NotificationChannels: null, NotifyMode: AutomationNotifyMode.None` | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Epic A：产品工程初始化
 
 - 建立 `products/KodaClaw/` 独立目录与命名空间
@@ -1393,4 +1416,142 @@
   - User Outcome：Resume 一个历史 session 后，Chat 顶部自动出现历史消息（减淡显示），上方有分隔线"以下为历史对话"，并有"加载更多"按钮可追加更早的消息。
   - Scope：`contracts.ts` 加 `SessionMessageItem`/`SessionMessagesResponse`；`api.ts` 加 `fetchSessionMessages`；`chat.ts` 加 `isHistory?: boolean` 和 role `"history_separator"`；`useChatConsole.ts` 加 `loadHistory`/`loadMoreHistory`/`prependHistory`/`isLoadingHistory`/`hasMoreHistory`；`App.tsx` 通过 `useEffect` 监听 `snapshot.activeMainSessionId` 变化自动触发 `loadHistory`（不改 `useSessionHistory`/`SessionHistoryPanel`）；`MessageTimeline.tsx` 加"加载更多"按钮、分隔线、`message--history` class；`index.css` 加对应样式。
   - Modules：`apps/kodaclaw-web`（仅自有文件）。
+
+## 迭代 43：Model Hub 质量补全（KC-4301~4307 + KC-BUG-101~103）
+
+范围冻结：见 `docs/ITERATION_43_FREEZE.md`（2026-03-23）。补全 `maxOutputTokens` / `isReasoning` 全栈字段，修复 3 个已知 Bug（SecretRef 前缀、首个模型自动默认、删除默认模型防守），完善前端表单 UX（字段顺序、contextWindowSize、高级选项折叠）。
+
+### Bug Fix
+
+- `KC-BUG-101`：`Completed`（2026-03-23）。
+  - 症状：编辑已配置 API Key 的模型端点时，"已配置"徽章永不显示，始终展示密码输入框。
+  - 根因：前端检查 `startsWith("platform:models:")` ，后端生成 `keychain:models:{id}`，前缀不匹配。
+  - 受影响模块：`apps/kodaclaw-web/src/components/ModelsSettingsDesk.tsx`。
+  - Verification：前端 `apiKeySecretRef?.startsWith("keychain:models:")` 已对齐后端生成格式。
+
+- `KC-BUG-102`：`Completed`（2026-03-23）。
+  - 症状：用户创建第一个模型端点后，session 无默认模型无法启动，需手动点"设为默认"。
+  - 根因：POST handler 硬编码 `IsDefault: false`，不查询现有 endpoint 数量。
+  - 受影响模块：`KodaClaw.Gateway/Endpoints/GatewayApp.ModelEndpoints.cs`。
+  - Verification：`existingEndpoints.Count == 0 → IsDefault: true` 逻辑已实现。
+
+- `KC-BUG-103`：`Completed`（2026-03-23）。
+  - 症状：可删除唯一的默认模型，之后系统无默认模型，session 启动失败。
+  - 根因：DELETE handler 未检查 `endpoint.IsDefault`。
+  - 受影响模块：`KodaClaw.Gateway/Endpoints/GatewayApp.ModelEndpoints.cs`，`KodaClaw.ModelHub`。
+  - Verification：无其他启用 endpoint → 409；有则自动切换默认后删除。PUT handler 同步保护禁止 disable 默认端点。
+
+### 新功能
+
+- `KC-4301`：`Completed`（2026-03-23）。
+  - User Outcome：ModelPreset 和 ModelEndpoint Contract 包含 `maxOutputTokens` / `isReasoning`，预设文件补全对应值。
+  - Scope：`ModelPreset.cs`、`ModelEndpoint.cs`、`CreateModelEndpointRequest.cs`、`UpdateModelEndpointRequest.cs` 均已加两字段；`model-presets.json` 23 条预设已补全。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Gateway/Resources`。
+  - Verification：L0 `dotnet build` 0 错 0 警告 ✓。
+
+- `KC-4302`：`Completed`（2026-03-23）。
+  - User Outcome：SQLite 数据库向后兼容追加两列，已有数据用默认值填充。
+  - Scope：`SqliteModelRegistryRepository.cs` 两条 idempotent ALTER TABLE Migration；INSERT/UPDATE/SELECT 映射同步更新；COALESCE 兜底向后兼容。
+  - Modules：`KodaClaw.ModelHub`。
+  - Verification：L0 build ✓。
+
+- `KC-4303`：`Completed`（2026-03-23）。
+  - User Outcome：Gateway 验证层支持 `maxOutputTokens` / `isReasoning` 透传；`GET /api/model-presets` 响应包含新字段。
+  - Scope：`GatewayApp.ModelValidation.cs` 补字段验证；`GatewayApp.ModelEndpoints.cs` CREATE/UPDATE/GET handler 全部透传新字段。
+  - Modules：`KodaClaw.Gateway`。
+  - Verification：L0 build ✓。
+
+- `KC-4304`：`Completed`（2026-03-23）。
+  - User Outcome：Runtime 构建模型请求时注入 `MaxTokens = endpoint.MaxOutputTokens`；`isReasoning=true` 端点跳过 tool_use 注入。
+  - Scope：`RegistryAwareModelProvider.NormalizeRequest()` L161 注入 MaxTokens；L168 `isReasoning && Tools.Count > 0 → Tools = null`。
+  - Modules：`KodaClaw.Runtime`。
+  - Verification：L0 build ✓；代码审查确认 tool strip 逻辑。
+
+- `KC-4305`：`Completed`（2026-03-23）。
+  - User Outcome：前端类型包含新字段；表单展示 maxOutputTokens 输入和 isReasoning 开关。
+  - Scope：`contracts.ts` 四个类型补字段；`ModelsSettingsDesk.tsx` `ModelDraft` + 表单 + toCreateRequest/toUpdateRequest 全部对齐；预设选中时同步填充。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：L0 `npm run typecheck` ✓。
+
+- `KC-4306`：`Completed`（2026-03-23）。⚠️ 微偏差：`已启用` 勾选框位于测试连接按钮之后（位置 9），Freeze 要求在高级选项之后。不影响功能，Iter 44 顺手修复。
+  - User Outcome：表单字段顺序合理，contextWindowSize 进表单，API Key 环境变量折叠进高级选项。
+  - Scope：`ModelsSettingsDesk.tsx` 调整 JSX 顺序；补 `contextWindowSize` 字段；API Key env var 包裹进 `<details>`。
+  - Modules：`apps/kodaclaw-web`（单文件）。
+  - Verification：L0 typecheck ✓。
+
+- `KC-4307`：`Completed`（2026-03-23）。
+  - User Outcome：模型列表卡片展示 isReasoning "推理"徽章、maxOutputTokens；禁用端点有视觉区分。
+  - Scope：`ModelsSettingsDesk.tsx` 卡片已加 isReasoning badge、token 计数行、disabled class。
+  - Modules：`apps/kodaclaw-web`（单文件）。
+  - Verification：L0 typecheck ✓；代码审查确认渲染逻辑。
+
+---
+
+## Automation 质量修复（KC-BUG-201~202 + 小优化，2026-03-23）
+
+### Bug Fix
+
+- `KC-BUG-201`：`Completed`（2026-03-23）。
+  - 症状：前端手动触发自动化（POST /api/automations/{id}/trigger）后，返回的 runId 对应记录会在数秒内被标记为 Failed，且若 definition.NextRunAt 设在未来，自动化根本不会实际执行。
+  - 根因：端点创建 Queued run 后，后台 RunOnceAsync → RecoverStaleRunsAsync 把所有 Queued 状态 run 无差别标记为 Failed；IsDue 检查同样阻止 NextRunAt 在未来的 definition 执行。
+  - 受影响模块：`KodaClaw.Automation`（`IAutomationScheduler`、`AutomationScheduler`、`AutomationSchedulerOptions`、`ServiceCollectionExtensions`），`KodaClaw.Gateway/Endpoints/GatewayApp.AutomationEndpoints.cs`。
+  - 修复：`IAutomationScheduler` 加 `TriggerDefinitionAsync(definitionId, ct) → Task<string?>`；`AutomationScheduler` 实现：同步创建 Queued run → 火而不管执行核心 `RunSessionCoreAsync`（提取自 ExecuteDefinitionAsync），返回 runId；`AutomationSchedulerOptions` 加 `StaleRunThreshold = 10min`，`RecoverStaleRunsAsync` 按 `StartedAt <= now - threshold` 过滤，只回收真正的僵尸 run；Gateway endpoint 改调 `TriggerDefinitionAsync`，不再手动创建 run 记录。
+  - Verification：L0 `dotnet build` 0 错 0 警告 ✓。
+
+- `KC-BUG-202`：`Completed`（2026-03-23）。
+  - 症状：设置"每天 09:00 执行"的自动化，在 UTC+8 环境下实际于本地 17:00 触发，而非 09:00。
+  - 根因：`ComputeNextDailyRun` / `ComputeNextWeeklyRun` 构造 DateTimeOffset 时用 `TimeSpan.Zero`（UTC offset），但 LocalTime 字段语义是本地时间。
+  - 受影响模块：`KodaClaw.Automation/AutomationScheduler.cs`。
+  - 修复：`ComputeNextDailyRun` / `ComputeNextWeeklyRun` 改为 `var localNow = now.ToLocalTime()`，用 `localNow.Date` 取日期分量，`localNow.Offset` 作 DateTimeOffset 偏移量；同步去掉 `ComputeNextWeeklyRun` 中冗余的 Monday 默认值（validation 层已保证非空）。
+  - Verification：L0 `dotnet build` 0 错 0 警告 ✓。
+
+- `KC-BUG-203`：`Completed`（2026-03-23）。
+  - 症状：Gateway 启动后 `HeartbeatSyncService` 输出警告 `HEARTBEAT.md compilation failed: Line 22: Expected a top-level bullet field.`，`automation_definitions` 表始终为空。
+  - 根因：默认模板 `DefaultWorkspaceTemplates.Heartbeat()` 中 "Nightly Memory Consolidation" 使用 YAML block scalar 语法（`- prompt: >`），但 `HeartbeatAutomationCompiler.ParseSections` 只支持单行字段值；读取到 `>` 后 `lineIndex++`，下一行是缩进的连续文本，不满足 `IsTopLevelBullet`，抛 "Expected a top-level bullet field."。
+  - 受影响模块：`KodaClaw.Workspace/HeartbeatAutomationCompiler.cs`。
+  - 修复：在 `ParseSections` 的 `prompt` 字段处理分支增加 block scalar 识别：若读到的值为 `">"，进入 block scalar 模式，持续收集直到遇见下一个 top-level bullet 或 `##` 节头为止，将所有非空缩进行以空格拼接为最终 prompt；否则沿用原有单行路径。兼容已有用户 HEARTBEAT.md 文件中的 `>` 语法。
+  - Verification：L0 `dotnet build` 0 错 0 警告 ✓；L1 Heartbeat 单元测试 8/8 ✓；L3 HeartbeatAutomationCompiler 契约测试 9/9 ✓。
+
+### 小优化（无 KC 条目）
+
+- `AutomationSessionService`：去掉 `_agents` 字典（调用方 AutomationScheduler 的 try/finally 负责 dispose，DisposeAsync 改为 no-op with LogDebug）；整数除法顺序改为 `usableTokens * 4 / 5`（避免整除截断）。
+- `AutomationScheduler`：去掉 `UpsertResultInboxItemAsync` 中冗余的 `GetByIdAsync`（runId 全局唯一，existing 永远为 null）。
+
+---
+
+## 迭代 44：多模态 Composer — Model Pill + Vision 图片输入（KC-4401~4404）
+
+范围冻结：见 `docs/ITERATION_44_FREEZE.md`（2026-03-23）。在 Chat Composer 输入组加入只读 Model Pill 和 Vision 图片附件能力：Session API 补全模型信息字段，后端消息发送路径打通 mediaIds → ImageContent 转换，前端展示当前模型名并在 Vision 模型下显示图片附件按钮。
+
+- `KC-4401`：`Completed`。
+  - User Outcome：`GET /api/sessions/{id}` 响应包含 `modelEndpointId` 和 `modelCapabilities`，前端可据此展示 Model Pill 并派生能力按钮可见性。
+  - Scope：`SessionDetail` record 加 `string? ModelEndpointId` 和 `int ModelCapabilities`；`GatewayApp.SessionEndpoints.cs` handler 组装 `SessionDetail` 时调 `IModelRegistryRepository.ResolveDefaultForAsync(TextChat|ToolCalling)` 填充两字段（无 endpoint 时填 null/0）；`contracts.ts` `SessionDetail` 接口加 `modelEndpointId?: string`、`modelCapabilities?: number`。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：L0 `dotnet build` + `npm run typecheck`；L2 集成测试：创建含 Vision capability 的 endpoint，`GET /api/sessions/{id}` 返回字段非空且 Vision bit 已置位；L3 契约测试覆盖新字段存在性。
+
+- `KC-4402`：`Completed`。
+  - User Outcome：用户在 Chat 输入框附带图片发送后，Agent 能接收到图文混合的消息内容（ImageContent + TextContent blocks）。
+  - Scope：`SendMessageRequest` record 加 `IReadOnlyList<string>? MediaIds = null`；Gateway chat handler 解析并透传 `mediaIds`；`MainSessionService` 新增 `BuildUserContentAsync(message, mediaIds)` helper：遍历 mediaIds → `IMediaStore.GetAsync()` → `ImageContent(base64, mimeType)` + `TextContent(message)`，单个 id 不存在时记录诊断日志并跳过；`api.ts` `sendChatMessage` 加可选 `mediaIds?: string[]` 参数。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Gateway`、`KodaClaw.Runtime`、`apps/kodaclaw-web`。
+  - Verification：L0 build + typecheck；L1 单元测试：有效/缺失/空 mediaIds 三个边界用例；L2 集成测试：POST message with mediaIds → SSE 流正常启动无异常。
+
+- `KC-4403`：`Completed`。
+  - User Outcome：Chat Composer 左下角显示当前 session 绑定模型名称的只读 pill，用户无需进 Models 设置才能知道 Koda 在用哪个模型。
+  - Scope：`ChatComposer.tsx` 新增 `modelName?: string` 和 `modelCapabilities?: number` props；左下角渲染 `.composer__model-pill`（超长截断 18 字符 + ellipsis）；`modelName` 未提供时不渲染；`App.tsx` 在 `activeSessionId` 变化时调 `GET /api/sessions/{id}` 解析 `modelCapabilities`/`modelEndpointId`，从 `GET /api/model-endpoints` 匹配 name，传给 `ChatComposer`；顺手修复 KC-4306 微偏差（`已启用` 位置）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：L0 typecheck；L1 Vitest：给定 `modelName="gpt-4o"` 时 pill 渲染含目标文字；`modelName` 未提供时 pill 不渲染。
+
+- `KC-4404`：`Completed`。
+  - User Outcome：当前模型支持 Vision 时，Composer 显示 Paperclip 附件按钮；用户可选择/粘贴图片，图片以缩略图预览显示在输入框上方，随消息一起发送给 Agent，Agent 能正确理解图片内容。
+  - Scope：`ChatComposer.tsx` 加 `attachedMedia?: AttachedMedia[]`、`onAttachMedia?: (files: File[]) => void`、`onRemoveMedia?: (mediaId: string) => void` props；`modelCapabilities & TextChat(1) && modelCapabilities & Vision(4)` 同时为 true 时才渲染 Paperclip 按钮（纯 ImageGeneration / TTS / STT 模型不显示）（隐藏 `<input type="file" accept="image/*" multiple>`）；textarea `onPaste` 检测 `clipboardData.files` 中图片；附件预览区（`.composer__attachment-bar`）缩略图 + ✕ 删除；上传逻辑在 `App.tsx`：`POST /api/media/upload` → 追加 `AttachedMedia`；submit 时 `pendingMediaIds[]` 传入 `sendMessage()`；发送成功后清空；补充 CSS token 类：`.composer__attachment-bar`、`.composer__attachment-thumb`、`.composer__attachment-remove`、`.composer__attach-btn`。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：L0 typecheck；L1 Vitest：`modelCapabilities` 无 Vision → 附件按钮不渲染；`attachedMedia=[{...}]` → 预览区渲染对应数量缩略图；L5 Dogfood：Claude 3.5 Sonnet 附图发送 → Agent 正确描述图片内容。
   - Verification：L0 `npm run typecheck` ✓；L0 `dotnet build` 0 错 0 警告 ✓。
+
+## 自动化任务 per-model 配置（KC-BUG-204 / 优化）
+
+- `KC-BUG-204`：`Completed`（2026-03-23）。
+  - User Outcome：用户可在 HEARTBEAT.md 的自动化段落中加 `- model: <model-id>` 字段，为单个自动化任务指定独立模型；未配置时软降级到全局默认模型；AutomationsDesk 卡片和详情面板均展示已配置模型。
+  - Scope：`AutomationDefinition` record 加 `string? ModelId` 字段；`HeartbeatAutomationCompiler` 解析 `- model:` 字段，写入 `SectionDraft.ModelId`，构造时透传；`SqliteAutomationDatabase` DDL 加 `model_id TEXT NULL` + 幂等 ALTER TABLE 迁移；`SqliteAutomationDefinitionRepository` INSERT/SELECT/MapDefinition 同步更新（列索引 12→17 全部 +1）；`AutomationSessionService.ResolveConfiguredModelAsync` 优先使用 `definition.ModelId`；前端 `contracts.ts` `AutomationDefinition` 加 `modelId?: string | null`；`AutomationsDesk.tsx` 卡片 meta 区展示 model tag、详情面板加模型行；CSS 加 `.automation-card__model-tag`、`.automation-detail-model-id`、`.metric-value--muted`。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Workspace`、`KodaClaw.Automation`、`KodaClaw.Runtime`、`apps/kodaclaw-web`。
+  - Verification：`dotnet build KodaClaw.sln` 0 错 0 警告；`npm run typecheck` 通过；合约测试 108/108；自动化相关单元测试 26/26。

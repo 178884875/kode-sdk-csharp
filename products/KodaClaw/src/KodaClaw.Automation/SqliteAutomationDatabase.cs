@@ -73,6 +73,9 @@ internal sealed class SqliteAutomationDatabase
                     schedule_days_of_week TEXT NULL,
                     enabled INTEGER NOT NULL,
                     input_paths TEXT NULL,
+                    model_id TEXT NULL,
+                    notification_channels TEXT NULL,
+                    notify_mode INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     last_run_at TEXT NULL,
@@ -107,6 +110,42 @@ internal sealed class SqliteAutomationDatabase
                     ON automation_runs(status, started_at DESC);
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
+
+            // Migration: add model_id column to existing databases (introduced in KC-3901).
+            await using var migrateModelId = connection.CreateCommand();
+            migrateModelId.CommandText = "ALTER TABLE automation_definitions ADD COLUMN model_id TEXT NULL;";
+            try
+            {
+                await migrateModelId.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
+            // Migration: add notification_channels column (KC-4501).
+            await using var migrateNotificationChannels = connection.CreateCommand();
+            migrateNotificationChannels.CommandText = "ALTER TABLE automation_definitions ADD COLUMN notification_channels TEXT NULL;";
+            try
+            {
+                await migrateNotificationChannels.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
+            // Migration: add notify_mode column (KC-4501).
+            await using var migrateNotifyMode = connection.CreateCommand();
+            migrateNotifyMode.CommandText = "ALTER TABLE automation_definitions ADD COLUMN notify_mode INTEGER NOT NULL DEFAULT 0;";
+            try
+            {
+                await migrateNotifyMode.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
 
             _databasePath = databasePath;
             _initialized = true;

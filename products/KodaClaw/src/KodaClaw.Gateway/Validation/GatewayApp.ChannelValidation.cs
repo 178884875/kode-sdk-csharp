@@ -103,7 +103,8 @@ public static partial class GatewayApp
         ArgumentNullException.ThrowIfNull(channelInboundGatewayService);
 
         if (account.ConnectorKind is not ChannelConnectorKind.Telegram
-            and not ChannelConnectorKind.Feishu)
+            and not ChannelConnectorKind.Feishu
+            and not ChannelConnectorKind.WeChat)
         {
             await channelAccountRepository.UpsertAsync(account, cancellationToken);
             return account;
@@ -163,6 +164,8 @@ public static partial class GatewayApp
                 channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken),
             ChannelConnectorKind.Feishu =>
                 channelInboundGatewayService.StopFeishuAccountAsync(account.Id, cancellationToken),
+            ChannelConnectorKind.WeChat =>
+                channelInboundGatewayService.StopWeChatAccountAsync(account.Id, cancellationToken),
             _ => Task.CompletedTask,
         };
     }
@@ -178,6 +181,8 @@ public static partial class GatewayApp
                 channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken),
             ChannelConnectorKind.Feishu =>
                 channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.WeChat =>
+                channelInboundGatewayService.StartWeChatAccountAsync(account, cancellationToken),
             _ => Task.CompletedTask,
         };
     }

@@ -239,6 +239,9 @@ public static partial class GatewayApp
                 resolvedSecretRef = secretRef.ToReferenceString();
             }
 
+            var existingEndpoints = await modelRegistryRepository.ListAsync(cancellationToken);
+            var shouldBeDefault = existingEndpoints.Count == 0;
+
             var endpoint = new ModelEndpoint(
                 Id: endpointId,
                 DisplayName: validatedRequest.DisplayName,
@@ -249,10 +252,12 @@ public static partial class GatewayApp
                 ApiKeySecretRef: resolvedSecretRef,
                 Enabled: validatedRequest.Enabled,
                 Capabilities: validatedRequest.Capabilities,
-                IsDefault: false,
+                IsDefault: shouldBeDefault,
                 CreatedAt: now,
                 UpdatedAt: now,
-                ContextWindowSize: validatedRequest.ContextWindowSize);
+                ContextWindowSize: validatedRequest.ContextWindowSize,
+                MaxOutputTokens: validatedRequest.MaxOutputTokens,
+                IsReasoning: validatedRequest.IsReasoning);
 
             await modelRegistryRepository.AddAsync(endpoint, cancellationToken);
             RecordDiagnosticEvent(
@@ -359,6 +364,8 @@ public static partial class GatewayApp
                 Enabled = validatedRequest.Enabled,
                 Capabilities = validatedRequest.Capabilities,
                 ContextWindowSize = validatedRequest.ContextWindowSize,
+                MaxOutputTokens = validatedRequest.MaxOutputTokens,
+                IsReasoning = validatedRequest.IsReasoning,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
 
@@ -406,6 +413,39 @@ public static partial class GatewayApp
                     level: "warning",
                     message: "Unauthorized access to model delete endpoint.");
                 return Results.Unauthorized();
+            }
+
+            var toDelete = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
+            if (toDelete is null)
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.models",
+                    eventType: "gateway.models.not_found",
+                    level: "warning",
+                    message: "Model delete targeted a missing endpoint.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["modelEndpointId"] = id,
+                    });
+                return Results.NotFound(new ErrorResponse(
+                    Code: "model_endpoint.not_found",
+                    Message: "Model endpoint was not found."));
+            }
+
+            if (toDelete.IsDefault)
+            {
+                var allEndpoints = await modelRegistryRepository.ListAsync(cancellationToken);
+                var nextDefault = allEndpoints.FirstOrDefault(e => e.Id != id && e.Enabled);
+                if (nextDefault is null)
+                {
+                    return Results.Conflict(new ErrorResponse(
+                        Code: "model_endpoint.cannot_delete_only_default",
+                        Message: "Cannot delete the only default model endpoint. Add another enabled endpoint first."));
+                }
+
+                await modelRegistryRepository.SetDefaultAsync(nextDefault.Id, DateTimeOffset.UtcNow, cancellationToken);
             }
 
             var deleted = await modelRegistryRepository.DeleteAsync(id, cancellationToken);

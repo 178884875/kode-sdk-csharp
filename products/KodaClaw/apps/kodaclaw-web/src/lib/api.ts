@@ -59,6 +59,9 @@ import {
   type TestTelegramTokenResponse,
   type TestFeishuCredentialsRequest,
   type TestFeishuCredentialsResponse,
+  type WeChatQrCodeResult,
+  type WeChatQrCodeStatus,
+  type TestWeChatCredentialsResponse,
   type CreateChannelAccountRequest,
   type PatchChannelAccountRequest,
   type UpdateCheckRequest,
@@ -75,6 +78,8 @@ import {
   type WorkspaceMcpConfig,
   type McpConnectionTestResult,
   type SessionMessagesResponse,
+  type MediaMeta,
+  type PushToChannelResponse,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
@@ -582,6 +587,37 @@ export async function testFeishuCredentials(
   });
 }
 
+export async function getWeChatQrCode(signal?: AbortSignal): Promise<WeChatQrCodeResult> {
+  return requestJson<WeChatQrCodeResult>("/api/channels/wechat/get-qrcode", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify({}),
+    signal,
+  });
+}
+
+export async function pollWeChatQrStatus(
+  qrcode: string,
+  signal?: AbortSignal,
+): Promise<WeChatQrCodeStatus> {
+  return requestJson<WeChatQrCodeStatus>(
+    `/api/channels/wechat/qrcode-status?qrcode=${encodeURIComponent(qrcode)}`,
+    { headers: buildHeaders(), signal },
+  );
+}
+
+export async function testWeChatCredentials(
+  botToken: string,
+  signal?: AbortSignal,
+): Promise<TestWeChatCredentialsResponse> {
+  return requestJson<TestWeChatCredentialsResponse>("/api/channels/wechat/test-credentials", {
+    method: "POST",
+    headers: buildHeaders(true),
+    body: JSON.stringify({ botToken }),
+    signal,
+  });
+}
+
 export async function fetchApproval(id: string, signal?: AbortSignal): Promise<Approval> {
   return requestJson<Approval>(`/api/approvals/${id}`, {
     headers: buildHeaders(),
@@ -619,6 +655,21 @@ export async function fetchSessionDetail(id: string, signal?: AbortSignal): Prom
     headers: buildHeaders(),
     signal,
   });
+}
+
+export async function uploadMedia(file: File, signal?: AbortSignal): Promise<MediaMeta> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(resolveGatewayPath("/api/media/upload"), {
+    method: "POST",
+    headers: buildHeaders(),
+    body: form,
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(`Media upload failed: ${response.status}`);
+  }
+  return response.json() as Promise<MediaMeta>;
 }
 
 export async function rotateSession(signal?: AbortSignal): Promise<RotateSessionResponse> {
@@ -1159,4 +1210,20 @@ export async function testMcpServerConnection(name: string): Promise<McpConnecti
     throw new Error(`Failed to test MCP server: ${await readErrorDetail(response)}`);
   }
   return readJson<McpConnectionTestResult>(response);
+}
+
+// ===== Inbox Channel Push API =====
+
+export async function pushAutomationResultToChannel(
+  inboxId: string,
+  bindingIds?: string[],
+): Promise<PushToChannelResponse> {
+  return requestJson<PushToChannelResponse>(
+    `/api/inbox/${encodeURIComponent(inboxId)}/push-to-channel`,
+    {
+      method: "POST",
+      headers: buildHeaders(true),
+      body: JSON.stringify({ bindingIds: bindingIds ?? [] }),
+    },
+  );
 }

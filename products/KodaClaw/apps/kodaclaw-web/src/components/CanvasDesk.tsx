@@ -11,6 +11,8 @@ import {
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
+import { Button } from "./ui/Button";
+import { Select } from "./ui/Select";
 import { Layers } from "lucide-react";
 import type { CanvasArtifact, CanvasArtifactKind, CanvasEntryResponse } from "../types/contracts";
 
@@ -151,7 +153,9 @@ export function CanvasDesk() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectionPendingId, setSelectionPendingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fetchedContent, setFetchedContent] = useState<string | null>(null);
   const requestIdRef = useRef(0);
+  const contentFetchAbortRef = useRef<AbortController | null>(null);
 
   function resolveKindLabel(kind: CanvasArtifactKind): string {
     return text.kinds[kind] ?? kind;
@@ -276,6 +280,37 @@ export function CanvasDesk() {
     return resolveDefaultEntryUrl(defaultEntry, defaultEntryPath);
   }, [defaultEntry, defaultEntryPath, selectedArtifact, selectedEntry]);
 
+  // Only Report and TaskList are markdown-renderable kinds; Dashboard/Board/PluginPanel use iframes.
+  const MARKDOWN_KINDS: CanvasArtifactKind[] = ["Report", "TaskList"];
+
+  // When contentText is absent and kind is markdown-renderable, fetch the entry URL as text
+  // so it can be rendered by ReactMarkdown instead of a raw iframe.
+  const shouldFetchContent =
+    previewEntryUrl !== null &&
+    (selectedArtifact === null
+      // No selection: fetch if the default entry URL looks like markdown
+      ? /\.md(\?|$)/.test(previewEntryUrl)
+      // Has selection: fetch if kind is markdown-renderable and contentText is absent
+      : MARKDOWN_KINDS.includes(selectedArtifact.kind) &&
+        (selectedArtifact.contentText == null || selectedArtifact.contentText === ""));
+
+  useEffect(() => {
+    if (!shouldFetchContent || !previewEntryUrl) {
+      setFetchedContent(null);
+      return;
+    }
+    contentFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    contentFetchAbortRef.current = controller;
+    setFetchedContent(null);
+    fetch(previewEntryUrl, { signal: controller.signal })
+      .then(r => r.text())
+      .then(text => { if (!controller.signal.aborted) setFetchedContent(text); })
+      .catch(() => { /* silently fall back to iframe */ });
+    return () => { controller.abort(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewEntryUrl, shouldFetchContent]);
+
   const selectionLabel = selectedArtifact ? selectedArtifact.title : defaultEntry?.title ?? text.defaultEntryTitle;
   const selectionKind = selectedArtifact ? resolveKindLabel(selectedArtifact.kind) : text.defaultKind;
   const metadataRoute = selectedArtifact?.route ?? defaultEntry?.route ?? text.unavailable;
@@ -291,9 +326,9 @@ export function CanvasDesk() {
         <h2 className="desk-section-title">{text.title}</h2>
         <p className="desk-section-desc">{text.copy}</p>
         <div className="canvas-desk__toolbar canvas-toolbar">
-          <button
-            type="button"
-            className="btn btn--secondary"
+          <Button
+            variant="secondary"
+            size="control"
             data-testid="canvas-refresh"
             disabled={isLoading || isRefreshing}
             onClick={() => {
@@ -301,14 +336,14 @@ export function CanvasDesk() {
             }}
           >
             {isRefreshing ? text.refreshing : text.refresh}
-          </button>
+          </Button>
           <label className="metric-label" htmlFor="canvas-kind-filter">
             {text.kindFilter}
           </label>
-          <select
+          <Select
             id="canvas-kind-filter"
             data-testid="canvas-kind-filter"
-            className="kc-select control-plane-filter"
+            className="control-plane-filter"
             value={kindFilter}
             onChange={(event) => setKindFilter(event.target.value as CanvasKindFilter)}
           >
@@ -318,7 +353,7 @@ export function CanvasDesk() {
                 {resolveKindLabel(kind)}
               </option>
             ))}
-          </select>
+          </Select>
           <span className="composer__status">
             {isLoading ? text.loading : text.artifactCount(artifacts.length)}
           </span>
@@ -356,42 +391,32 @@ export function CanvasDesk() {
                 <button
                   type="button"
                   key={artifact.id}
-                  className="message message--assistant canvas-artifact-button"
+                  className={`canvas-artifact-card${isSelected ? " canvas-artifact-card--selected" : ""}${isPending ? " canvas-artifact-card--pending" : ""}`}
                   data-testid={`canvas-artifact-select-${artifact.id}`}
                   aria-pressed={isSelected}
                   disabled={isPending}
-                  onClick={() => {
-                    void handleSelectArtifact(artifact.id);
-                  }}
+                  onClick={() => { void handleSelectArtifact(artifact.id); }}
                 >
-                  <div className="message__meta">
-                    <span className="message__role">{resolveKindLabel(artifact.kind)}</span>
-                    <span>{formatDateTime(artifact.updatedAt, text.unavailable)}</span>
+                  <div className="canvas-artifact-card__header">
+                    <span className="canvas-artifact-card__kind">{resolveKindLabel(artifact.kind)}</span>
+                    <span className="canvas-artifact-card__date">{formatDateTime(artifact.updatedAt, text.unavailable)}</span>
                   </div>
-                  <strong>{artifact.title}</strong>
-                  <span>{artifact.source}</span>
-                  {artifact.route ? <span className="metric-value metric-value--path">{artifact.route}</span> : null}
-                  {isSelected ? (
-                    <span className="stream-indicator is-live mode-badge canvas-fit-content-badge">
-                      {text.selected}
-                    </span>
-                  ) : null}
+                  <span className="canvas-artifact-card__title">{artifact.title}</span>
+                  {artifact.route ? <span className="canvas-artifact-card__route">{artifact.route}</span> : null}
                 </button>
               );
             })}
           </div>
         </section>
 
-        <div className="desk-column canvas-desk__preview-column canvas-preview-column">
-          <section className="status-card status-card--warning" data-testid="canvas-preview">
-            <div className="canvas-desk__preview-header canvas-preview-header">
-              <div>
-                <h3 className="desk-section-title">{selectionLabel}</h3>
-              </div>
-              <span className={`stream-indicator ${selectedArtifact ? "is-live" : ""}`}>{selectionKind}</span>
+        <div className="canvas-preview-column">
+          <section className="status-card status-card--normal" data-testid="canvas-preview">
+            <div className="canvas-preview-header">
+              <h3 className="desk-section-title">{selectionLabel}</h3>
+              <span className={`canvas-kind-chip ${selectedArtifact ? "" : "canvas-kind-chip--inactive"}`}>{selectionKind}</span>
             </div>
 
-            <div className="canvas-desk__preview-surface canvas-preview-surface">
+            <div className="canvas-preview-surface">
               {selectedArtifact?.kind === "Image" ? (
                 <img
                   data-testid="canvas-artifact-image"
@@ -399,22 +424,35 @@ export function CanvasDesk() {
                   alt={selectedArtifact.title}
                   className="canvas-preview-image"
                 />
-              ) : selectedArtifact?.contentText != null && selectedArtifact.kind !== "Html" ? (
+              ) : selectedArtifact?.kind === "Html" ? (
+                selectedArtifact.contentText != null ? (
+                  <iframe
+                    title={text.previewFrameTitle}
+                    data-testid="canvas-entry-frame"
+                    srcDoc={selectedArtifact.contentText}
+                    sandbox="allow-scripts"
+                    className="canvas-preview-frame"
+                  />
+                ) : previewEntryUrl ? (
+                  <iframe
+                    title={text.previewFrameTitle}
+                    data-testid="canvas-entry-frame"
+                    src={previewEntryUrl}
+                    className="canvas-preview-frame"
+                  />
+                ) : null
+              ) : (selectedArtifact?.contentText ?? fetchedContent) != null ? (
                 <div
                   data-testid="canvas-artifact-content"
-                  data-kind={selectedArtifact.kind}
-                  className={`canvas-markdown-view${selectedArtifact.kind === "TaskList" ? " canvas-tasklist-view" : ""}`}
+                  data-kind={selectedArtifact?.kind}
+                  className={`canvas-markdown-view${selectedArtifact?.kind === "TaskList" ? " canvas-tasklist-view" : ""}`}
                 >
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedArtifact.contentText}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{(selectedArtifact?.contentText ?? fetchedContent)!}</ReactMarkdown>
                 </div>
-              ) : selectedArtifact?.contentText != null && selectedArtifact.kind === "Html" ? (
-                <iframe
-                  title={text.previewFrameTitle}
-                  data-testid="canvas-entry-frame"
-                  srcDoc={selectedArtifact.contentText}
-                  sandbox="allow-scripts"
-                  className="canvas-preview-frame"
-                />
+              ) : shouldFetchContent ? (
+                <div className="canvas-preview-fallback">
+                  <span className="desk-section-desc canvas-no-margin">{text.loading}</span>
+                </div>
               ) : previewEntryUrl ? (
                 <iframe
                   title={text.previewFrameTitle}
@@ -434,7 +472,7 @@ export function CanvasDesk() {
 
           <section className="status-card status-card--normal" data-testid="canvas-metadata">
             <h3 className="desk-section-title">{text.metadataTitle}</h3>
-            <div className="canvas-desk__metadata-grid canvas-metadata-grid">
+            <div className="canvas-metadata-grid">
               <div className="metric-item">
                 <span className="metric-label">{text.metadata.route}</span>
                 <span className="metric-value metric-value--path">{metadataRoute}</span>

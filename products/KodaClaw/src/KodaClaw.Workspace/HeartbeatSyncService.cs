@@ -31,6 +31,10 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
 
     public async Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
     {
+        // Ensure workspace is initialized so that default files (including HEARTBEAT.md) are
+        // written before we try to read them. This is idempotent — a no-op if already done.
+        await _workspaceService.EnsureInitializedAsync(cancellationToken);
+
         var heartbeatPath = Path.Combine(
             _workspaceService.RootPath,
             KodaClawWorkspaceLayout.WorkspaceDirectory,

@@ -1,6 +1,7 @@
 using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
+using KodaClaw.ChannelHub.Connectors.WeChat;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 
@@ -12,6 +13,7 @@ internal sealed class ChannelInboundGatewayService
     private readonly ChannelTurnOrchestrator _channelTurnOrchestrator;
     private readonly TelegramConnector _telegramConnector;
     private readonly FeishuConnector _feishuConnector;
+    private readonly WeChatConnector _weChatConnector;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IDiagnosticsService? _diagnosticsService;
 
@@ -20,6 +22,7 @@ internal sealed class ChannelInboundGatewayService
         ChannelTurnOrchestrator channelTurnOrchestrator,
         TelegramConnector telegramConnector,
         FeishuConnector feishuConnector,
+        WeChatConnector weChatConnector,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IDiagnosticsService? diagnosticsService = null)
     {
@@ -27,6 +30,7 @@ internal sealed class ChannelInboundGatewayService
         _channelTurnOrchestrator = channelTurnOrchestrator ?? throw new ArgumentNullException(nameof(channelTurnOrchestrator));
         _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
         _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
+        _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _diagnosticsService = diagnosticsService;
     }
@@ -125,6 +129,36 @@ internal sealed class ChannelInboundGatewayService
         CancellationToken cancellationToken = default)
     {
         return _feishuConnector.StopAsync(accountId, cancellationToken);
+    }
+
+    public async Task StartWeChatAccountAsync(
+        ChannelAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        if (account.ConnectorKind != ChannelConnectorKind.WeChat)
+        {
+            return;
+        }
+
+        try
+        {
+            await _weChatConnector.StartAsync(
+                account,
+                async (envelope, token) => await ProcessAsync(envelope, token),
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
+        {
+            // 账号已在运行，保持现有轮询
+        }
+    }
+
+    public Task StopWeChatAccountAsync(
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        return _weChatConnector.StopAsync(accountId, cancellationToken);
     }
 
     private void RecordRuntimeSkipped(ThreadBinding binding, string message)

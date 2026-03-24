@@ -23,6 +23,7 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
     {
         await StartAccountsByKindAsync(ChannelConnectorKind.Telegram, cancellationToken);
         await StartAccountsByKindAsync(ChannelConnectorKind.Feishu, cancellationToken);
+        await StartAccountsByKindAsync(ChannelConnectorKind.WeChat, cancellationToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -170,6 +171,8 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 _channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken),
             ChannelConnectorKind.Feishu =>
                 _channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.WeChat =>
+                _channelInboundGatewayService.StartWeChatAccountAsync(account, cancellationToken),
             _ => Task.CompletedTask,
         };
     }
@@ -185,6 +188,8 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 _channelInboundGatewayService.StopTelegramAccountAsync(accountId, cancellationToken),
             ChannelConnectorKind.Feishu =>
                 _channelInboundGatewayService.StopFeishuAccountAsync(accountId, cancellationToken),
+            ChannelConnectorKind.WeChat =>
+                _channelInboundGatewayService.StopWeChatAccountAsync(accountId, cancellationToken),
             _ => Task.CompletedTask,
         };
     }

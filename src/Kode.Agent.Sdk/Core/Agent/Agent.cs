@@ -635,6 +635,12 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     public string Send(string text, SendOptions? options = null) => _messageQueue.Send(text, options);
 
     /// <summary>
+    /// Enqueue a multi-modal user message (text + images).
+    /// </summary>
+    public string Send(IReadOnlyList<Kode.Agent.Sdk.Core.Types.ContentBlock> parts, SendOptions? options = null)
+        => _messageQueue.Send(parts, options);
+
+    /// <summary>
     /// TS-aligned: returns the scheduler instance (equivalent to TS <c>agent.schedule()</c>).
     /// </summary>
     public Scheduler Schedule() => _scheduler;

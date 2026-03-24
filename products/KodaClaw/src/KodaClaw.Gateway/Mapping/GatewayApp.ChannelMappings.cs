@@ -55,7 +55,7 @@ public static partial class GatewayApp
             Account: account,
             Binding: binding,
             Policy: policy,
-            DeliveryRule: BuildDefaultChannelDeliveryRule(binding.ThreadType, binding.UpdatedAt, binding.DeliveryRuleId),
+            DeliveryRule: BuildDefaultChannelDeliveryRule(binding.ThreadType, binding.UpdatedAt, binding.DeliveryRuleId, binding.DeliveryModeOverride),
             RecentAudit: audit,
             Session: session,
             PendingApprovalId: pendingApproval?.Id,
@@ -95,7 +95,7 @@ public static partial class GatewayApp
             SessionId: binding.SessionId,
             SessionKind: binding.SessionKind,
             DisplayTitle: ResolveChannelDisplayTitle(binding),
-            DeliveryMode: ResolveDefaultChannelDeliveryMode(binding.ThreadType),
+            DeliveryMode: binding.DeliveryModeOverride ?? ResolveDefaultChannelDeliveryMode(binding.ThreadType),
             AccountState: account?.State ?? ChannelAccountState.Disconnected,
             UpdatedAt: binding.UpdatedAt,
             LastInboundAt: binding.LastInboundAt,
@@ -234,7 +234,8 @@ public static partial class GatewayApp
     private static DeliveryRule BuildDefaultChannelDeliveryRule(
         ChannelThreadType threadType,
         DateTimeOffset updatedAt,
-        string? deliveryRuleId = null)
+        string? deliveryRuleId = null,
+        DeliveryMode? deliveryModeOverride = null)
     {
         return new DeliveryRule(
             Id: string.IsNullOrWhiteSpace(deliveryRuleId)
@@ -242,7 +243,7 @@ public static partial class GatewayApp
                     ? "delivery-default-dm"
                     : "delivery-default-group"
                 : deliveryRuleId.Trim(),
-            Mode: ResolveDefaultChannelDeliveryMode(threadType),
+            Mode: deliveryModeOverride ?? ResolveDefaultChannelDeliveryMode(threadType),
             UpdatedAt: updatedAt,
             AllowProactiveSend: false,
             MuteDuringQuietHours: true);

@@ -28,7 +28,6 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly IMcpHubService? _mcpHubService;
-    private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public AutomationSessionService(
         IWorkspaceService workspaceService,
@@ -55,7 +54,8 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
 
         var snapshot = await _workspaceService.EnsureInitializedAsync(cancellationToken);
         var contextDocuments = await LoadContextDocumentsAsync(snapshot.RootPath, definition, cancellationToken);
-        var prompt = BuildSystemPrompt(definition, contextDocuments);
+        var promptCharBudget = await ResolvePromptCharacterBudgetAsync(cancellationToken);
+        var prompt = BuildSystemPrompt(definition, contextDocuments, promptCharBudget);
         var systemPrompt = prompt.SystemPrompt;
 
         var sessionId = GenerateSessionId(definition.Id);
@@ -64,15 +64,15 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         await SessionPromptReportStore.WriteAsync(sessionDirectory, prompt, cancellationToken);
 
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
-        var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+        var configuredModel = await ResolveConfiguredModelAsync(definition, cancellationToken);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var agent = await AgentRuntime.CreateAsync(
             sessionId,
             CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, sessionTools),
             dependencies,
             cancellationToken);
-        _agents[sessionId] = agent;
 
+        // The caller (AutomationScheduler) is responsible for disposing the agent via try/finally.
         return new AutomationSessionHandle(
             SessionId: sessionId,
             AutomationId: definition.Id,
@@ -81,22 +81,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             Agent: agent);
     }
 
-    public async ValueTask DisposeAsync()
-    {
-        foreach (var agent in _agents.Values)
-        {
-            try
-            {
-                await agent.DisposeAsync();
-            }
-            catch (ObjectDisposedException)
-            {
-                // Automation runs may already dispose the borrowed agent after completion.
-            }
-        }
-
-        _agents.Clear();
-    }
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     private static void EnsureDefinitionIsValid(AutomationDefinition definition)
     {
@@ -273,20 +258,47 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         };
     }
 
-    private Task<string> ResolveConfiguredModelAsync(CancellationToken cancellationToken) =>
-        RuntimeProviderSelector.ResolveModelOrFallbackAsync(
+    private Task<string> ResolveConfiguredModelAsync(
+        AutomationDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        // Per-automation model takes priority; falls back to the global session option.
+        var preferredModel = string.IsNullOrWhiteSpace(definition.ModelId)
+            ? _options.Model
+            : definition.ModelId;
+
+        return RuntimeProviderSelector.ResolveModelOrFallbackAsync(
             _runtimeConfigurationResolver,
-            _options.Model,
+            preferredModel,
             _modelRegistryRepository,
             cancellationToken);
+    }
+
+    private async Task<int> ResolvePromptCharacterBudgetAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.MaxPromptCharacters;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.MaxPromptCharacters;
+            var usableTokens = Math.Max(endpoint.ContextWindowSize - endpoint.MaxOutputTokens, 0);
+            return Math.Max((int)((long)usableTokens * 4 / 5), _options.MaxPromptCharacters);
+        }
+        catch
+        {
+            return _options.MaxPromptCharacters;
+        }
+    }
 
     private PromptBuildResult BuildSystemPrompt(
         AutomationDefinition definition,
-        IReadOnlyList<PromptContextDocument> contextDocuments)
+        IReadOnlyList<PromptContextDocument> contextDocuments,
+        int promptCharBudget)
     {
         var triggeredAt = DateTimeOffset.Now;
         var prompt = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
-            .WithCharacterBudget(_options.MaxPromptCharacters)
+            .WithCharacterBudget(promptCharBudget)
             .AddBody($"Triggered at: {triggeredAt:yyyy-MM-dd HH:mm:ss zzz} ({triggeredAt.DayOfWeek}).")
             .AddSection(
                 "Automation Definition",

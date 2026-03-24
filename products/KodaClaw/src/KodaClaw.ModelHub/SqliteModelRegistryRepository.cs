@@ -50,7 +50,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 is_default,
                 created_at,
                 updated_at,
-                context_window_size
+                context_window_size,
+                max_output_tokens,
+                is_reasoning
             )
             VALUES (
                 $id,
@@ -66,7 +68,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 $isDefault,
                 $createdAt,
                 $updatedAt,
-                $contextWindowSize
+                $contextWindowSize,
+                $maxOutputTokens,
+                $isReasoning
             );
             """;
         BindParameters(command, endpoint);
@@ -94,7 +98,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 created_at,
                 updated_at,
                 COALESCE(context_window_size, 128000),
-                capabilities
+                capabilities,
+                COALESCE(max_output_tokens, 8192),
+                COALESCE(is_reasoning, 0)
             FROM {TableName}
             ORDER BY is_default DESC, created_at DESC;
             """;
@@ -138,6 +144,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 supports_tool_calling = $supportsToolCalling,
                 capabilities = $capabilities,
                 context_window_size = $contextWindowSize,
+                max_output_tokens = $maxOutputTokens,
+                is_reasoning = $isReasoning,
                 updated_at = $updatedAt
             WHERE id = $id;
             """;
@@ -222,7 +230,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 created_at,
                 updated_at,
                 COALESCE(context_window_size, 128000),
-                capabilities
+                capabilities,
+                COALESCE(max_output_tokens, 8192),
+                COALESCE(is_reasoning, 0)
             FROM {TableName}
             WHERE enabled = 1
               AND (
@@ -296,6 +306,32 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                     WHERE is_default = 1;
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
+
+            // Migration: add max_output_tokens column if not present (introduced in KC-4302).
+            await using var migrateMaxOutput = connection.CreateCommand();
+            migrateMaxOutput.CommandText =
+                $"ALTER TABLE {TableName} ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 8192;";
+            try
+            {
+                await migrateMaxOutput.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
+            // Migration: add is_reasoning column if not present (introduced in KC-4302).
+            await using var migrateIsReasoning = connection.CreateCommand();
+            migrateIsReasoning.CommandText =
+                $"ALTER TABLE {TableName} ADD COLUMN is_reasoning INTEGER NOT NULL DEFAULT 0;";
+            try
+            {
+                await migrateIsReasoning.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
 
             _databasePath = databasePath;
             _initialized = true;
@@ -379,7 +415,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 created_at,
                 updated_at,
                 COALESCE(context_window_size, 128000),
-                capabilities
+                capabilities,
+                COALESCE(max_output_tokens, 8192),
+                COALESCE(is_reasoning, 0)
             FROM {TableName}
             WHERE id = $id
             LIMIT 1;
@@ -411,6 +449,8 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
         command.Parameters.AddWithValue("$createdAt", FormatTimestamp(endpoint.CreatedAt));
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(endpoint.UpdatedAt));
         command.Parameters.AddWithValue("$contextWindowSize", endpoint.ContextWindowSize);
+        command.Parameters.AddWithValue("$maxOutputTokens", endpoint.MaxOutputTokens);
+        command.Parameters.AddWithValue("$isReasoning", endpoint.IsReasoning ? 1 : 0);
     }
 
     private static ModelEndpoint MapEndpoint(SqliteDataReader reader)
@@ -445,7 +485,9 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
             IsDefault: reader.GetInt64(9) != 0,
             CreatedAt: ParseTimestamp(reader.GetString(10)),
             UpdatedAt: ParseTimestamp(reader.GetString(11)),
-            ContextWindowSize: reader.IsDBNull(12) ? 128_000 : (int)reader.GetInt64(12));
+            ContextWindowSize: reader.IsDBNull(12) ? 128_000 : (int)reader.GetInt64(12),
+            MaxOutputTokens: reader.IsDBNull(14) ? 8192 : (int)reader.GetInt64(14),
+            IsReasoning: !reader.IsDBNull(15) && reader.GetInt64(15) != 0);
     }
 
     private static void ValidateEndpoint(ModelEndpoint endpoint)

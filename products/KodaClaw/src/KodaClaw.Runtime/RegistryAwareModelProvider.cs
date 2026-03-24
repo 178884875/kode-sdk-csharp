@@ -81,7 +81,7 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         if (endpoint is not null)
         {
             var provider = await BuildProviderAsync(endpoint, cancellationToken);
-            var normalized = NormalizeRequest(request, endpoint.ModelId);
+            var normalized = NormalizeRequest(request, endpoint.ModelId, endpoint.MaxOutputTokens, endpoint.IsReasoning);
             return (provider, normalized);
         }
 
@@ -144,14 +144,32 @@ public sealed class RegistryAwareModelProvider : IModelProvider
             "Configure a key in Models settings or set the corresponding environment variable.");
     }
 
-    private static ModelRequest NormalizeRequest(ModelRequest request, string modelId)
+    private static ModelRequest NormalizeRequest(
+        ModelRequest request,
+        string modelId,
+        int maxOutputTokens = 8192,
+        bool isReasoning = false)
     {
-        if (string.IsNullOrWhiteSpace(modelId) ||
-            string.Equals(request.Model, modelId, StringComparison.Ordinal))
+        var normalized = request;
+
+        if (!string.IsNullOrWhiteSpace(modelId) &&
+            !string.Equals(request.Model, modelId, StringComparison.Ordinal))
         {
-            return request;
+            normalized = normalized with { Model = modelId };
         }
 
-        return request with { Model = modelId };
+        if (maxOutputTokens > 0 && normalized.MaxTokens is null)
+        {
+            normalized = normalized with { MaxTokens = maxOutputTokens };
+        }
+
+        // Reasoning models (e.g. DeepSeek R1, o3-mini) do not support function calling.
+        // Strip tool schemas so the provider does not send tool_use blocks.
+        if (isReasoning && normalized.Tools is { Count: > 0 })
+        {
+            normalized = normalized with { Tools = null };
+        }
+
+        return normalized;
     }
 }

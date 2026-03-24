@@ -473,6 +473,13 @@ button {
 }
 .btn--secondary:hover:not(:disabled) { background: var(--border-subtle); }
 
+.btn--selected {
+  border-color: var(--border-medium);
+  background: var(--surface-primary, var(--bg-hover));
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px var(--border-medium);
+}
+
 .btn--ghost {
   background: transparent;
   border: 1px solid var(--border-subtle);
@@ -495,9 +502,14 @@ button {
 .btn--link:hover:not(:disabled) { text-decoration: underline; }
 
 /* Sizes */
-.btn--sm { padding: 5px 12px; font-size: var(--font-size-xs); }
-.btn--md { padding: 7px 16px; font-size: var(--font-size-sm); }
-.btn--lg { padding: 10px 20px; font-size: var(--font-size-base); }
+.btn--sm      { padding: 5px 12px;  font-size: var(--font-size-xs); }
+.btn--md      { padding: 7px 16px;  font-size: var(--font-size-sm); }
+.btn--lg      { padding: 10px 20px; font-size: var(--font-size-base); }
+/* control: matches kc-select height exactly (8px v-pad + line-height 1.5 + 0.82rem font) */
+.btn--control { padding: var(--space-2) var(--space-3); font-size: var(--font-size-sm); line-height: 1.5; }
+
+/* Shape */
+.btn--pill { border-radius: 999px; }
 
 /* ── Unified Form Controls ── */
 .kc-input,
@@ -560,10 +572,12 @@ button {
 
 .risk-briefing__warning {
   padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(202, 138, 4, 0.20);
-  background: rgba(255, 251, 235, 0.9);
-  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--warning-soft);
+  background: var(--warning-soft);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
 }
 
 .risk-briefing__grid {
@@ -639,8 +653,7 @@ button {
 
 /* ── Update watch ── */
 .update-watch {
-  background: var(--success-soft);
-  border: 1px solid rgba(22, 163, 74, 0.20);
+  /* no tinted background: inherits settings-section styling */
 }
 
 .update-watch__header {
@@ -666,10 +679,12 @@ button {
 
 .update-watch__note {
   padding: 10px 14px;
-  border-radius: 8px;
-  border: 1px solid rgba(22, 163, 74, 0.20);
-  background: rgba(240, 253, 244, 0.9);
-  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: 1.55;
 }
 
 .update-watch__grid {
@@ -979,8 +994,8 @@ article.message:hover .message__time {
 }
 
 .kc-chat-timeline .timeline__body {
-  gap: 18px;
-  padding: 4px 0;
+  gap: 20px;
+  padding: 8px 0;
 }
 
 /* User bubble: cleaner right pill */
@@ -990,6 +1005,11 @@ article.message:hover .message__time {
   border-radius: var(--radius-xl) var(--radius-sm) var(--radius-xl) var(--radius-xl);
 }
 
+/* User bubble with images: wider to fit thumbnails */
+.kc-chat-timeline .message--user:has(.msg-images) {
+  padding: 10px 10px;
+}
+
 /* Assistant in chat: no card — pure prose on page */
 .kc-chat-timeline .message--assistant {
   border: none;
@@ -997,6 +1017,226 @@ article.message:hover .message__time {
   box-shadow: none;
   padding: 0;
   max-width: 88%;
+}
+
+/* System messages in chat: subtle centered pill */
+.kc-chat-timeline .message--system {
+  align-self: center;
+  max-width: 90%;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  text-align: center;
+}
+
+.kc-chat-timeline .message--system .message__meta {
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.kc-chat-timeline .message--system .message__role {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kc-chat-timeline .message--system .message__text {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+/* ── KODA avatar label ── */
+.msg-koda-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.msg-koda-label__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/* ── User message image grid ── */
+.msg-images {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+/* Single image: show full natural aspect ratio, no cropping */
+.msg-images--1 {
+  grid-template-columns: 1fr;
+  max-width: 340px;
+}
+
+.msg-images--1 .msg-images__thumb {
+  aspect-ratio: unset;
+  height: auto;
+}
+
+.msg-images--1 .msg-images__thumb img {
+  width: 100%;
+  height: auto;
+  object-fit: unset;
+  max-height: 420px;
+}
+
+.msg-images--2 {
+  grid-template-columns: 1fr 1fr;
+  max-width: 300px;
+}
+
+.msg-images--3 {
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  max-width: 300px;
+}
+
+.msg-images--3 .msg-images__thumb:first-child {
+  grid-column: 1 / -1;
+  aspect-ratio: 2 / 1;
+}
+
+.msg-images--4 {
+  grid-template-columns: 1fr 1fr;
+  max-width: 300px;
+}
+
+.msg-images__thumb {
+  position: relative;
+  display: block;
+  border: none;
+  padding: 0;
+  cursor: zoom-in;
+  background: var(--bg-hover);
+  overflow: hidden;
+  aspect-ratio: 1;
+  transition: transform var(--duration-fast), opacity var(--duration-fast);
+}
+
+.msg-images__thumb:hover {
+  opacity: 0.92;
+  transform: scale(1.02);
+}
+
+/* Zoom icon on hover */
+.msg-images__thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3Cline x1='11' y1='8' x2='11' y2='14'/%3E%3Cline x1='8' y1='11' x2='14' y2='11'/%3E%3C/svg%3E") center / 22px no-repeat;
+  opacity: 0;
+  transition: opacity var(--duration-fast), background-color var(--duration-fast);
+  pointer-events: none;
+}
+
+.msg-images__thumb:hover::after {
+  background-color: rgba(0, 0, 0, 0.28);
+  opacity: 1;
+}
+
+.msg-images__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.msg-images__overflow {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* ── Lightbox ── */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+  animation: lightboxIn 0.18s ease both;
+}
+
+@keyframes lightboxIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.lightbox__img {
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 48px rgba(0, 0, 0, 0.5);
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+  display: block;
+  transition: opacity 0.2s ease;
+}
+
+.lightbox__close {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  cursor: pointer;
+  transition: background var(--duration-fast);
+  z-index: 1001;
+}
+
+.lightbox__close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.lightbox__tip {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: var(--font-size-xs);
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  z-index: 1001;
 }
 
 /* ── Composer ── */
@@ -1071,6 +1311,201 @@ article.message:hover .message__time {
   margin: 0;
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
+}
+
+/* ── Composer: actions left group (model pill + attach) ── */
+.composer__actions-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* ── Composer: model pill (KC-4403) ── */
+.composer__model-pill-wrap {
+  position: relative;
+}
+
+.composer__model-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  cursor: default;
+  max-width: 180px;
+  transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.composer__model-pill:not(:disabled) {
+  cursor: pointer;
+}
+
+.composer__model-pill:not(:disabled):hover {
+  background: var(--bg-hover);
+  border-color: var(--border-medium);
+}
+
+.composer__model-pill-name {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.composer__model-pill-chevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--duration-fast);
+}
+
+.composer__model-pill-chevron--open {
+  transform: rotate(180deg);
+}
+
+.composer__model-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  max-width: 260px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: 200;
+}
+
+.composer__model-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background var(--duration-fast);
+}
+
+.composer__model-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+
+.composer__model-dropdown-item-name {
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer__model-dropdown-item svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+/* ── Composer: attach button (KC-4404) ── */
+.composer__attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.composer__attach-btn:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.composer__attach-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* ── Composer: attachment preview bar (KC-4404) ── */
+.composer__attachment-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  scrollbar-width: none;
+}
+
+.composer__attachment-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.composer__attachment-thumb {
+  position: relative;
+  flex-shrink: 0;
+  width: 72px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+}
+
+.composer__attachment-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.composer__attachment-spinner {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer__attachment-spinner::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-medium);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.composer__attachment-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.composer__attachment-remove:hover {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 /* ── Eyebrow / section labels ── */

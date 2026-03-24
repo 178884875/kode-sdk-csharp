@@ -10,6 +10,8 @@ import {
   fetchAutomations,
   fetchSessionDetail,
   fetchSettings,
+  setAutomationsEnabled,
+  triggerAutomation,
   updateAutomationDefinition,
 } from "../lib/api";
 import type {
@@ -24,8 +26,14 @@ vi.mock("../lib/api", () => ({
   fetchAutomationRuns: vi.fn(),
   fetchSessionDetail: vi.fn(),
   fetchSettings: vi.fn(),
+  setAutomationsEnabled: vi.fn(),
+  triggerAutomation: vi.fn(),
   updateAutomationDefinition: vi.fn(),
 }));
+
+// suppress unused import warnings
+void setAutomationsEnabled;
+void triggerAutomation;
 
 const automationsApi = vi.mocked(fetchAutomations);
 const runsApi = vi.mocked(fetchAutomationRuns);
@@ -305,7 +313,13 @@ describe("AutomationsDesk", () => {
     });
 
     const user = userEvent.setup();
+    // Disabling requires confirmation
     await user.click(screen.getByTestId("automation-toggle-auto-a"));
+    // Confirm modal should appear; click the danger confirm button
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "停用" })).toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "停用" }));
 
     await waitFor(() => {
       expect(updateApi).toHaveBeenCalledWith("auto-a", false);

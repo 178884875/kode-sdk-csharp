@@ -1,6 +1,7 @@
 using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
+using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub;
 
@@ -22,6 +23,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
     private readonly IChannelThreadSummaryWriter? _summaryWriter;
     private readonly IChannelSendCapture? _sendCapture;
+    private readonly ILogger<ChannelTurnOrchestrator> _logger;
 
     public ChannelTurnOrchestrator(
         ChannelEventIngestionService ingestionService,
@@ -36,7 +38,8 @@ public sealed class ChannelTurnOrchestrator
         IDiagnosticsService? diagnosticsService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null,
         IChannelThreadSummaryWriter? summaryWriter = null,
-        IChannelSendCapture? sendCapture = null)
+        IChannelSendCapture? sendCapture = null,
+        ILogger<ChannelTurnOrchestrator>? logger = null)
     {
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
         _channelSessionService = channelSessionService ?? throw new ArgumentNullException(nameof(channelSessionService));
@@ -51,6 +54,7 @@ public sealed class ChannelTurnOrchestrator
         _correlationContextAccessor = correlationContextAccessor;
         _summaryWriter = summaryWriter;
         _sendCapture = sendCapture;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
     }
 
     public async Task<ChannelTurnOrchestrationResult> ProcessInboundAsync(
@@ -126,6 +130,32 @@ public sealed class ChannelTurnOrchestrator
                 cancellationToken);
 
             var sentTexts = _sendCapture?.GetAndClear(processing.Binding.Id) ?? [];
+
+            // Fallback：Agent 直接输出文本而没有调用 channel_send 工具时，自动投递。
+            // 常见于简单对话（如"哈哈哈"）—— LLM 倾向于直接回复而不是调用工具。
+            _logger.LogDebug(
+                "Channel turn fallback check: sentTexts={Count} rawResponse={HasResponse} bindingId={BindingId}",
+                sentTexts.Count,
+                !string.IsNullOrWhiteSpace(execution.RawResponse),
+                processing.Binding.Id);
+
+            if (sentTexts.Count == 0 && !string.IsNullOrWhiteSpace(execution.RawResponse))
+            {
+                try
+                {
+                    await _deliveryDispatchService.SendNotificationAsync(
+                        account, processing.Binding, execution.RawResponse,
+                        cancellationToken: cancellationToken);
+                    sentTexts = [execution.RawResponse];
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Channel turn fallback delivery failed for binding {BindingId} account {AccountId}",
+                        processing.Binding.Id, processing.Binding.AccountId);
+                }
+            }
+
             var summary = BuildConversationSummary(envelope.Text, sentTexts);
 
             var outcome = CreateOutcome(
