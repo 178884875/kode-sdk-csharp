@@ -3,6 +3,7 @@ using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Automation;
@@ -21,6 +22,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IAutomationNotificationService? _notificationService;
     private readonly ILogger<AutomationScheduler>? _logger;
+    private readonly IHostApplicationLifetime? _hostApplicationLifetime;
 
     public AutomationScheduler(
         IAutomationDefinitionRepository definitionRepository,
@@ -31,7 +33,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
         AutomationSchedulerOptions options,
         ISettingsRepository? settingsRepository = null,
         IAutomationNotificationService? notificationService = null,
-        ILogger<AutomationScheduler>? logger = null)
+        ILogger<AutomationScheduler>? logger = null,
+        IHostApplicationLifetime? hostApplicationLifetime = null)
     {
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _runRepository = runRepository ?? throw new ArgumentNullException(nameof(runRepository));
@@ -42,6 +45,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _settingsRepository = settingsRepository;
         _notificationService = notificationService;
         _logger = logger;
+        _hostApplicationLifetime = hostApplicationLifetime;
     }
 
     public Task<int> RunOnceAsync(CancellationToken cancellationToken = default)
@@ -78,7 +82,13 @@ public sealed class AutomationScheduler : IAutomationScheduler
             ErrorMessage: null);
         await _runRepository.AddAsync(queuedRun, cancellationToken);
 
-        _ = Task.Run(() => RunSessionCoreAsync(definition, queuedRun, CancellationToken.None), CancellationToken.None);
+        // Claim the scheduling slot before firing the background task.
+        // This prevents the scheduler from re-triggering the same automation
+        // while the manually-triggered run is still in progress.
+        await ClaimDefinitionSlotAsync(definition, now, cancellationToken);
+
+        var backgroundToken = _hostApplicationLifetime?.ApplicationStopping ?? CancellationToken.None;
+        _ = Task.Run(() => RunSessionCoreAsync(definition, queuedRun, backgroundToken), CancellationToken.None);
         return runId;
     }
 
@@ -186,7 +196,27 @@ public sealed class AutomationScheduler : IAutomationScheduler
             Summary: null,
             ErrorMessage: null);
         await _runRepository.AddAsync(queuedRun, cancellationToken);
+
+        // Claim the scheduling slot before running, so that a concurrent manual
+        // trigger cannot also see IsDue=true for the same definition.
+        await ClaimDefinitionSlotAsync(definition, now, cancellationToken);
+
         await RunSessionCoreAsync(definition, queuedRun, cancellationToken);
+    }
+
+    // Pushes NextRunAt forward by StaleRunThreshold as an optimistic lock.
+    // This prevents both the scheduler and a concurrent manual trigger from
+    // starting a second session for the same definition before the first one
+    // completes. PersistDefinitionSuccess/FailureAsync will overwrite this
+    // with the real next time once the run finishes. If the process crashes
+    // before that, RecoverStaleRunsAsync will set NextRunAt = now + FailureRetryDelay.
+    private async Task ClaimDefinitionSlotAsync(
+        AutomationDefinition definition,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var claimed = definition with { NextRunAt = now.Add(_options.StaleRunThreshold) };
+        await _definitionRepository.UpsertAsync(claimed, cancellationToken);
     }
 
     private async Task RunSessionCoreAsync(
@@ -426,6 +456,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     {
         return schedule.Kind switch
         {
+            AutomationScheduleKind.Minutes => now.AddMinutes(schedule.Interval ?? 15),
             AutomationScheduleKind.Hourly => now.AddHours(schedule.Interval ?? 1),
             AutomationScheduleKind.Daily => ComputeNextDailyRun(schedule, now),
             AutomationScheduleKind.Weekly => ComputeNextWeeklyRun(schedule, now),

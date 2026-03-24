@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchSessions, resumeSession } from '../lib/api';
 import type { SessionSummary } from '../types/contracts';
 
-const POLL_INTERVAL_MS = 30_000;
-
 export type SessionHistoryState = {
   sessions: SessionSummary[];
   isLoading: boolean;
@@ -11,10 +9,10 @@ export type SessionHistoryState = {
   isResuming: boolean;
   resumeError: string | null;
   resume: (sessionId: string) => Promise<void>;
-  refresh: () => void;
+  load: () => void;
 };
 
-export function useSessionHistory(onResumed?: () => void): SessionHistoryState {
+export function useSessionHistory(onResumed?: (sessionId: string) => void): SessionHistoryState {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,20 +42,15 @@ export function useSessionHistory(onResumed?: () => void): SessionHistoryState {
   }, []);
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      clearInterval(timer);
-      abortRef.current?.abort();
-    };
-  }, [load]);
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   const resume = useCallback(async (sessionId: string) => {
     setIsResuming(true);
     setResumeError(null);
     try {
       await resumeSession(sessionId);
-      onResumed?.();
+      onResumed?.(sessionId);
       load();
     } catch (err) {
       setResumeError(err instanceof Error ? err.message : 'Failed to resume session');
@@ -66,5 +59,5 @@ export function useSessionHistory(onResumed?: () => void): SessionHistoryState {
     }
   }, [load, onResumed]);
 
-  return { sessions, isLoading, error, isResuming, resumeError, resume, refresh: load };
+  return { sessions, isLoading, error, isResuming, resumeError, resume, load };
 }

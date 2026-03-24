@@ -52,6 +52,7 @@ import {
   type ResumeSessionResponse,
   type SessionDetail,
   type SessionsQueryResponse,
+  type StorageUsageResponse,
   type UpdateAutomationDefinitionRequest,
   type UpdateThreadSettingsRequest,
   type TriggerAutomationResponse,
@@ -1226,4 +1227,22 @@ export async function pushAutomationResultToChannel(
       body: JSON.stringify({ bindingIds: bindingIds ?? [] }),
     },
   );
+}
+
+export async function fetchStorageUsage(signal?: AbortSignal): Promise<StorageUsageResponse> {
+  return requestJson<StorageUsageResponse>("/api/system/storage-usage", {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function deleteMainSession(sessionId: string): Promise<void> {
+  const response = await fetch(
+    resolveGatewayPath(`/api/sessions/main/${encodeURIComponent(sessionId)}`),
+    { method: "DELETE", headers: buildHeaders() },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message ?? `Delete failed: ${response.status}`);
+  }
 }

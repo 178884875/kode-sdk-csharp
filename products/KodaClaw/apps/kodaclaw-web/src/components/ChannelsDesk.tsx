@@ -798,7 +798,7 @@ export function ChannelsDesk() {
       <div className="channels-desk__toolbar">
         <Button
           variant="ghost"
-          size="sm"
+          size="control"
           data-testid="channels-refresh"
           disabled={isLoadingList || isRefreshing}
           onClick={() => {
@@ -814,7 +814,7 @@ export function ChannelsDesk() {
         ) : null}
         <Button
           variant="primary"
-          size="sm"
+          size="control"
           data-testid="channel-add-btn"
           disabled={isLoadingList}
           onClick={handleOpenAddForm}

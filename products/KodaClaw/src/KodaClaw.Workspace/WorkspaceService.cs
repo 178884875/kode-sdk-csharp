@@ -165,6 +165,8 @@ public sealed class WorkspaceService : IWorkspaceService
         }
 
         await using var stream = File.OpenRead(path);
+        if (stream.Length == 0)
+            return new WorkspaceAppConfig();
         var config = await JsonSerializer.DeserializeAsync<WorkspaceAppConfig>(stream, WorkspaceJson.Default, cancellationToken);
         return config ?? new WorkspaceAppConfig();
     }
@@ -227,23 +229,33 @@ public sealed class WorkspaceService : IWorkspaceService
 
     private bool IsInitialized()
     {
+        var deviceIdentityPath = GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.DeviceIdentityFile);
+        var appConfigPath = GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.AppConfigFile);
         return Directory.Exists(RootPath)
-            && File.Exists(GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.AppConfigFile))
-            && File.Exists(GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.DeviceIdentityFile));
+            && File.Exists(appConfigPath)
+            && new FileInfo(appConfigPath).Length > 0
+            && File.Exists(deviceIdentityPath)
+            && new FileInfo(deviceIdentityPath).Length > 0;
     }
 
     private async Task<DeviceIdentity?> LoadOrUpgradeDeviceIdentityAsync(CancellationToken cancellationToken)
     {
         var path = GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.DeviceIdentityFile);
-        if (!File.Exists(path))
+        if (!File.Exists(path) || new FileInfo(path).Length == 0)
         {
             return null;
         }
 
         DeviceIdentity? deviceIdentity;
-        await using (var stream = File.OpenRead(path))
+        try
         {
+            await using var stream = File.OpenRead(path);
             deviceIdentity = await JsonSerializer.DeserializeAsync<DeviceIdentity>(stream, WorkspaceJson.Default, cancellationToken);
+        }
+        catch (JsonException)
+        {
+            // Corrupt or truncated file — treat as uninitialized and let EnsureInitializedAsync rebuild it.
+            return null;
         }
 
         if (deviceIdentity is null)
@@ -394,7 +406,7 @@ public sealed class WorkspaceService : IWorkspaceService
     private static async Task WriteJsonAsync<T>(string path, T payload, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await using var stream = File.Create(path);
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await JsonSerializer.SerializeAsync(stream, payload, WorkspaceJson.Default, cancellationToken);
     }
 }

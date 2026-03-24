@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { ChatComposer, type AttachedMedia } from './components/ChatComposer';
 import { MessageTimeline } from './components/MessageTimeline';
 import { SessionHistoryPanel } from './components/chat/SessionHistoryPanel';
@@ -105,17 +106,20 @@ export default function App() {
     window.localStorage.setItem(MAIN_DESK_STORAGE_KEY, mainDesk);
   }, [mainDesk]);
 
-  // Gateway snapshot system notes
+  // Gateway snapshot system notes — only show when not healthy (warning / error / unknown)
   useEffect(() => {
     if (!snapshot) return;
     const sig = `${health?.status ?? 'unknown'}|${snapshot.workspaceVersion}|${snapshot.workspaceRootPath}`;
     if (lastSnapshotSignature.current === sig) return;
-    appendSystemNote(text.notes.gatewaySnapshot(
-      text.healthLabels[resolveHealthTone(health?.status ?? 'unknown')],
-      snapshot.workspaceVersion,
-      snapshot.workspaceRootPath,
-    ));
     lastSnapshotSignature.current = sig;
+    const tone = resolveHealthTone(health?.status ?? 'unknown');
+    if (tone !== 'healthy') {
+      appendSystemNote(text.notes.gatewaySnapshot(
+        text.healthLabels[tone],
+        snapshot.workspaceVersion,
+        snapshot.workspaceRootPath,
+      ));
+    }
   }, [appendSystemNote, health?.status, snapshot, text.notes, text.healthLabels]);
 
   useEffect(() => {
@@ -134,11 +138,15 @@ export default function App() {
   const handleRotateSession = useCallback(async () => {
     try { await rotateSession(); } catch { /* Gateway creates fresh session on next turn */ }
     clearMessages(text.chat.newSessionNote);
-  }, [clearMessages, text.chat.newSessionNote]);
+    refresh();
+  }, [clearMessages, text.chat.newSessionNote, refresh]);
 
-  const handleResumeSession = useCallback(() => {
+  // KC-BUG-301: pass sessionId to load history directly, don't depend on snapshot polling
+  const handleResumeSession = useCallback((sessionId: string) => {
     clearMessages(text.chat.sessionResumedNote);
-  }, [clearMessages, text.chat.sessionResumedNote]);
+    loadHistory(sessionId);
+    refresh();
+  }, [clearMessages, text.chat.sessionResumedNote, loadHistory, refresh]);
 
   // When activeMainSessionId changes from one non-null value to another, load history.
   // Covers both resume (has history) and rotate (new session = 0 items, silent no-op).
@@ -160,6 +168,8 @@ export default function App() {
   const [modelCapabilities, setModelCapabilities] = useState<number>(0);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  // KC-BUG-303: pending model switch confirm
+  const [pendingModelChange, setPendingModelChange] = useState<{ id: string; displayName: string } | null>(null);
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia[]>([]);
 
   // Load available chat models once gateway is ready (snapshot present, not loading)
@@ -180,13 +190,30 @@ export default function App() {
       .catch(() => { modelsLoadedRef.current = false; }); // allow retry on error
   }, [isLoading, snapshot]);
 
-  const handleModelChange = useCallback(async (modelId: string) => {
+  // KC-BUG-303: show confirm before rotating session on model change
+  const handleModelChange = useCallback((modelId: string) => {
+    if (modelId === selectedModelId) return;
+    const candidate = availableModels.find(m => m.id === modelId);
+    if (candidate) setPendingModelChange({ id: modelId, displayName: candidate.displayName });
+  }, [selectedModelId, availableModels]);
+
+  const handleModelChangeConfirm = useCallback(async () => {
+    if (!pendingModelChange) return;
+    const { id, displayName } = pendingModelChange;
+    setPendingModelChange(null);
     try {
-      const updated = await setDefaultModelEndpoint(modelId);
+      const updated = await setDefaultModelEndpoint(id);
       setModelName(updated.displayName);
       setModelCapabilities(updated.capabilities);
       setSelectedModelId(updated.id);
-    } catch { /* ignore */ }
+    } catch { /* ignore, pill stays on old model */ return; }
+    try { await rotateSession(); } catch { /* ignore */ }
+    clearMessages(text.chat.modelSwitchedNote(displayName));
+    refresh();
+  }, [pendingModelChange, clearMessages, text.chat, refresh]);
+
+  const handleModelChangeCancel = useCallback(() => {
+    setPendingModelChange(null);
   }, []);
 
   const handleAttachMedia = useCallback(async (files: File[]) => {
@@ -228,9 +255,31 @@ export default function App() {
   const chatHeaderActions = useMemo(() => (
     <SessionHistoryPanel
       activeSessionId={activeSessionId}
+      isStreaming={isStreaming}
       onResumed={handleResumeSession}
     />
-  ), [activeSessionId, handleResumeSession]);
+  ), [activeSessionId, isStreaming, handleResumeSession]);
+
+  // KC-BUG-303: model switch confirm banner
+  const chatBanner = useMemo(() => {
+    if (!pendingModelChange) return null;
+    return (
+      <div className="kc-chat-confirm-banner">
+        <AlertTriangle size={14} strokeWidth={2} className="kc-chat-confirm-banner__icon" />
+        <span className="kc-chat-confirm-banner__body">
+          {text.chat.modelSwitchConfirmBody(pendingModelChange.displayName)}
+        </span>
+        <div className="kc-chat-confirm-banner__actions">
+          <button className="kc-chat-confirm-banner__btn kc-chat-confirm-banner__btn--cancel" onClick={handleModelChangeCancel}>
+            {text.chat.confirmCancel}
+          </button>
+          <button className="kc-chat-confirm-banner__btn kc-chat-confirm-banner__btn--ok" onClick={handleModelChangeConfirm}>
+            {text.chat.confirmOk}
+          </button>
+        </div>
+      </div>
+    );
+  }, [pendingModelChange, handleModelChangeCancel, handleModelChangeConfirm, text.chat]);
 
   const healthTone = resolveHealthTone(health?.status ?? 'unknown');
 
@@ -288,6 +337,7 @@ export default function App() {
         chatTimeline={chatTimeline}
         chatComposer={chatComposer}
         chatHeaderActions={chatHeaderActions}
+        chatBanner={chatBanner}
         sessionsFocusRequest={sessionsFocusRequest}
         onFocusRequestConsumed={() => setSessionsFocusRequest(null)}
         onOpenSessionDetail={handleOpenSessionDetail}

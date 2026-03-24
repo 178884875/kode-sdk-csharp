@@ -1,3 +1,4 @@
+import './ChannelSetupWizard.css';
 import { useState } from 'react';
 import { testTelegramToken, testFeishuCredentials, createChannelAccount } from '../../lib/api';
 import { useLocaleText } from '../../i18n/I18nProvider';
@@ -10,6 +11,12 @@ type ChannelSetupWizardProps = {
 };
 
 type SubPhase = 'pick' | 'intro' | 'instructions' | 'credentials' | 'qrlogin' | 'delivery' | 'success';
+
+const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
+  Telegram: { emoji: '✈️', label: 'Telegram' },
+  Feishu:   { emoji: '🪶', label: '飞书 / Lark' },
+  WeChat:   { emoji: '💬', label: '微信' },
+};
 
 export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizardProps) {
   const [phase, setPhase] = useState<SubPhase>('pick');
@@ -32,9 +39,6 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
     zh: {
       pickTitle: '选择渠道类型',
       pickDesc: '绑定外部渠道，通过手机或企业通讯工具与 Koda 对话',
-      pickTelegram: 'Telegram',
-      pickFeishu: '飞书 / Lark',
-      pickWeChat: '微信',
       pickNext: '下一步 →',
       // Telegram intro
       tgIntroTitle: '绑定 Telegram',
@@ -101,9 +105,6 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
     en: {
       pickTitle: 'Choose connector type',
       pickDesc: 'Connect a channel to chat with Koda from your phone or work apps.',
-      pickTelegram: 'Telegram',
-      pickFeishu: 'Feishu / Lark',
-      pickWeChat: 'WeChat',
       pickNext: 'Next →',
       // Telegram intro
       tgIntroTitle: 'Connect Telegram',
@@ -239,68 +240,63 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
 
   return (
     <div className="onboarding-step" data-testid="channel-setup-wizard">
+
+      {/* ── Pick connector ── */}
       {phase === 'pick' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{text.pickTitle}</h2>
+          <h2 className="onboarding-step-title">{text.pickTitle}</h2>
           <p className="onboarding-step-desc">{text.pickDesc}</p>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button
-              type="button"
-              className={`delivery-option-card${connectorKind === 'Telegram' ? ' is-selected' : ''}`}
-              onClick={() => setConnectorKind('Telegram')}
-              style={{ flex: 1 }}
-            >
-              <div className="delivery-option-label">{text.pickTelegram}</div>
+          <div className="channel-picker-grid">
+            {(['Telegram', 'Feishu', 'WeChat'] as ChannelConnectorKind[]).map(kind => (
+              <button
+                key={kind}
+                type="button"
+                className={`delivery-option-card${connectorKind === kind ? ' is-selected' : ''}`}
+                onClick={() => setConnectorKind(kind)}
+              >
+                <span className="channel-icon">{CHANNEL_META[kind].emoji}</span>
+                <div className="delivery-option-label">{CHANNEL_META[kind].label}</div>
+              </button>
+            ))}
+          </div>
+          <div className="wizard-btn-row">
+            <button className="onboarding-next-btn" onClick={() => setPhase('intro')}>
+              {text.pickNext}
             </button>
-            <button
-              type="button"
-              className={`delivery-option-card${connectorKind === 'Feishu' ? ' is-selected' : ''}`}
-              onClick={() => setConnectorKind('Feishu')}
-              style={{ flex: 1 }}
-            >
-              <div className="delivery-option-label">{text.pickFeishu}</div>
-            </button>
-            <button
-              type="button"
-              className={`delivery-option-card${connectorKind === 'WeChat' ? ' is-selected' : ''}`}
-              onClick={() => setConnectorKind('WeChat')}
-              style={{ flex: 1 }}
-            >
-              <div className="delivery-option-label">{text.pickWeChat}</div>
+            <button className="onboarding-skip-step-btn" onClick={onDismiss}>
+              {text.cancel}
             </button>
           </div>
-          <button className="onboarding-next-btn" onClick={() => setPhase('intro')}>
-            {text.pickNext}
-          </button>
-          <button className="onboarding-skip-step-btn" onClick={onDismiss}>
-            {text.cancel}
-          </button>
         </div>
       )}
 
+      {/* ── Intro ── */}
       {phase === 'intro' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+          <h2 className="onboarding-step-title">
             {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : text.fsIntroTitle}
           </h2>
           <p className="onboarding-step-desc">
             {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : text.fsIntroDesc}
           </p>
-          <button
-            className="onboarding-next-btn"
-            onClick={() => setPhase(isWeChat ? 'qrlogin' : 'instructions')}
-          >
-            {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : text.fsIntroStart}
-          </button>
-          <button className="onboarding-skip-step-btn" onClick={() => setPhase('pick')}>
-            {text.back}
-          </button>
+          <div className="wizard-btn-row">
+            <button
+              className="onboarding-next-btn"
+              onClick={() => setPhase(isWeChat ? 'qrlogin' : 'instructions')}
+            >
+              {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : text.fsIntroStart}
+            </button>
+            <button className="onboarding-skip-step-btn" onClick={() => setPhase('pick')}>
+              {text.back}
+            </button>
+          </div>
         </div>
       )}
 
+      {/* ── Instructions ── */}
       {phase === 'instructions' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+          <h2 className="onboarding-step-title">
             {isTelegram ? text.tgInstructionsTitle : text.fsInstructionsTitle}
           </h2>
           {isTelegram ? (
@@ -314,12 +310,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
             <ol className="telegram-instructions">
               <li>
                 {text.fsStep1}{' '}
-                <a
-                  href="https://open.feishu.cn/app"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--color-accent, #d97706)' }}
-                >
+                <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer">
                   open.feishu.cn/app ↗
                 </a>
               </li>
@@ -327,15 +318,21 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
               <li>{text.fsStep3}</li>
             </ol>
           )}
-          <button className="onboarding-next-btn" onClick={() => setPhase('credentials')}>
-            {isTelegram ? text.tgInstructionsNext : text.fsInstructionsNext}
-          </button>
+          <div className="wizard-btn-row">
+            <button className="onboarding-next-btn" onClick={() => setPhase('credentials')}>
+              {isTelegram ? text.tgInstructionsNext : text.fsInstructionsNext}
+            </button>
+            <button className="onboarding-skip-step-btn" onClick={() => setPhase('intro')}>
+              {text.back}
+            </button>
+          </div>
         </div>
       )}
 
+      {/* ── Credentials ── */}
       {phase === 'credentials' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+          <h2 className="onboarding-step-title">
             {isTelegram ? text.tgCredTitle : text.fsCredTitle}
           </h2>
           {isTelegram ? (
@@ -380,20 +377,26 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
             </>
           )}
           {credError && <div className="connection-result is-error">{credError}</div>}
-          <button
-            className="test-connection-btn"
-            data-testid={isTelegram ? 'test-telegram-btn' : 'test-feishu-btn'}
-            onClick={() => void (isTelegram ? handleTestTelegram() : handleTestFeishu())}
-            disabled={testing || (isTelegram ? !botToken : !feishuAppId || !feishuAppSecret)}
-          >
-            {testing ? text.testing : (isTelegram ? text.tgTestBtn : text.fsTestBtn)}
-          </button>
+          <div className="wizard-btn-row">
+            <button
+              className="test-connection-btn"
+              data-testid={isTelegram ? 'test-telegram-btn' : 'test-feishu-btn'}
+              onClick={() => void (isTelegram ? handleTestTelegram() : handleTestFeishu())}
+              disabled={testing || (isTelegram ? !botToken : !feishuAppId || !feishuAppSecret)}
+            >
+              {testing ? text.testing : (isTelegram ? text.tgTestBtn : text.fsTestBtn)}
+            </button>
+            <button className="onboarding-skip-step-btn" onClick={() => setPhase('instructions')}>
+              {text.back}
+            </button>
+          </div>
         </div>
       )}
 
+      {/* ── WeChat QR login ── */}
       {phase === 'qrlogin' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{text.wxIntroTitle}</h2>
+          <h2 className="onboarding-step-title">{text.wxIntroTitle}</h2>
           <WeChatQrLoginPanel
             onLoginSuccess={(_token) => {
               setVerifiedName('微信');
@@ -406,15 +409,16 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
         </div>
       )}
 
+      {/* ── Delivery mode ── */}
       {phase === 'delivery' && (
         <div>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>{text.deliveryTitle}</h2>
+          <h2 className="onboarding-step-title">{text.deliveryTitle}</h2>
           <p className="onboarding-step-desc">{text.botVerified(verifiedName ?? '')}</p>
           <div className="delivery-options">
             {text.deliveryOptions.map(opt => (
               <button
                 key={opt.value}
-                className={`delivery-option-card ${selectedDelivery === opt.value ? 'is-selected' : ''} ${opt.recommended ? 'is-recommended' : ''}`}
+                className={`delivery-option-card${selectedDelivery === opt.value ? ' is-selected' : ''}${opt.recommended ? ' is-recommended' : ''}`}
                 data-testid="delivery-rule-select"
                 onClick={() => setSelectedDelivery(opt.value)}
               >
@@ -435,36 +439,29 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
         </div>
       )}
 
+      {/* ── Success ── */}
       {phase === 'success' && (
         <div>
+          <div className="wizard-success-icon">
+            {CHANNEL_META[connectorKind]?.emoji ?? '✓'}
+          </div>
           {isTelegram ? (
             <>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-                {text.successTitle('Telegram')}
-              </h2>
-              <p>{text.successDesc}</p>
+              <h2 className="onboarding-step-title">{text.successTitle('Telegram')}</h2>
+              <p className="onboarding-step-desc">{text.successDesc}</p>
             </>
           ) : isWeChat ? (
             <>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-                {text.wxSuccessTitle}
-              </h2>
+              <h2 className="onboarding-step-title">{text.wxSuccessTitle}</h2>
               <p className="onboarding-step-desc">{text.wxSuccessDesc}</p>
             </>
           ) : (
             <>
-              <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
-                {text.fsSuccessTitle}
-              </h2>
+              <h2 className="onboarding-step-title">{text.fsSuccessTitle}</h2>
               <ol className="telegram-instructions" style={{ marginBottom: 12 }}>
                 <li>
                   {text.fsSuccessStep1}{' '}
-                  <a
-                    href="https://open.feishu.cn/app"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: 'var(--color-accent, #d97706)' }}
-                  >
+                  <a href="https://open.feishu.cn/app" target="_blank" rel="noopener noreferrer">
                     open.feishu.cn/app ↗
                   </a>
                 </li>
@@ -476,7 +473,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
               <p className="onboarding-step-desc">{text.fsSuccessDesc}</p>
             </>
           )}
-          <button className="onboarding-next-btn" onClick={onComplete} style={{ marginTop: 12 }}>
+          <button className="onboarding-next-btn" onClick={onComplete} style={{ marginTop: 4 }}>
             {text.done}
           </button>
         </div>

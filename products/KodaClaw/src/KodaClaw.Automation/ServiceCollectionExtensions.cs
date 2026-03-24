@@ -52,7 +52,8 @@ public static class ServiceCollectionExtensions
                 provider.GetRequiredService<AutomationSchedulerOptions>(),
                 provider.GetService<ISettingsRepository>(),
                 provider.GetService<IAutomationNotificationService>(),
-                provider.GetService<ILogger<AutomationScheduler>>());
+                provider.GetService<ILogger<AutomationScheduler>>(),
+                provider.GetService<IHostApplicationLifetime>());
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
         return services;

@@ -71,14 +71,17 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         // KC-2201: Session timeout policy — skip resume if the thread has been inactive
         // for more than SessionTimeoutDays days. This avoids stale context from old sessions.
-        var isSessionTimedOut = _options.SessionTimeoutDays > 0
+        // KC-5002: DM sessions never time out — continuity is the value, same as the main session.
+        // Only Group sessions are subject to the timeout, as group context becomes stale.
+        var isSessionTimedOut = binding.ThreadType == ChannelThreadType.Group
+            && _options.SessionTimeoutDays > 0
             && binding.LastInboundAt.HasValue
             && binding.LastInboundAt.Value < DateTimeOffset.UtcNow.AddDays(-_options.SessionTimeoutDays);
 
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
             var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
-            var resumeTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, cancellationToken);
+            var resumeTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
             {
@@ -94,7 +97,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         Permissions = _options.Permissions,
                         SandboxOptions = new SandboxOptions
                         {
-                            WorkingDirectory = sessionDirectory,
+                            // KC-5003: DM sessions use workspace root; Group sessions stay isolated.
+                            WorkingDirectory = binding.ThreadType == ChannelThreadType.DirectMessage
+                                ? _workspaceService.RootPath
+                                : sessionDirectory,
                             EnforceBoundary = true,
                             AllowPaths = skillsPaths,
                         },
@@ -123,7 +129,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 var createdAfterFallback = await AgentRuntime.CreateAsync(
                     binding.SessionId,
-                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools),
+                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage),
                     dependencies,
                     cancellationToken);
 
@@ -138,10 +144,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         var initialModel = await ResolveConfiguredModelAsync(cancellationToken);
-        var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, cancellationToken);
+        var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             binding.SessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools),
+            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage),
             dependencies,
             cancellationToken);
 
@@ -249,6 +255,32 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 cancellationToken);
         }
 
+        // KC-5001: DM sessions load long-term memory (MEMORY.md) — same as main session.
+        if (scope.LoadLongTermMemory)
+        {
+            await TryAddContextDocumentAsync(
+                Path.Combine(workspaceDirectory, KodaClawWorkspaceLayout.MemoryFile),
+                workspaceRoot,
+                seenPaths,
+                documents,
+                cancellationToken);
+
+            // Load yesterday's and today's daily memory for session continuity.
+            var today = DateTimeOffset.Now.Date;
+            await TryAddContextDocumentAsync(
+                Path.Combine(workspaceDirectory, "memory", $"{today.AddDays(-1):yyyy-MM-dd}.md"),
+                workspaceRoot,
+                seenPaths,
+                documents,
+                cancellationToken);
+            await TryAddContextDocumentAsync(
+                Path.Combine(workspaceDirectory, "memory", $"{today:yyyy-MM-dd}.md"),
+                workspaceRoot,
+                seenPaths,
+                documents,
+                cancellationToken);
+        }
+
         if (scope.LoadRecentThreadSummary)
         {
             await TryAddContextDocumentAsync(
@@ -282,12 +314,33 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         documents.Add(new PromptContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
     }
 
+    public Task EvictSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (_agents.TryGetValue(sessionId, out var agent))
+        {
+            _agents.Remove(sessionId);
+            return agent.DisposeAsync().AsTask();
+        }
+
+        return Task.CompletedTask;
+    }
+
     private async Task<IReadOnlyList<string>> BuildSessionToolsAsync(
         string sessionId,
         IToolRegistry? toolRegistry,
+        ChannelThreadType threadType,
         CancellationToken cancellationToken)
     {
         var tools = new List<string>(_options.Tools);
+
+        // KC-5003: DM sessions get workspace write-back tools — owner trust level equals main session.
+        if (threadType == ChannelThreadType.DirectMessage)
+        {
+            var dmTools = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
+            if (dmTools.Add("workspace_protocol_update")) tools.Add("workspace_protocol_update");
+            if (dmTools.Add("workspace_memory_append")) tools.Add("workspace_memory_append");
+        }
+
         if (_mcpHubService is null || toolRegistry is null)
         {
             return tools;
@@ -310,9 +363,13 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         string sessionDirectory,
         string systemPrompt,
         string model,
-        IReadOnlyList<string>? tools = null)
+        IReadOnlyList<string>? tools = null,
+        bool isDirectMessage = false)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
+        // KC-5003: DM sessions use workspace root as sandbox — same trust boundary as the main session.
+        // Group sessions remain isolated to their sessionDirectory.
+        var workingDirectory = isDirectMessage ? _workspaceService.RootPath : sessionDirectory;
         return new AgentConfig
         {
             Model = model,
@@ -322,7 +379,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             Permissions = _options.Permissions,
             SandboxOptions = new SandboxOptions
             {
-                WorkingDirectory = sessionDirectory,
+                WorkingDirectory = workingDirectory,
                 EnforceBoundary = true,
                 AllowPaths = skillsPaths,
             },
@@ -503,18 +560,20 @@ Inbound Event:
         }
     }
 
-    private static EffectivePolicyScope ResolveEffectiveScope(ChannelPolicy policy)
+    internal static EffectivePolicyScope ResolveEffectiveScope(ChannelPolicy policy)
     {
         var isDirectMessage = policy.ThreadType == ChannelThreadType.DirectMessage;
 
-        // Iteration 5 freeze keeps channel sessions conservative even if a caller toggles
-        // wider flags on the stored policy.
+        // KC-5001/5002/5003: DM sessions are owner-only and trust-equivalent to the main session.
+        // They load full workspace context (including long-term memory and daily memory),
+        // have no session timeout, and can write back to workspace files.
+        // Group sessions remain conservative — external members are not trusted.
         return new EffectivePolicyScope(
             LoadAgents: policy.LoadAgents,
             LoadIdentity: policy.LoadIdentity,
             LoadSoul: policy.LoadSoul,
             LoadUserProfile: isDirectMessage && policy.LoadUserProfile,
-            LoadLongTermMemory: false,
+            LoadLongTermMemory: isDirectMessage,
             LoadRecentThreadSummary: policy.LoadRecentThreadSummary);
     }
 
@@ -553,7 +612,7 @@ Inbound Event:
             ResumeFailureMessage: resumeFailureMessage,
             Agent: agent);
     }
-    private sealed record EffectivePolicyScope(
+    internal sealed record EffectivePolicyScope(
         bool LoadAgents,
         bool LoadIdentity,
         bool LoadSoul,

@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { fetchSettings, saveSettings } from '../../lib/api';
 import { Skeleton } from '../ui/Skeleton';
+import { Toggle } from '../ui/Toggle';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import type { KodaClawSettings } from '../../types/contracts';
 
@@ -85,9 +86,8 @@ export function BehaviorSection() {
               <div className="settings-action-label">{text.requireApproval}</div>
               <div className="settings-action-desc">{text.requireApprovalDesc}</div>
             </div>
-            <input
+            <Toggle
               data-testid="settings-require-approval"
-              type="checkbox"
               checked={draft?.requireApprovalForExternalActions ?? false}
               onChange={e => setDraft(d => d ? { ...d, requireApprovalForExternalActions: e.target.checked } : d)}
             />
@@ -98,9 +98,8 @@ export function BehaviorSection() {
               <div className="settings-action-label">{text.automationsEnabled}</div>
               <div className="settings-action-desc">{text.automationsDesc}</div>
             </div>
-            <input
+            <Toggle
               data-testid="settings-automations-enabled-toggle"
-              type="checkbox"
               checked={draft?.automationsEnabled ?? false}
               onChange={e => setDraft(d => d ? { ...d, automationsEnabled: e.target.checked } : d)}
             />
@@ -111,9 +110,8 @@ export function BehaviorSection() {
               <div className="settings-action-label">{text.autoApproveToolCalls}</div>
               <div className="settings-action-desc">{text.autoApproveToolCallsDesc}</div>
             </div>
-            <input
+            <Toggle
               data-testid="settings-auto-approve-tool-calls-toggle"
-              type="checkbox"
               checked={draft?.autoApproveToolCalls ?? false}
               onChange={e => setDraft(d => d ? { ...d, autoApproveToolCalls: e.target.checked } : d)}
             />

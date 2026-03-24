@@ -90,42 +90,44 @@ export function SystemSection() {
       <h2 className="settings-section-title">{text.sectionTitle}</h2>
       <p className="settings-section-desc">{text.sectionDesc}</p>
 
-      {/* ── Re-run Onboarding ── */}
-      <div className="settings-action-row">
-        <div className="settings-action-info">
-          <div className="settings-action-label">{text.resetLabel}</div>
-          <div className="settings-action-desc">{text.resetDesc}</div>
+      <div className="settings-danger-zone">
+        {/* ── Re-run Onboarding ── */}
+        <div className="settings-danger-row">
+          <div className="settings-action-info">
+            <div className="settings-action-label">{text.resetLabel}</div>
+            <div className="settings-action-desc">{text.resetDesc}</div>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="btn btn--danger"
+              data-testid="settings-reset-onboarding"
+              onClick={() => { setResetError(null); setResetOpen(true); }}
+            >
+              {text.resetBtn}
+            </button>
+            {resetError && <p className="settings-file-error" style={{ marginTop: 4 }}>{resetError}</p>}
+          </div>
         </div>
-        <div>
-          <button
-            type="button"
-            className="btn btn--danger"
-            data-testid="settings-reset-onboarding"
-            onClick={() => { setResetError(null); setResetOpen(true); }}
-          >
-            {text.resetBtn}
-          </button>
-          {resetError && <p className="settings-file-error" style={{ marginTop: 4 }}>{resetError}</p>}
-        </div>
-      </div>
 
-      {/* ── Clear Identity ── */}
-      <div className="settings-action-row">
-        <div className="settings-action-info">
-          <div className="settings-action-label">{text.clearLabel}</div>
-          <div className="settings-action-desc">{text.clearDesc}</div>
-        </div>
-        <div>
-          <button
-            type="button"
-            className="btn btn--danger"
-            data-testid="settings-clear-identity"
-            onClick={() => { setClearError(null); setClearDone(false); setClearOpen(true); }}
-          >
-            {text.clearBtn}
-          </button>
-          {clearDone && <p className="settings-file-success" style={{ marginTop: 4 }}>{text.clearDoneMsg}</p>}
-          {clearError && <p className="settings-file-error" style={{ marginTop: 4 }}>{clearError}</p>}
+        {/* ── Clear Identity ── */}
+        <div className="settings-danger-row">
+          <div className="settings-action-info">
+            <div className="settings-action-label">{text.clearLabel}</div>
+            <div className="settings-action-desc">{text.clearDesc}</div>
+          </div>
+          <div>
+            <button
+              type="button"
+              className="btn btn--danger"
+              data-testid="settings-clear-identity"
+              onClick={() => { setClearError(null); setClearDone(false); setClearOpen(true); }}
+            >
+              {text.clearBtn}
+            </button>
+            {clearDone && <p className="settings-file-success" style={{ marginTop: 4 }}>{text.clearDoneMsg}</p>}
+            {clearError && <p className="settings-file-error" style={{ marginTop: 4 }}>{clearError}</p>}
+          </div>
         </div>
       </div>
 

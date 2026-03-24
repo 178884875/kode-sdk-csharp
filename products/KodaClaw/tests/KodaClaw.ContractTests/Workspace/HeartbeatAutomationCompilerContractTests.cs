@@ -15,6 +15,10 @@ public sealed class HeartbeatAutomationCompilerContractTests
         var markdown = """
 # Heartbeat
 
+## Quick Check
+- schedule: every 15m
+- prompt: Quick system check.
+
 ## Hourly Patrol
 - schedule: hourly 2h
 - prompt: Scan recent workspace updates.
@@ -35,18 +39,23 @@ public sealed class HeartbeatAutomationCompilerContractTests
 
         var definitions = _compiler.Compile(markdown);
 
-        definitions.Should().HaveCount(4);
+        definitions.Should().HaveCount(5);
         definitions[0].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
+            Kind: AutomationScheduleKind.Minutes,
+            Interval: 15,
+            LocalTime: null,
+            DaysOfWeek: null));
+        definitions[1].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
             Kind: AutomationScheduleKind.Hourly,
             Interval: 2,
             LocalTime: null,
             DaysOfWeek: null));
-        definitions[1].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
+        definitions[2].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
             Kind: AutomationScheduleKind.Daily,
             Interval: null,
             LocalTime: "09:00",
             DaysOfWeek: null));
-        definitions[2].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
+        definitions[3].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
             Kind: AutomationScheduleKind.Weekly,
             Interval: null,
             LocalTime: "09:00",
@@ -58,7 +67,7 @@ public sealed class HeartbeatAutomationCompilerContractTests
                 AutomationScheduleDay.Thursday,
                 AutomationScheduleDay.Friday,
             ]));
-        definitions[3].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
+        definitions[4].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
             Kind: AutomationScheduleKind.Weekly,
             Interval: null,
             LocalTime: "18:30",

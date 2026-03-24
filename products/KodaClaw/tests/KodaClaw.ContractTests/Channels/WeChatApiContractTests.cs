@@ -18,7 +18,7 @@ public sealed class WeChatApiContractTests
               "ret": 0,
               "msgs": [
                 {
-                  "message_id": "MSG_001",
+                  "message_id": 10010001,
                   "from_user_id": "USER_A",
                   "context_token": "CTX_TOKEN_001",
                   "item_list": [
@@ -35,7 +35,7 @@ public sealed class WeChatApiContractTests
         result.Should().NotBeNull();
         result!.Ret.Should().Be(0);
         result.Msgs.Should().ContainSingle();
-        result.Msgs[0].MessageId.Should().Be("MSG_001");
+        result.Msgs[0].MessageId.Should().Be(10010001L);
         result.Msgs[0].FromUserId.Should().Be("USER_A");
         result.Msgs[0].ContextToken.Should().Be("CTX_TOKEN_001");
         result.Msgs[0].ItemList.Should().ContainSingle();

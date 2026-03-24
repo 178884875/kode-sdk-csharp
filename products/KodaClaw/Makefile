@@ -5,6 +5,7 @@ SOLUTION := $(ROOT)/KodaClaw.sln
 WEB_DIR := $(ROOT)/apps/kodaclaw-web
 DESKTOP_DIR := $(ROOT)/apps/kodaclaw-desktop
 GATEWAY_PROJECT := $(ROOT)/src/KodaClaw.Gateway/KodaClaw.Gateway.csproj
+PUBLISH_DIR := $(ROOT)/publish
 
 GATEWAY_URL ?= http://127.0.0.1:5076
 WORKSPACE_ROOT ?= $(HOME)/.kodaclaw
@@ -14,7 +15,10 @@ WORKSPACE_ROOT ?= $(HOME)/.kodaclaw
 	web-build web-test web-e2e \
 	desktop-test desktop-wave3-smoke desktop-managed-smoke desktop-package-smoke \
 	verify-backend verify-web verify-desktop verify-all \
-	run-gateway dev-web dev-desktop-attach dev-desktop-managed
+	run-gateway dev-web dev-desktop-attach dev-desktop-managed \
+	package-gateway-mac package-gateway-mac-x64 package-gateway-win package-gateway-linux \
+	build-web-prod \
+	package-mac package-mac-x64 package-win package-linux package
 
 help:
 	@echo "KodaClaw Makefile targets:"
@@ -37,6 +41,18 @@ help:
 	@echo "  dev-web                Start Vite dev server"
 	@echo "  dev-desktop-attach     Start desktop shell in AttachOnly mode"
 	@echo "  dev-desktop-managed    Start desktop shell in ManagedChild mode"
+	@echo ""
+	@echo "Packaging targets:"
+	@echo "  package-gateway-mac    Publish Gateway self-contained (osx-arm64)"
+	@echo "  package-gateway-mac-x64 Publish Gateway self-contained (osx-x64)"
+	@echo "  package-gateway-win    Publish Gateway self-contained (win-x64)"
+	@echo "  package-gateway-linux  Publish Gateway self-contained (linux-x64)"
+	@echo "  build-web-prod         Build kodaclaw-web for production"
+	@echo "  package-mac            Full macOS .dmg package (arm64)"
+	@echo "  package-mac-x64        Full macOS .dmg package (x64)"
+	@echo "  package-win            Full Windows NSIS installer"
+	@echo "  package-linux          Full Linux AppImage"
+	@echo "  package                Package for current platform (auto-detect)"
 	@echo ""
 	@echo "Common overrides:"
 	@echo "  GATEWAY_URL=$(GATEWAY_URL)"
@@ -104,3 +120,82 @@ dev-desktop-managed:
 	KODACLAW_DESKTOP_GATEWAY_URL="$(GATEWAY_URL)" \
 	KODACLAW_DESKTOP_GATEWAY_LIFECYCLE_MODE=ManagedChild \
 	npm run dev
+
+# ── Packaging ──────────────────────────────────────────────────────────────
+
+package-gateway-mac:
+	dotnet publish "$(GATEWAY_PROJECT)" \
+	  -r osx-arm64 --self-contained \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/gateway-mac"
+
+package-gateway-mac-x64:
+	dotnet publish "$(GATEWAY_PROJECT)" \
+	  -r osx-x64 --self-contained \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/gateway-mac-x64"
+
+package-gateway-win:
+	dotnet publish "$(GATEWAY_PROJECT)" \
+	  -r win-x64 --self-contained \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/gateway-win"
+
+package-gateway-linux:
+	dotnet publish "$(GATEWAY_PROJECT)" \
+	  -r linux-x64 --self-contained \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/gateway-linux"
+
+build-web-prod:
+	cd "$(WEB_DIR)" && npm run build
+
+package-mac: package-gateway-mac build-web-prod
+	cd "$(DESKTOP_DIR)" && \
+	npm run build && \
+	CSC_IDENTITY_AUTO_DISCOVERY=false \
+	npx electron-builder \
+	  --config electron-builder.release.json \
+	  --mac --arm64 \
+	  --publish never
+
+package-mac-x64: package-gateway-mac-x64 build-web-prod
+	cd "$(DESKTOP_DIR)" && \
+	npm run build && \
+	CSC_IDENTITY_AUTO_DISCOVERY=false \
+	npx electron-builder \
+	  --config electron-builder.release.json \
+	  --mac --x64 \
+	  --publish never
+
+package-win: package-gateway-win build-web-prod
+	cd "$(DESKTOP_DIR)" && \
+	npm run build && \
+	npx electron-builder \
+	  --config electron-builder.release.json \
+	  --win \
+	  --publish never
+
+package-linux: package-gateway-linux build-web-prod
+	cd "$(DESKTOP_DIR)" && \
+	npm run build && \
+	npx electron-builder \
+	  --config electron-builder.release.json \
+	  --linux \
+	  --publish never
+
+# Auto-detect current platform
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S), Darwin)
+  ifeq ($(UNAME_M), arm64)
+    package: package-mac
+  else
+    package: package-mac-x64
+  endif
+else ifeq ($(UNAME_S), Linux)
+  package: package-linux
+else
+  package: package-win
+endif

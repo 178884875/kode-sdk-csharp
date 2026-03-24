@@ -49,6 +49,8 @@ public static partial class GatewayApp
         builder.Services.AddSingleton<SecretMigrationReportService>();
         builder.Services.AddSingleton<WorkspaceBackupService>();
         builder.Services.AddSingleton<WorkspaceRepairService>();
+        builder.Services.AddSingleton<SessionRetentionService>();
+        builder.Services.AddHostedService<SessionRetentionHostedService>();
         builder.Services.AddSingleton<SandboxRiskOverviewService>();
         builder.Services.AddSingleton<UpdateStateService>();
         builder.Services.AddSingleton<DiagnosticBundleService>();

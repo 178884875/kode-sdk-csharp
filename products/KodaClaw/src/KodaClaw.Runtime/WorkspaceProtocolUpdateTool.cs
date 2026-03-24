@@ -42,7 +42,7 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         "Changes to heartbeat take effect immediately via the hot-sync pipeline.\n\n" +
         "HEARTBEAT.md section syntax (all fields are bullet items under a ## Title heading):\n" +
         "  Required: `- schedule: <expr>` and `- prompt: <text>`\n" +
-        "  Schedule expressions: `hourly 2h` | `daily 09:00` | `weekdays 09:00` | `weekly mon,wed,fri 18:30`\n" +
+        "  Schedule expressions: `every 15m` | `hourly 2h` | `daily 09:00` | `weekdays 09:00` | `weekly mon,wed,fri 18:30`\n" +
         "  Optional: `- enabled: true|false` (default true)\n" +
         "  Optional: `- inputs:` followed by indented `- <workspace-relative-path>` bullets\n" +
         "  Optional: `- channels:` followed by indented `- <bindingId>` bullets (BindingId is copied from ChannelsDesk)\n" +

@@ -637,7 +637,7 @@ export function PluginsDesk() {
       <div className="control-plane-toolbar">
         <Button
           variant="ghost"
-          size="sm"
+          size="control"
           data-testid="plugins-refresh"
           disabled={isLoadingList || isRefreshing || isMutating}
           onClick={() => { void handleRefresh(); }}
@@ -646,7 +646,7 @@ export function PluginsDesk() {
         </Button>
         <Button
           variant="ghost"
-          size="sm"
+          size="control"
           data-testid="plugins-discover"
           disabled={isMutating}
           onClick={() => { void handleAction("discover"); }}

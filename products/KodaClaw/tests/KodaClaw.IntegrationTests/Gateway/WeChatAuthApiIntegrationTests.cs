@@ -155,6 +155,18 @@ public sealed class WeChatAuthApiIntegrationTests
             return Task.CompletedTask;
         }
 
+        public Task<ILinkGetConfigResponse> GetConfigAsync(
+            string ilinkUserId, string contextToken, CancellationToken ct = default)
+        {
+            return Task.FromResult(new ILinkGetConfigResponse { TypingTicket = "stub-typing-ticket" });
+        }
+
+        public Task SendTypingAsync(
+            string ilinkUserId, string typingTicket, int status, CancellationToken ct = default)
+        {
+            return Task.CompletedTask;
+        }
+
         public void SetBotToken(string botToken) { }
     }
 }

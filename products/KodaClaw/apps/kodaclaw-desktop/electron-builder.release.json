@@ -1,0 +1,53 @@
+{
+  "appId": "ai.kodaclaw.desktop",
+  "productName": "KodaClaw",
+  "directories": {
+    "output": "dist-release"
+  },
+  "files": [
+    "dist/**/*",
+    "package.json",
+    "placeholder.html"
+  ],
+  "extraResources": [
+    {
+      "from": "../kodaclaw-web/dist",
+      "to": "kodaclaw-web/dist",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "../../publish/gateway-${os}",
+      "to": "gateway",
+      "filter": ["**/*"]
+    }
+  ],
+  "mac": {
+    "target": [
+      { "target": "dmg", "arch": ["arm64"] }
+    ],
+    "category": "public.app-category.productivity"
+  },
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] }
+    ]
+  },
+  "linux": {
+    "target": [
+      { "target": "AppImage", "arch": ["x64"] }
+    ],
+    "category": "Utility"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "dmg": {
+    "contents": [
+      { "x": 130, "y": 220 },
+      { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+    ]
+  }
+}

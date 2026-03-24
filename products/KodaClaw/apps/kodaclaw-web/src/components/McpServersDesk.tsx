@@ -204,7 +204,7 @@ export function McpServersDesk() {
         <div className="mcp-desk__toolbar-right">
           <Button
             variant="ghost"
-            size="sm"
+            size="control"
             onClick={() => void load()}
             disabled={loading}
             aria-label="刷新"
@@ -214,7 +214,7 @@ export function McpServersDesk() {
           </Button>
           <Button
             variant="primary"
-            size="sm"
+            size="control"
             onClick={() => setModalTarget("")}
           >
             <Plus size={14} />

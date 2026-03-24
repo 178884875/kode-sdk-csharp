@@ -208,6 +208,63 @@ public static partial class GatewayApp
             return Results.Ok(response);
         });
 
+        sessions.MapDelete("/main/{id}", async (
+            HttpContext context,
+            string id,
+            IConfiguration configuration,
+            IWorkspaceService workspaceService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to delete session endpoint.");
+                return Results.Unauthorized();
+            }
+
+            if (!id.StartsWith("main-", StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "session.delete.invalid_kind",
+                    Message: "Only main- sessions can be deleted via this endpoint."));
+            }
+
+            var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
+            if (string.Equals(id, appConfig.ActiveMainSessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "session.delete.active_session",
+                    Message: "Cannot delete the currently active main session."));
+            }
+
+            var sessionDir = workspaceService.GetSessionDirectory(id);
+            if (!Directory.Exists(sessionDir))
+            {
+                return Results.NotFound(new ErrorResponse(
+                    Code: "session.not_found",
+                    Message: "Session directory was not found."));
+            }
+
+            Directory.Delete(sessionDir, recursive: true);
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.sessions",
+                eventType: "gateway.sessions.deleted",
+                level: "info",
+                message: "Main session deleted.",
+                attributes: new Dictionary<string, string?> { ["sessionId"] = id });
+
+            return Results.Ok();
+        });
+
         sessions.MapGet("/{id}", async (
             HttpContext context,
             string id,

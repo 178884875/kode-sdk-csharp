@@ -654,6 +654,56 @@ public static partial class GatewayApp
             }
         });
 
+        system.MapGet("/storage-usage", async (
+            HttpContext context,
+            IWorkspaceService workspaceService,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to storage-usage endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var sessionsRoot = Path.Combine(workspaceService.RootPath, KodaClawWorkspaceLayout.SessionsDirectory);
+            var main = ComputeSessionTypeUsage(sessionsRoot, "main-");
+            var auto = ComputeSessionTypeUsage(sessionsRoot, "auto-");
+            var channel = ComputeSessionTypeUsage(sessionsRoot, "channel-");
+
+            var response = new StorageUsageResponse
+            {
+                Main = main,
+                Auto = auto,
+                Channel = channel,
+                TotalSizeBytes = main.SizeBytes + auto.SizeBytes + channel.SizeBytes,
+            };
+
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.storage",
+                eventType: "gateway.storage.usage_fetched",
+                level: "info",
+                message: "Fetched session storage usage.",
+                attributes: new Dictionary<string, string?>
+                {
+                    ["mainCount"] = main.Count.ToString(),
+                    ["autoCount"] = auto.Count.ToString(),
+                    ["channelCount"] = channel.Count.ToString(),
+                    ["totalSizeBytes"] = response.TotalSizeBytes.ToString(),
+                });
+
+            return Results.Ok(response);
+        });
+
         system.MapPost("/bootstrap-complete", async (
             HttpContext context,
             BootstrapCompletionRequest request,

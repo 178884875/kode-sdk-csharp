@@ -83,6 +83,13 @@ internal static class AutomationValidation
 
         switch (schedule.Kind)
         {
+            case AutomationScheduleKind.Minutes:
+                if (schedule.Interval is null || schedule.Interval < 5)
+                {
+                    throw new ArgumentException("Minutes schedule requires interval >= 5.", parameterName);
+                }
+
+                break;
             case AutomationScheduleKind.Hourly:
                 if (schedule.Interval is null || schedule.Interval < 1)
                 {

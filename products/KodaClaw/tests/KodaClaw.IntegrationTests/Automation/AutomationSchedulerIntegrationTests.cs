@@ -341,6 +341,43 @@ public sealed class AutomationSchedulerIntegrationTests
     }
 
     [Fact]
+    public async Task Manual_trigger_claims_slot_so_scheduler_tick_does_not_double_fire()
+    {
+        // Scenario: user manually triggers an automation that is also due on the scheduler.
+        // The manual trigger must claim the scheduling slot (push NextRunAt forward) BEFORE
+        // firing its background task, so the very next tick sees IsDue=false and skips it.
+        var now = new DateTimeOffset(2026, 3, 20, 10, 0, 0, TimeSpan.Zero);
+        using var fixture = new SchedulerFixture(now);
+        fixture.SessionService.SetResult(
+            "auto-overlap",
+            new AgentRunResult { Success = true, Response = "Manual run.", StopReason = StopReason.EndTurn });
+
+        // Automation is overdue (NextRunAt = null → IsDue=true on any tick).
+        var definition = fixture.BuildDefinition("auto-overlap", nextRunAt: null);
+        await fixture.Definitions.UpsertAsync(definition);
+
+        // Manually trigger. TriggerDefinitionAsync claims the slot synchronously before
+        // returning, even though the background Agent task runs asynchronously.
+        var runId = await fixture.Scheduler.TriggerDefinitionAsync("auto-overlap");
+
+        // The slot must already be claimed in DB at this point (before any tick).
+        var definitionAfterTrigger = await fixture.Definitions.GetByIdAsync("auto-overlap");
+        definitionAfterTrigger!.NextRunAt.Should().BeAfter(now,
+            "the definition slot must be claimed before the background task completes");
+
+        // A scheduler tick arriving while the manual run is still in-flight must be a no-op.
+        var tickExecuted = await fixture.Scheduler.TickAsync();
+
+        // Allow the background fire-and-forget task to finish so the test cleanup is clean.
+        await Task.Delay(200);
+
+        runId.Should().NotBeNullOrEmpty();
+        tickExecuted.Should().Be(0, "the slot was already claimed by the manual trigger");
+        fixture.SessionService.GetStartCount("auto-overlap").Should().Be(1,
+            "only the manual trigger should have started an agent session");
+    }
+
+    [Fact]
     public async Task Channel_push_failure_should_record_in_inbox_payload_without_affecting_run_status()
     {
         var now = new DateTimeOffset(2026, 3, 19, 8, 0, 0, TimeSpan.Zero);

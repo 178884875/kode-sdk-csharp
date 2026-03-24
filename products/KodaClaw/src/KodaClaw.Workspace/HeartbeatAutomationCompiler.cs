@@ -9,6 +9,9 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 {
     internal const string HeartbeatSourcePath = $"{KodaClawWorkspaceLayout.WorkspaceDirectory}/{KodaClawWorkspaceLayout.HeartbeatFile}";
 
+    private static readonly Regex MinutesPattern = new(
+        "^every\\s+(\\d+)m$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex HourlyPattern = new(
         "^hourly\\s+(\\d+)h$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -374,6 +377,23 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
             throw new HeartbeatCompilationException($"Automation '{title}' has an empty schedule expression.");
         }
 
+        var minutesMatch = MinutesPattern.Match(normalizedExpression);
+        if (minutesMatch.Success)
+        {
+            var intervalMinutes = int.Parse(minutesMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (intervalMinutes < 5)
+            {
+                throw new HeartbeatCompilationException(
+                    $"Automation '{title}' has invalid minutes interval '{normalizedExpression}': minimum is 5 minutes.");
+            }
+
+            return new AutomationSchedule(
+                Kind: AutomationScheduleKind.Minutes,
+                Interval: intervalMinutes,
+                LocalTime: null,
+                DaysOfWeek: null);
+        }
+
         var hourlyMatch = HourlyPattern.Match(normalizedExpression);
         if (hourlyMatch.Success)
         {
@@ -447,7 +467,7 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 
         throw new HeartbeatCompilationException(
             $"Automation '{title}' has invalid schedule '{normalizedExpression}'. " +
-            "Supported forms: 'hourly 2h', 'daily 09:00', 'weekdays 09:00', 'weekly mon,wed,fri 18:30'.");
+            "Supported forms: 'every 15m', 'hourly 2h', 'daily 09:00', 'weekdays 09:00', 'weekly mon,wed,fri 18:30'.");
     }
 
     private static TimeOnly ParseTimeToken(string token, string title, string expression)

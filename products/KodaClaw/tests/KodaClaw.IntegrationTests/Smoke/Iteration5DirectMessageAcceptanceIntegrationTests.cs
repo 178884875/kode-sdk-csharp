@@ -131,8 +131,9 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             prompt.Should().Contain("SessionKind: ChannelDirectMessage");
             prompt.Should().Contain("### File: workspace/USER.md");
             prompt.Should().Contain("DM summary anchor: customer asked for a concise update.");
-            prompt.Should().NotContain("### File: workspace/MEMORY.md");
-            prompt.Should().NotContain("Memory anchor: do not leak this.");
+            // KC-5001: DM sessions now load full workspace context including MEMORY.md.
+            prompt.Should().Contain("### File: workspace/MEMORY.md");
+            prompt.Should().Contain("Memory anchor: do not leak this.");
 
             var sessionResponse = await hosted.Client.GetAsync($"/api/sessions/{binding.SessionId}");
             sessionResponse.StatusCode.Should().Be(HttpStatusCode.OK);

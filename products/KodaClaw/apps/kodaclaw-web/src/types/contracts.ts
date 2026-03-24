@@ -23,7 +23,7 @@ export type ApprovalKind =
 export type ApprovalStatus = "Pending" | "Approved" | "Rejected" | "Canceled";
 export type AutomationDefinitionSource = "Heartbeat" | "Manual";
 export type AutomationRunStatus = "Queued" | "Running" | "Succeeded" | "Failed" | "Canceled";
-export type AutomationScheduleKind = "Hourly" | "Daily" | "Weekly";
+export type AutomationScheduleKind = "Minutes" | "Hourly" | "Daily" | "Weekly";
 export type AutomationScheduleDay =
   | "Monday"
   | "Tuesday"
@@ -1208,4 +1208,16 @@ export interface SessionMessagesResponse {
   items: SessionMessageItem[];
   totalCount: number;
   hasMore: boolean;
+}
+
+export interface SessionStorageUsage {
+  count: number;
+  sizeBytes: number;
+}
+
+export interface StorageUsageResponse {
+  main: SessionStorageUsage;
+  auto: SessionStorageUsage;
+  channel: SessionStorageUsage;
+  totalSizeBytes: number;
 }

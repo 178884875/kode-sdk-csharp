@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   User, Brain, Zap, Radio, Globe, Shield, RefreshCw, AlertTriangle,
-  Palette, Bell, SlidersHorizontal,
+  Palette, Bell, SlidersHorizontal, HardDrive,
 } from 'lucide-react';
 import { LocaleToggle } from './LocaleToggle';
 import { WorkspaceIdentityEditor } from './settings/WorkspaceIdentityEditor';
@@ -13,6 +13,7 @@ import { AppearanceSection } from './settings/AppearanceSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { SystemSection } from './settings/SystemSection';
 import { UpdatesSection } from './settings/UpdatesSection';
+import { StorageSection } from './settings/StorageSection';
 import { RiskSummaryCard } from './settings/RiskSummaryCard';
 import { useLocaleText } from '../i18n/I18nProvider';
 
@@ -21,7 +22,7 @@ type SectionId =
   | 'heartbeat' | 'behavior'
   | 'connections'
   | 'appearance' | 'notifications' | 'preferences'
-  | 'system' | 'updates' | 'risk';
+  | 'system' | 'updates' | 'risk' | 'storage';
 
 const STROKE = 1.75;
 const ICON_SIZE = 16;
@@ -49,6 +50,7 @@ export function SettingsDesk() {
         system: '系统',
         updates: '更新',
         risk: '风险简报',
+        storage: '存储',
       },
     },
     en: {
@@ -72,6 +74,7 @@ export function SettingsDesk() {
         system: 'System',
         updates: 'Updates',
         risk: 'Risk',
+        storage: 'Storage',
       },
     },
   });
@@ -90,6 +93,7 @@ export function SettingsDesk() {
     system:        useRef<HTMLDivElement | null>(null),
     updates:       useRef<HTMLDivElement | null>(null),
     risk:          useRef<HTMLDivElement | null>(null),
+    storage:       useRef<HTMLDivElement | null>(null),
   };
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -161,6 +165,7 @@ export function SettingsDesk() {
     {
       groupLabel: text.nav.groupAdmin,
       items: [
+        { id: 'storage', icon: <HardDrive size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.storage },
         { id: 'system',  icon: <Shield size={ICON_SIZE} strokeWidth={STROKE} />,        label: text.nav.system },
         { id: 'updates', icon: <RefreshCw size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.updates },
         { id: 'risk',    icon: <AlertTriangle size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.risk },
@@ -230,6 +235,10 @@ export function SettingsDesk() {
               <LocaleToggle />
             </div>
           </div>
+        </div>
+
+        <div ref={refs.storage} data-section="storage" className="settings-split__anchor">
+          <StorageSection />
         </div>
 
         <div ref={refs.system} data-section="system" className="settings-split__anchor">

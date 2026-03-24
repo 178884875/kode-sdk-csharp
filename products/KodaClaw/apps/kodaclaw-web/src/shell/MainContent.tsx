@@ -25,6 +25,7 @@ type MainContentProps = {
   chatTimeline: ReactNode;
   chatComposer: ReactNode;
   chatHeaderActions?: ReactNode;
+  chatBanner?: ReactNode;
   sessionsFocusRequest?: { sessionId: string; requestId: number } | null;
   onFocusRequestConsumed?: () => void;
   onOpenSessionDetail?: (sessionId: string) => void;
@@ -40,6 +41,7 @@ export function MainContent({
   chatTimeline,
   chatComposer,
   chatHeaderActions,
+  chatBanner,
   sessionsFocusRequest,
   onFocusRequestConsumed,
   onOpenSessionDetail,
@@ -82,6 +84,7 @@ export function MainContent({
             <div className="kc-chat-header__actions">{chatHeaderActions}</div>
           )}
         </div>
+        {chatBanner && <div className="kc-chat-banner">{chatBanner}</div>}
         <div className="kc-chat-timeline">{chatTimeline}</div>
         <div className="kc-chat-composer">{chatComposer}</div>
         <div className="kc-chat-disclaimer">

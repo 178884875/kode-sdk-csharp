@@ -57,22 +57,22 @@ export function RiskSummaryCard() {
       ) : hasError ? (
         <p className="settings-file-error">{text.loadError}</p>
       ) : (
-        <div className="risk-summary__metrics">
-          <div className="risk-summary__row">
-            <span className="risk-summary__label">{text.sandbox}</span>
-            <span className="risk-summary__value">
+        <div className="risk-summary__grid">
+          <div className="risk-summary__metric-card">
+            <span className="risk-summary__metric-label">{text.sandbox}</span>
+            <span className="risk-summary__metric-value">
               {activeProfile?.displayName ?? text.unknown}
             </span>
           </div>
-          <div className="risk-summary__row">
-            <span className="risk-summary__label">{text.highRisk}</span>
-            <span className={`risk-summary__value${(data?.pluginRisk?.highRiskCount ?? 0) > 0 ? ' risk-summary__value--warn' : ''}`}>
+          <div className={`risk-summary__metric-card${(data?.pluginRisk?.highRiskCount ?? 0) > 0 ? ' risk-summary__metric-card--warn' : ''}`}>
+            <span className="risk-summary__metric-label">{text.highRisk}</span>
+            <span className="risk-summary__metric-value">
               {data?.pluginRisk?.highRiskCount ?? 0}
             </span>
           </div>
-          <div className="risk-summary__row">
-            <span className="risk-summary__label">{text.pending}</span>
-            <span className={`risk-summary__value${(data?.channelRisk?.pendingApprovalCount ?? 0) > 0 ? ' risk-summary__value--warn' : ''}`}>
+          <div className={`risk-summary__metric-card${(data?.channelRisk?.pendingApprovalCount ?? 0) > 0 ? ' risk-summary__metric-card--warn' : ''}`}>
+            <span className="risk-summary__metric-label">{text.pending}</span>
+            <span className="risk-summary__metric-value">
               {data?.channelRisk?.pendingApprovalCount ?? 0}
             </span>
           </div>

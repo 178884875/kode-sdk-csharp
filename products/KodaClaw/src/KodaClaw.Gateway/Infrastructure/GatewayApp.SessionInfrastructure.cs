@@ -231,4 +231,33 @@ public static partial class GatewayApp
             return null;
         }
     }
+
+    private static SessionStorageUsage ComputeSessionTypeUsage(string sessionsRoot, string prefix)
+    {
+        if (!Directory.Exists(sessionsRoot))
+        {
+            return new SessionStorageUsage { Count = 0, SizeBytes = 0 };
+        }
+
+        var dirs = Directory.GetDirectories(sessionsRoot)
+            .Where(d => Path.GetFileName(d).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        long totalBytes = 0;
+        foreach (var dir in dirs)
+        {
+            try
+            {
+                totalBytes += new DirectoryInfo(dir)
+                    .EnumerateFiles("*", SearchOption.AllDirectories)
+                    .Sum(static f => f.Length);
+            }
+            catch
+            {
+                // 跳过无法访问的目录
+            }
+        }
+
+        return new SessionStorageUsage { Count = dirs.Count, SizeBytes = totalBytes };
+    }
 }

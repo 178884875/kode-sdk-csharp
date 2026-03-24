@@ -36,6 +36,12 @@ export function useAppStrings() {
         failedToReachStream: '无法连接到聊天流。',
         newSessionNote: '已开始新对话。',
         sessionResumedNote: '已切换到历史会话，Agent 记得之前的上下文。',
+        modelSwitchedNote: (name: string) => `已切换为 ${name}，已开始新会话。`,
+        modelSwitchConfirmTitle: '切换模型',
+        modelSwitchConfirmBody: (name: string) => `切换到 ${name} 将开始新会话，当前上下文会保存在历史记录中。`,
+        streamInterruptBody: 'Koda 正在回复中，确认中断并切换到此会话？',
+        confirmOk: '确认',
+        confirmCancel: '取消',
       },
       notes: {
         gatewaySnapshot: (status: string, version: number, rootPath: string) =>
@@ -76,6 +82,12 @@ export function useAppStrings() {
         failedToReachStream: 'Failed to reach chat stream.',
         newSessionNote: 'New conversation started.',
         sessionResumedNote: 'Switched to a previous session. Agent remembers prior context.',
+        modelSwitchedNote: (name: string) => `Switched to ${name}. New session started.`,
+        modelSwitchConfirmTitle: 'Switch Model',
+        modelSwitchConfirmBody: (name: string) => `Switching to ${name} will start a new session. Your current context will be saved in history.`,
+        streamInterruptBody: 'Koda is responding. Interrupt and switch to this session?',
+        confirmOk: 'Confirm',
+        confirmCancel: 'Cancel',
       },
       notes: {
         gatewaySnapshot: (status: string, version: number, rootPath: string) =>

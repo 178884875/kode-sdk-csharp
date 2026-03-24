@@ -105,6 +105,31 @@ public sealed class ChannelTurnOrchestrator
             }
         }
 
+        // KC-5004: Session reset commands (/new, /clear, /reset) evict the current session
+        // and reply directly — no agent turn is executed. Works for all connector kinds
+        // (Telegram slash commands and WeChat plain-text input share the same logic).
+        var trimmedText = envelope.Text?.Trim() ?? "";
+        if (IsSessionResetCommand(trimmedText))
+        {
+            await _channelSessionService.EvictSessionAsync(processing.Binding.SessionId, cancellationToken);
+            const string resetConfirmation = "已开启新会话。";
+            try
+            {
+                await _deliveryDispatchService.SendNotificationAsync(
+                    account, processing.Binding, resetConfirmation, cancellationToken: cancellationToken);
+            }
+            catch { }
+
+            var resetOutcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                resetConfirmation,
+                processing,
+                envelope,
+                reasonCode: "session_reset_command");
+            RecordDiagnosticEvent("channel.turn.session_reset", "info", resetConfirmation, processing.Binding, resetOutcome);
+            return new ChannelTurnOrchestrationResult(processing, resetOutcome, ExecutedTurn: false);
+        }
+
         if (!ShouldExecuteTurn(envelope))
         {
             var outcome = CreateOutcome(
@@ -184,6 +209,12 @@ public sealed class ChannelTurnOrchestrator
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: true);
         }
     }
+
+    internal static readonly HashSet<string> SessionResetCommands =
+        new(["/new", "/clear", "/reset"], StringComparer.OrdinalIgnoreCase);
+
+    internal static bool IsSessionResetCommand(string text) =>
+        SessionResetCommands.Contains(text);
 
     private static bool ShouldExecuteTurn(ChannelEventEnvelope envelope)
     {

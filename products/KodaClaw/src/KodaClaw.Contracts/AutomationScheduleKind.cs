@@ -8,4 +8,5 @@ public enum AutomationScheduleKind
     Hourly,
     Daily,
     Weekly,
+    Minutes,
 }

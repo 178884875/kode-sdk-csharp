@@ -92,7 +92,7 @@ describe("ModelsSettingsDesk", () => {
 
     await screen.findByText("端点编组");
     const buttons = screen.getAllByTestId("model-default");
-    await user.click(buttons[1]);
+    await user.click(buttons[0]);
 
     await waitFor(() => {
       expect(setDefaultApi).toHaveBeenCalledWith("model-b");

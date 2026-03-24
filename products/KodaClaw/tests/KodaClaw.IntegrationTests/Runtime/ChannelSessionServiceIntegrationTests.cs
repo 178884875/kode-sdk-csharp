@@ -48,13 +48,15 @@ public sealed class ChannelSessionServiceIntegrationTests
         prompt.Should().Contain("User anchor: prefers concise replies.");
         prompt.Should().Contain("Thread anchor: customer asked about deployment.");
         prompt.Should().Contain("bounded delegate inside a private conversation");
-        prompt.Should().NotContain("Memory anchor: do not leak this.");
-        prompt.Should().NotContain("### File: workspace/MEMORY.md");
+        // KC-5001: DM sessions now load full workspace context (MEMORY.md included).
+        prompt.Should().Contain("Memory anchor: do not leak this.");
+        prompt.Should().Contain("### File: workspace/MEMORY.md");
 
         var promptReport = await SessionPromptReportStore.TryReadAsync(handle.SessionDirectory);
         promptReport.Should().NotBeNull();
         promptReport!.ProfileId.Should().Be("ChannelDirectMessage");
         promptReport.LoadedContextFiles.Should().Contain("workspace/USER.md");
+        promptReport.LoadedContextFiles.Should().Contain("workspace/MEMORY.md");
         promptReport.LoadedContextFiles.Should().Contain("workspace/channels/binding-dm-001/SUMMARY.md");
     }
 

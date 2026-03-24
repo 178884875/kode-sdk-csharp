@@ -147,6 +147,7 @@ export function AutomationsDesk() {
         heartbeat: "心跳触发",
       },
       schedule: {
+        everyMinutes: (interval: number) => `每 ${interval} 分钟`,
         hourly: "每小时",
         everyHours: (interval: number) => `每 ${interval} 小时`,
         daily: "每天",
@@ -285,6 +286,7 @@ export function AutomationsDesk() {
         heartbeat: "Heartbeat",
       },
       schedule: {
+        everyMinutes: (interval: number) => `Every ${interval} minutes`,
         hourly: "Every hour",
         everyHours: (interval: number) => `Every ${interval} hours`,
         daily: "Daily",
@@ -405,6 +407,10 @@ export function AutomationsDesk() {
   }
 
   function formatSchedule(schedule: AutomationSchedule): string {
+    if (schedule.kind === "Minutes") {
+      return text.schedule.everyMinutes(schedule.interval ?? 15);
+    }
+
     if (schedule.kind === "Hourly") {
       const interval = schedule.interval ?? 1;
       return interval === 1 ? text.schedule.hourly : text.schedule.everyHours(interval);

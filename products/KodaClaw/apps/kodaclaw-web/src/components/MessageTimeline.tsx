@@ -350,7 +350,15 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
                 );
               }
 
-              // system / error
+              if (message.role === "system") {
+                return (
+                  <div key={message.id} className="system-note">
+                    <span className="system-note__text">{message.text}</span>
+                  </div>
+                );
+              }
+
+              // error
               return (
                 <article
                   key={message.id}

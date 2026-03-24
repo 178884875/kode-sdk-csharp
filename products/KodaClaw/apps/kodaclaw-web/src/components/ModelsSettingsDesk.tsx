@@ -1,9 +1,10 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { Button } from "./ui/Button";
 import { Select } from "./ui/Select";
-import { Cpu, Plus, RefreshCw } from "lucide-react";
+import { Tooltip } from "./ui/Tooltip";
+import { Cpu, Eye, ImageIcon, Layers, MessageSquare, Mic, Plus, RefreshCw, Volume2, Wrench } from "lucide-react";
 import {
   createModelEndpoint,
   deleteModelEndpoint,
@@ -77,13 +78,14 @@ function fmtK(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
 }
 
-const CAP_CHIP_LABELS_ZH: [number, string][] = [
-  [1 << 0, '对话'], [1 << 1, '工具'], [1 << 2, '视觉'],
-  [1 << 3, '图像'], [1 << 4, 'TTS'], [1 << 5, 'STT'], [1 << 6, '向量'],
-];
-const CAP_CHIP_LABELS_EN: [number, string][] = [
-  [1 << 0, 'Chat'], [1 << 1, 'Tools'], [1 << 2, 'Vision'],
-  [1 << 3, 'Image'], [1 << 4, 'TTS'], [1 << 5, 'STT'], [1 << 6, 'Embed'],
+const CAP_ICON_MAP: [number, React.ReactNode, string, string][] = [
+  [1 << 0, <MessageSquare size={12} />, '对话', 'Chat'],
+  [1 << 1, <Wrench size={12} />, '工具', 'Tools'],
+  [1 << 2, <Eye size={12} />, '视觉', 'Vision'],
+  [1 << 3, <ImageIcon size={12} />, '图像', 'Image'],
+  [1 << 4, <Volume2 size={12} />, 'TTS', 'TTS'],
+  [1 << 5, <Mic size={12} />, 'STT', 'STT'],
+  [1 << 6, <Layers size={12} />, '向量', 'Embed'],
 ];
 
 function toOptionalText(value: string): string | null {
@@ -535,7 +537,7 @@ export function ModelsSettingsDesk() {
     setModelDraft(DEFAULT_MODEL_DRAFT);
   }
 
-  const capChipLabels = locale === 'zh-CN' ? CAP_CHIP_LABELS_ZH : CAP_CHIP_LABELS_EN;
+  const isZh = locale === 'zh-CN';
 
   return (
     <section data-testid="models-settings-desk">
@@ -596,25 +598,25 @@ export function ModelsSettingsDesk() {
               ) : null}
               <ul className="control-plane-list control-plane-session-list">
                 {models.map((item) => {
-                  const isSelected = selectedModelId === item.id;
                   const ctxK = item.contextWindowSize ? fmtK(item.contextWindowSize) : null;
                   const maxOutK = item.maxOutputTokens ? fmtK(item.maxOutputTokens) : null;
-                  const enabledCaps = capChipLabels.filter(([flag]) => item.capabilities & flag);
+                  const enabledCaps = CAP_ICON_MAP.filter(([flag]) => item.capabilities & flag);
                   return (
                     <li key={item.id}>
                       <article
-                        className={`control-plane-session-card model-endpoint-card ${isSelected ? "control-plane-list-button--selected" : ""} ${!item.enabled ? "control-plane-session-card--disabled" : ""}`}
+                        className={`control-plane-session-card model-endpoint-card ${!item.enabled ? "control-plane-session-card--disabled" : ""}`}
                         data-testid={`model-item-${item.id}`}
                       >
-                        {/* Top: provider label + badges */}
+                        {/* Top: provider label + timestamp + badges */}
                         <div className="control-plane-session-card__topline">
                           <span className="metric-label model-endpoint-card__provider">{text.providerLabels[item.provider]}</span>
+                          <span className="model-endpoint-card__updated">{formatTimestamp(item.updatedAt)}</span>
                           <div className="control-plane-chip-row">
                             {item.isDefault && (
                               <span className="control-plane-chip control-plane-chip--active">{text.common.defaultBadge}</span>
                             )}
                             {item.isReasoning && (
-                              <span className="control-plane-chip">{locale === 'zh-CN' ? '推理' : 'Reasoning'}</span>
+                              <span className="control-plane-chip">{isZh ? '推理' : 'Reasoning'}</span>
                             )}
                             {!item.enabled && (
                               <span className="control-plane-chip control-plane-chip--inactive">{text.detail.disabled}</span>
@@ -628,29 +630,28 @@ export function ModelsSettingsDesk() {
                           <code className="model-endpoint-card__model-id">{item.modelId}</code>
                         </div>
 
-                        {/* Context / output tokens */}
-                        {(ctxK || maxOutK) && (
-                          <div className="model-endpoint-card__tokens">
-                            {ctxK && <span>{ctxK} {locale === 'zh-CN' ? '上下文' : 'ctx'}</span>}
-                            {ctxK && maxOutK && <span className="model-endpoint-card__sep">·</span>}
-                            {maxOutK && <span>{maxOutK} {locale === 'zh-CN' ? '最大输出' : 'max out'}</span>}
-                          </div>
-                        )}
+                        {/* Context / output tokens + capability icons */}
+                        <div className="model-endpoint-card__meta-row">
+                          {(ctxK || maxOutK) && (
+                            <div className="model-endpoint-card__tokens">
+                              {ctxK && <span>{ctxK} {isZh ? '上下文' : 'ctx'}</span>}
+                              {ctxK && maxOutK && <span className="model-endpoint-card__sep">·</span>}
+                              {maxOutK && <span>{maxOutK} {isZh ? '最大输出' : 'max out'}</span>}
+                            </div>
+                          )}
+                          {enabledCaps.length > 0 && (
+                            <div className="model-endpoint-card__cap-icons">
+                              {enabledCaps.map(([flag, icon, labelZh, labelEn]) => (
+                                <Tooltip key={flag} content={isZh ? labelZh : labelEn}>
+                                  <span className="model-cap-icon">{icon}</span>
+                                </Tooltip>
+                              ))}
+                            </div>
+                          )}
+                        </div>
 
-                        {/* Capability chips */}
-                        {enabledCaps.length > 0 && (
-                          <div className="control-plane-chip-row model-endpoint-card__caps">
-                            {enabledCaps.map(([flag, label]) => (
-                              <span key={flag} className="control-plane-chip control-plane-chip--cap">{label}</span>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Footer: updated + actions */}
+                        {/* Footer: actions only */}
                         <div className="model-endpoint-card__footer">
-                          <span className="model-endpoint-card__updated">
-                            {formatTimestamp(item.updatedAt)}
-                          </span>
                           <div className="control-plane-item-actions">
                             <Button
                               variant="secondary"
@@ -660,15 +661,17 @@ export function ModelsSettingsDesk() {
                             >
                               {text.modelList.edit}
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              data-testid="model-default"
-                              onClick={() => void handleSetDefault(item.id)}
-                              disabled={isMutating || item.isDefault || !item.enabled}
-                            >
-                              {text.modelList.setDefault}
-                            </Button>
+                            {!item.isDefault && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                data-testid="model-default"
+                                onClick={() => void handleSetDefault(item.id)}
+                                disabled={isMutating || !item.enabled}
+                              >
+                                {text.modelList.setDefault}
+                              </Button>
+                            )}
                             <Button
                               variant="danger"
                               size="sm"

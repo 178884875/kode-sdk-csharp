@@ -34,5 +34,6 @@
     <ProjectReference Include="..\..\src\KodaClaw.ModelHub\KodaClaw.ModelHub.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.Storage\KodaClaw.Storage.csproj" />
+    <ProjectReference Include="..\..\src\KodaClaw.Gateway\KodaClaw.Gateway.csproj" />
   </ItemGroup>
 </Project>

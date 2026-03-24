@@ -1,6 +1,7 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import { fetchSettings, saveSettings } from '../../lib/api';
 import { Skeleton } from '../ui/Skeleton';
+import { Toggle } from '../ui/Toggle';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import type { KodaClawSettings } from '../../types/contracts';
 
@@ -85,9 +86,8 @@ export function NotificationsSection() {
               <div className="settings-action-label">{text.notificationsEnabled}</div>
               <div className="settings-action-desc">{text.notificationsDesc}</div>
             </div>
-            <input
+            <Toggle
               data-testid="settings-notifications"
-              type="checkbox"
               checked={draft?.notificationsEnabled ?? false}
               onChange={e => setDraft(d => d ? { ...d, notificationsEnabled: e.target.checked } : d)}
             />
@@ -98,9 +98,8 @@ export function NotificationsSection() {
               <div className="settings-action-label">{text.quietHoursEnabled}</div>
               <div className="settings-action-desc">{text.quietHoursDesc}</div>
             </div>
-            <input
+            <Toggle
               data-testid="settings-quiet-hours"
-              type="checkbox"
               checked={draft?.quietHoursEnabled ?? false}
               onChange={e => setDraft(d => d ? { ...d, quietHoursEnabled: e.target.checked } : d)}
             />

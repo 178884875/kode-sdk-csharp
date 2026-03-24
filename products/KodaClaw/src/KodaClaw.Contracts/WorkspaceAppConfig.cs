@@ -7,4 +7,8 @@ public sealed record WorkspaceAppConfig
     public bool BootstrapCompleted { get; init; }
 
     public string? ActiveMainSessionId { get; init; }
+
+    public int AutoSessionRetentionDays { get; init; } = 30;
+
+    public int AutoSessionRetentionMaxPerTask { get; init; } = 20;
 }

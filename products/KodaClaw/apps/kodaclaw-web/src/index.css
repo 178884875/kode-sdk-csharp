@@ -1050,6 +1050,22 @@ article.message:hover .message__time {
   margin: 0;
 }
 
+/* ── System note (inline pill, no label) ── */
+.system-note {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-1) var(--space-4);
+}
+
+.system-note__text {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  opacity: 0.65;
+  text-align: center;
+  max-width: 72ch;
+  line-height: 1.5;
+}
+
 /* ── KODA avatar label ── */
 .msg-koda-label {
   display: flex;
@@ -1902,4 +1918,41 @@ article.message:hover .message__time {
 .load-more-history__btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* ── Tooltip ── */
+.kc-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.kc-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+  z-index: 9999;
+}
+
+.kc-tooltip--top::after {
+  bottom: calc(100% + 5px);
+}
+
+.kc-tooltip--bottom::after {
+  top: calc(100% + 5px);
+}
+
+.kc-tooltip:hover::after {
+  opacity: 1;
 }

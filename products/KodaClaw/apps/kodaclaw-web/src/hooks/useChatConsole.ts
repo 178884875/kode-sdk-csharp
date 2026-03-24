@@ -44,15 +44,10 @@ export function useChatConsole(copy: ChatConsoleCopy) {
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const historySkipRef = useRef(0);
   const historySessionIdRef = useRef<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   // Track callIds that already have an approval message, so tool_activity can skip duplicates
   const approvalCallIds = useRef<Set<string>>(new Set());
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    createMessage(
-      "system",
-      copy.initialSystemNote,
-      "done",
-    ),
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
@@ -74,9 +69,13 @@ export function useChatConsole(copy: ChatConsoleCopy) {
     approvalCallIds.current = new Set();
     setMessages((current) => [...current, userMessage, assistantMessage]);
 
+    streamAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    streamAbortRef.current = ctrl;
+
     try {
       let lastStep: number | null = null;
-      for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null })) {
+      for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null }, ctrl.signal)) {
         if (event.type === "text_chunk") {
           const stepChanged =
             lastStep !== null && event.step != null && event.step !== lastStep;
@@ -203,6 +202,12 @@ export function useChatConsole(copy: ChatConsoleCopy) {
         ),
       );
     } catch (error) {
+      // AbortError = deliberate stream cancellation (resume/rotate), not an error to surface
+      if (error instanceof Error && error.name === "AbortError") {
+        setActiveToolName(null);
+        setIsStreaming(false);
+        return;
+      }
       const detail = error instanceof Error ? error.message : copy.failedToReachStream;
       setActiveToolName(null);
       setMessages((current) =>
@@ -228,6 +233,8 @@ export function useChatConsole(copy: ChatConsoleCopy) {
   }, []);
 
   const clearMessages = useCallback((systemNote?: string) => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
     setMessages([
       createMessage("system", systemNote ?? copy.initialSystemNote, "done"),
     ]);
@@ -238,7 +245,8 @@ export function useChatConsole(copy: ChatConsoleCopy) {
 
   const prependHistory = useCallback((items: SessionMessageItem[], hasMore: boolean, sessionId: string) => {
     if (items.length === 0) return;
-    const historyMessages: ChatMessage[] = items.map((item) => ({
+    // API returns newest-first; reverse to chronological order before prepending
+    const historyMessages: ChatMessage[] = [...items].reverse().map((item) => ({
       id: `history-${item.id}`,
       role: item.role,
       text: item.text,
@@ -260,7 +268,8 @@ export function useChatConsole(copy: ChatConsoleCopy) {
     try {
       const result = await fetchSessionMessages(sessionId, limit, skip);
       if (result.items.length > 0) {
-        const historyMessages: ChatMessage[] = result.items.map((item) => ({
+        // API returns newest-first within each page; reverse to chronological before prepending
+        const historyMessages: ChatMessage[] = [...result.items].reverse().map((item) => ({
           id: `history-${skip}-${item.id}`,
           role: item.role,
           text: item.text,

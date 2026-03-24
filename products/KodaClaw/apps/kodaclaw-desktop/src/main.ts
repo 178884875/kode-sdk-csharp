@@ -12,6 +12,7 @@ import {
 } from "electron";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import {
@@ -38,7 +39,8 @@ import {
 } from "./notification-policy";
 
 const DEFAULT_DEV_SERVER_URL = "http://127.0.0.1:4173";
-const DEFAULT_GATEWAY_URL = "http://127.0.0.1:5076";
+const DEFAULT_GATEWAY_URL = "http://127.0.0.1:5076";       // dev mode
+const DEFAULT_PACKAGED_GATEWAY_URL = "http://127.0.0.1:5077"; // packaged app
 const DEFAULT_GATEWAY_HEALTH_POLL_INTERVAL_MS = 400;
 const DEFAULT_ATTACH_HEALTH_TIMEOUT_MS = 3000;
 const DEFAULT_MANAGED_HEALTH_TIMEOUT_MS = 15000;
@@ -72,7 +74,7 @@ type InboxQueryResponse = { items: NotificationInboxItem[] };
 type ApprovalQueryResponse = { items: NotificationApproval[] };
 
 const runtimeConfig: DesktopRuntimeConfig = {
-  gatewayUrl: readStringEnv("KODACLAW_DESKTOP_GATEWAY_URL") ?? DEFAULT_GATEWAY_URL,
+  gatewayUrl: readStringEnv("KODACLAW_DESKTOP_GATEWAY_URL") ?? (app.isPackaged ? DEFAULT_PACKAGED_GATEWAY_URL : DEFAULT_GATEWAY_URL),
   gatewayToken: resolveGatewayToken(),
   platform: process.platform,
   appVersion: app.getVersion(),
@@ -111,6 +113,41 @@ const capturedNotifications: Array<{
 }> = [];
 // Maps a notification instance to its approvalId for action button handling.
 const pendingApprovalNotifications = new Map<Notification, string>();
+let logFileStream: fs.WriteStream | null = null;
+
+function setupFileLogging(): void {
+  try {
+    const logDir = app.getPath("logs");
+    fs.mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(logDir, "desktop.log");
+    logFileStream = fs.createWriteStream(logFile, { flags: "a" });
+
+    const fmt = (...args: unknown[]) =>
+      args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+
+    const origLog = console.log.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+
+    console.log = (...args: unknown[]) => {
+      logFileStream?.write(`[${new Date().toISOString()}] [INFO] ${fmt(...args)}\n`);
+      origLog(...args);
+    };
+    console.warn = (...args: unknown[]) => {
+      logFileStream?.write(`[${new Date().toISOString()}] [WARN] ${fmt(...args)}\n`);
+      origWarn(...args);
+    };
+    console.error = (...args: unknown[]) => {
+      logFileStream?.write(`[${new Date().toISOString()}] [ERROR] ${fmt(...args)}\n`);
+      origError(...args);
+    };
+
+    console.log(`[desktop] === KodaClaw starting === version=${app.getVersion()} isPackaged=${app.isPackaged} platform=${process.platform} logFile=${logFile}`);
+  } catch (err) {
+    console.error("[desktop] Failed to set up file logging.", err);
+  }
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!hasSingleInstanceLock) {
@@ -147,9 +184,11 @@ function readIntegerEnv(name: string): number | null {
 }
 
 function readGatewayLifecycleMode(): GatewayLifecycleMode {
-  return readStringEnv("KODACLAW_DESKTOP_GATEWAY_LIFECYCLE_MODE") === "ManagedChild"
-    ? "ManagedChild"
-    : "AttachOnly";
+  const configured = readStringEnv("KODACLAW_DESKTOP_GATEWAY_LIFECYCLE_MODE");
+  if (configured === "AttachOnly") return "AttachOnly";
+  if (configured === "ManagedChild") return "ManagedChild";
+  // Packaged app always manages its own Gateway; dev defaults to AttachOnly.
+  return app.isPackaged ? "ManagedChild" : "AttachOnly";
 }
 
 function readReleaseChannel(): UpdateReleaseChannel {
@@ -236,6 +275,38 @@ function getDefaultGatewayProjectPath(): string {
   return path.resolve(getDesktopRoot(), "..", "..", "src", "KodaClaw.Gateway", "KodaClaw.Gateway.csproj");
 }
 
+function getUserWorkspaceRoot(): string {
+  return readStringEnv("KODACLAW_WORKSPACE_ROOT") ?? path.join(os.homedir(), ".kodaclaw");
+}
+
+function readUserEnvKey(key: string): string | undefined {
+  const envPath = path.join(getUserWorkspaceRoot(), ".env");
+  try {
+    if (!fs.existsSync(envPath)) {
+      return undefined;
+    }
+
+    const content = fs.readFileSync(envPath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("#") || !trimmed.includes("=")) {
+        continue;
+      }
+
+      const eqIdx = trimmed.indexOf("=");
+      const lineKey = trimmed.slice(0, eqIdx).trim();
+      const lineVal = trimmed.slice(eqIdx + 1).trim();
+      if (lineKey === key) {
+        return lineVal || undefined;
+      }
+    }
+  } catch {
+    // Ignore errors reading user env file.
+  }
+
+  return undefined;
+}
+
 function getExplicitGatewayCommand(): GatewayCommand | null {
   const commandJson = readStringEnv("KODACLAW_DESKTOP_GATEWAY_COMMAND_JSON");
   if (!commandJson) {
@@ -263,6 +334,20 @@ function resolveGatewayCommand(): GatewayCommand | null {
   const explicit = getExplicitGatewayCommand();
   if (explicit) {
     return explicit;
+  }
+
+  if (app.isPackaged) {
+    const ext = process.platform === "win32" ? ".exe" : "";
+    const binaryPath = path.join(process.resourcesPath, "gateway", `KodaClaw.Gateway${ext}`);
+    if (!fs.existsSync(binaryPath)) {
+      return null;
+    }
+
+    return {
+      command: binaryPath,
+      args: [],
+      source: "env-json",
+    };
   }
 
   const configuredProject = readStringEnv("KODACLAW_DESKTOP_GATEWAY_PROJECT");
@@ -505,12 +590,18 @@ function spawnManagedGateway(): ManagedGatewayProcess {
     );
   }
 
+  const anthropicKey = readUserEnvKey("ANTHROPIC_API_KEY");
+  const openaiKey = readUserEnvKey("OPENAI_API_KEY");
+
   const child = spawn(command.command, command.args, {
-    cwd: getDesktopRoot(),
+    cwd: app.isPackaged ? process.resourcesPath : getDesktopRoot(),
     env: {
       ...process.env,
       ASPNETCORE_URLS: runtimeConfig.gatewayUrl ?? DEFAULT_GATEWAY_URL,
       KODACLAW_GATEWAY_TOKEN: runtimeConfig.gatewayToken ?? "",
+      KODACLAW_WORKSPACE_ROOT: getUserWorkspaceRoot(),
+      ...(anthropicKey ? { ANTHROPIC_API_KEY: anthropicKey } : {}),
+      ...(openaiKey ? { OPENAI_API_KEY: openaiKey } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -599,20 +690,26 @@ async function initializeGatewayRuntime(): Promise<void> {
     if (runtimeConfig.gatewayLifecycleMode === "ManagedChild") {
       const explicitToken = readStringEnv("KODACLAW_DESKTOP_GATEWAY_TOKEN");
       if (explicitToken) {
+        console.log(`[desktop] ManagedChild: explicit token set, trying to attach first at ${gatewayUrl}`);
         const attached = await waitForGatewayHealthy(gatewayUrl, DEFAULT_ATTACH_HEALTH_TIMEOUT_MS);
         if (attached) {
+          console.log("[desktop] ManagedChild: attached to existing Gateway.");
           updateGatewayState("healthy");
           return;
         }
       }
 
+      const cmd = resolveGatewayCommand();
+      console.log(`[desktop] ManagedChild: resolved command=${cmd?.command ?? "null"} resourcesPath=${process.resourcesPath}`);
       spawnManagedGateway();
+      console.log(`[desktop] ManagedChild: waiting for health at ${gatewayUrl} timeout=${getGatewayHealthTimeoutMs()}ms`);
       const healthy = await waitForGatewayHealthy(gatewayUrl, getGatewayHealthTimeoutMs());
       if (!healthy) {
         updateGatewayState(
           "degraded",
           `ManagedChild did not become healthy at ${gatewayUrl} within ${getGatewayHealthTimeoutMs()}ms.`,
         );
+        console.error(`[desktop] ManagedChild: Gateway did not become healthy. pid=${gatewayState.childPid}`);
         return;
       }
 
@@ -685,6 +782,18 @@ async function loadRenderer(window: BrowserWindow): Promise<void> {
   }
 
   await window.loadFile(getPlaceholderPath());
+}
+
+async function startNormalFlow(): Promise<void> {
+  await initializeGatewayRuntime();
+  await createMainWindow();
+  ensureTray();
+  registerGlobalShortcut();
+  await flushPendingExternalLaunchTargets();
+
+  if (isSmokeMode()) {
+    await runSmokeValidation();
+  }
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
@@ -987,6 +1096,7 @@ app.on("will-quit", () => {
 });
 
 app.whenReady().then(async () => {
+  setupFileLogging();
   registerDesktopBridge();
 
   // Handle quick approve/reject actions triggered from macOS notification banners.
@@ -999,20 +1109,12 @@ app.whenReady().then(async () => {
     },
   );
 
-  await initializeGatewayRuntime();
-  await createMainWindow();
-  ensureTray();
-  registerGlobalShortcut();
-  await flushPendingExternalLaunchTargets();
-
-  if (isSmokeMode()) {
-    await runSmokeValidation();
-    return;
-  }
-
   app.on("activate", async () => {
     await showMainWindow();
   });
+
+  console.log(`[desktop] workspaceRoot=${getUserWorkspaceRoot()} gatewayUrl=${runtimeConfig.gatewayUrl} lifecycleMode=${runtimeConfig.gatewayLifecycleMode}`);
+  await startNormalFlow();
 });
 
 app.on("window-all-closed", () => {

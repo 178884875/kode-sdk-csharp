@@ -271,6 +271,129 @@
   gap: 8px;
 }
 
+/* KC-BUG-303: model switch confirm banner */
+.kc-chat-banner {
+  flex-shrink: 0;
+}
+
+.kc-chat-confirm-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--warning-soft);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.kc-chat-confirm-banner__icon {
+  flex-shrink: 0;
+  color: var(--warning);
+}
+
+.kc-chat-confirm-banner__body {
+  flex: 1;
+  color: var(--text-secondary);
+}
+
+.kc-chat-confirm-banner__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.kc-chat-confirm-banner__btn {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity var(--duration-fast);
+  border: 1px solid transparent;
+}
+
+.kc-chat-confirm-banner__btn--cancel {
+  background: transparent;
+  border-color: var(--border-medium);
+  color: var(--text-secondary);
+}
+
+.kc-chat-confirm-banner__btn--cancel:hover {
+  background: var(--bg-hover);
+}
+
+.kc-chat-confirm-banner__btn--ok {
+  background: var(--accent);
+  color: #fff;
+}
+
+.kc-chat-confirm-banner__btn--ok:hover {
+  background: var(--accent-hover);
+}
+
+/* KC-BUG-302: stream interrupt confirm in session history panel */
+.session-history-interrupt-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin: var(--space-2) var(--space-2) 0;
+  background: var(--warning-soft);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+}
+
+.session-history-interrupt-confirm__icon {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+
+.session-history-interrupt-confirm__body {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.session-history-interrupt-confirm__actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.session-history-interrupt-confirm__btn {
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity var(--duration-fast);
+}
+
+.session-history-interrupt-confirm__btn--cancel {
+  background: transparent;
+  border-color: var(--border-medium);
+  color: var(--text-secondary);
+}
+
+.session-history-interrupt-confirm__btn--cancel:hover {
+  background: var(--bg-hover);
+}
+
+.session-history-interrupt-confirm__btn--ok {
+  background: var(--accent);
+  color: #fff;
+}
+
+.session-history-interrupt-confirm__btn--ok:hover {
+  background: var(--accent-hover);
+}
+
+.session-history-item--pending {
+  opacity: 0.7;
+}
+
 .kc-chat-timeline {
   flex: 1;
   overflow-y: auto;
@@ -733,12 +856,140 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
-  padding: var(--space-3) 0;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .settings-toggle-row:last-of-type {
   border-bottom: none;
+}
+
+/* ── Toggle switch ── */
+.kc-toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.kc-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.kc-toggle__track {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--border-medium);
+  cursor: pointer;
+  transition: background var(--duration-base);
+}
+
+.kc-toggle__track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: transform var(--duration-base) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.kc-toggle input:checked + .kc-toggle__track {
+  background: var(--accent);
+}
+
+.kc-toggle input:checked + .kc-toggle__track::after {
+  transform: translateX(16px);
+}
+
+.kc-toggle input:focus-visible + .kc-toggle__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.kc-toggle input:disabled + .kc-toggle__track {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ── SystemSection danger rows ── */
+.settings-danger-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(220, 38, 38, 0.15);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+.settings-danger-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.1);
+}
+
+.settings-danger-row:last-child {
+  border-bottom: none;
+}
+
+.settings-danger-row:first-child {
+  background: rgba(220, 38, 38, 0.02);
+}
+
+/* ── RiskSummaryCard metrics grid ── */
+.risk-summary__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: var(--space-4);
+}
+
+.risk-summary__metric-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  transition: border-color var(--duration-fast);
+}
+
+.risk-summary__metric-card--warn {
+  border-color: rgba(202, 138, 4, 0.3);
+  background: var(--warning-soft);
+}
+
+.risk-summary__metric-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.risk-summary__metric-value {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.risk-summary__metric-value--warn {
+  color: var(--warning);
 }
 
 

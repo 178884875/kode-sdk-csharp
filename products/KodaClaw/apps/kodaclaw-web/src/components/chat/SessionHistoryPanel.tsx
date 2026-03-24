@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { History, X, RotateCcw } from 'lucide-react';
+import { History, X, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useSessionHistory } from '../../hooks/useSessionHistory';
+import { useLocaleText } from '../../i18n/I18nProvider';
 import type { SessionSummary } from '../../types/contracts';
 
 type Props = {
   activeSessionId?: string | null;
-  onResumed: () => void;
+  isStreaming?: boolean;
+  onResumed: (sessionId: string) => void;
 };
 
 function formatRelativeTime(isoString?: string | null): string {
@@ -30,13 +32,46 @@ function StatusBadge({ status }: { status: SessionSummary['status'] }) {
   return <span className={cls}>{label}</span>;
 }
 
-export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
+export function SessionHistoryPanel({ activeSessionId, isStreaming, onResumed }: Props) {
   const [open, setOpen] = useState(false);
+  const [pendingResumeSessionId, setPendingResumeSessionId] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const { sessions, isLoading, error, isResuming, resumeError, resume } = useSessionHistory(() => {
-    setOpen(false);
-    onResumed();
+
+  const text = useLocaleText({
+    zh: {
+      title: '历史会话',
+      close: '关闭',
+      loading: '加载中…',
+      empty: '暂无历史会话',
+      resume: '恢复',
+      current: '当前',
+      streamInterruptBody: 'Koda 正在回复中，确认中断并切换到此会话？',
+      confirmOk: '确认中断',
+      confirmCancel: '取消',
+    },
+    en: {
+      title: 'Session History',
+      close: 'Close',
+      loading: 'Loading…',
+      empty: 'No sessions yet',
+      resume: 'Resume',
+      current: 'Current',
+      streamInterruptBody: 'Koda is responding. Interrupt and switch to this session?',
+      confirmOk: 'Interrupt',
+      confirmCancel: 'Cancel',
+    },
   });
+
+  const { sessions, isLoading, error, isResuming, resumeError, resume, load } = useSessionHistory((resumedSessionId: string) => {
+    setOpen(false);
+    setPendingResumeSessionId(null);
+    onResumed(resumedSessionId);
+  });
+
+  // Load on open
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
 
   // Close on outside click
   useEffect(() => {
@@ -44,11 +79,20 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
     function handleClick(e: MouseEvent) {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setPendingResumeSessionId(null);
       }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [open]);
+
+  function handleResumeClick(sessionId: string) {
+    if (isStreaming) {
+      setPendingResumeSessionId(sessionId);
+    } else {
+      resume(sessionId);
+    }
+  }
 
   return (
     <div className="session-history-root" ref={panelRef}>
@@ -57,7 +101,7 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
         title="历史会话"
         aria-label="历史会话"
         aria-expanded={open}
-        onClick={() => setOpen(prev => !prev)}
+        onClick={() => { setOpen(prev => !prev); setPendingResumeSessionId(null); }}
       >
         <History size={16} strokeWidth={1.75} />
       </button>
@@ -65,14 +109,37 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
       {open && (
         <div className="session-history-panel" data-testid="session-history-panel">
           <div className="session-history-panel__header">
-            <span className="session-history-panel__title">历史会话</span>
-            <button className="session-history-panel__close" onClick={() => setOpen(false)} aria-label="关闭">
+            <span className="session-history-panel__title">{text.title}</span>
+            <button className="session-history-panel__close" onClick={() => { setOpen(false); setPendingResumeSessionId(null); }} aria-label={text.close}>
               <X size={14} strokeWidth={1.75} />
             </button>
           </div>
 
+          {/* KC-BUG-302: stream interrupt confirm banner */}
+          {pendingResumeSessionId && (
+            <div className="session-history-interrupt-confirm">
+              <AlertTriangle size={13} strokeWidth={2} className="session-history-interrupt-confirm__icon" />
+              <span className="session-history-interrupt-confirm__body">{text.streamInterruptBody}</span>
+              <div className="session-history-interrupt-confirm__actions">
+                <button
+                  className="session-history-interrupt-confirm__btn session-history-interrupt-confirm__btn--cancel"
+                  onClick={() => setPendingResumeSessionId(null)}
+                >
+                  {text.confirmCancel}
+                </button>
+                <button
+                  className="session-history-interrupt-confirm__btn session-history-interrupt-confirm__btn--ok"
+                  disabled={isResuming}
+                  onClick={() => resume(pendingResumeSessionId)}
+                >
+                  {text.confirmOk}
+                </button>
+              </div>
+            </div>
+          )}
+
           {isLoading && sessions.length === 0 && (
-            <div className="session-history-panel__empty">加载中…</div>
+            <div className="session-history-panel__empty">{text.loading}</div>
           )}
           {error && (
             <div className="session-history-panel__empty session-history-panel__empty--error">{error}</div>
@@ -82,17 +149,18 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
           )}
 
           {sessions.length === 0 && !isLoading && !error && (
-            <div className="session-history-panel__empty">暂无历史会话</div>
+            <div className="session-history-panel__empty">{text.empty}</div>
           )}
 
           <ul className="session-history-list" role="list">
             {sessions.map(session => {
               const isCurrent = session.sessionId === activeSessionId;
+              const isPending = session.sessionId === pendingResumeSessionId;
               return (
-                <li key={session.sessionId} className={`session-history-item${isCurrent ? ' session-history-item--current' : ''}`}>
+                <li key={session.sessionId} className={`session-history-item${isCurrent ? ' session-history-item--current' : ''}${isPending ? ' session-history-item--pending' : ''}`}>
                   <div className="session-history-item__meta">
                     <StatusBadge status={session.status} />
-                    {isCurrent && <span className="session-history-item__current-label">当前</span>}
+                    {isCurrent && <span className="session-history-item__current-label">{text.current}</span>}
                   </div>
                   <div className="session-history-item__title">
                     {session.title ?? `${session.sessionId.slice(0, 8)}…`}
@@ -104,11 +172,11 @@ export function SessionHistoryPanel({ activeSessionId, onResumed }: Props) {
                     <button
                       className="session-history-item__resume"
                       disabled={isResuming}
-                      onClick={() => resume(session.sessionId)}
-                      title="恢复此会话"
+                      onClick={() => handleResumeClick(session.sessionId)}
+                      title={text.resume}
                     >
                       <RotateCcw size={13} strokeWidth={1.75} />
-                      恢复
+                      {text.resume}
                     </button>
                   )}
                 </li>

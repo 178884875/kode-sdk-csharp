@@ -16,6 +16,8 @@ public interface IChannelSessionService
         ChannelEventEnvelope envelope,
         bool hasExplicitMention,
         CancellationToken cancellationToken = default);
+
+    Task EvictSessionAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

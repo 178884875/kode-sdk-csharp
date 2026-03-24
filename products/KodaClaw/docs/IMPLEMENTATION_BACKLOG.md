@@ -2,6 +2,36 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 50 — Channel DM 主会话等价升级 + Session Reset 命令（2026-03-24）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5001 | Runtime | `EffectivePolicyScope` DM 分支：`LoadLongTermMemory = true`；`LoadContextDocumentsAsync` 加载今日 + 昨日 daily memory；DM system prompt 对齐主会话全量上下文 | `dotnet test --filter ChannelSessionDmScopeTests` | Completed |
+| KC-5002 | Runtime | `ChannelSessionService` timeout 判断改为仅 Group 触发；DM session 无超期限制，连续性语义对齐主会话 | `dotnet test --filter ChannelSessionDmScopeTests` | Completed |
+| KC-5003 | Runtime | DM 沙箱 `WorkingDirectory` 改为 `workspace root`；DM 工具列表追加 `workspace_protocol_update` + `workspace_memory_append` | `dotnet test --filter ChannelSessionDmScopeTests` | Completed |
+| KC-5004 | ChannelHub | `ChannelTurnOrchestrator` 入口硬匹配 `/new`、`/clear`、`/reset`；命中后调 `IChannelSessionService.EvictSessionAsync`，直接回复"已开启新会话"，不进 agent；Telegram 和 WeChat 统一逻辑 | `dotnet test --filter SessionResetCommandTests` | Completed |
+| KC-5005 | Tests | `ChannelSessionDmScopeTests`（L1，10 个）+ `SessionResetCommandTests`（L1，13 个）+ 既有集成测试更新（2 个）；新增失败 0 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 49 — 桌面安装包 + 首次启动引导（2026-03-24）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-4901 | kodaclaw-desktop | `electron-builder.release.json`：mac dmg / win nsis / linux AppImage，`extraResources` 引用 `publish/gateway-${platform}` 目录 | `npm run typecheck`（desktop）| Completed |
+| KC-4902 | kodaclaw-desktop | `resolveGatewayCommand()` 打包分支：`app.isPackaged` 时从 `process.resourcesPath/gateway/KodaClaw.Gateway[.exe]` 启动；`spawnManagedGateway()` 注入 `KODACLAW_WORKSPACE_ROOT` + 从 `~/.kodaclaw/.env` 读取并透传 API Key 环境变量 | `npm run typecheck` | Completed |
+| KC-4903 | kodaclaw-desktop | `isFirstRun()` 检测（`~/.kodaclaw/` 不存在）；`app.whenReady()` 流程分叉：首次运行打开 onboarding 窗口，跳过 Gateway 启动；IPC handler `kodaclaw:setup-complete` 创建 workspace 目录结构、写 `~/.kodaclaw/.env`、关闭 onboarding、启动 Gateway + 主窗口 | `npm run typecheck` | Completed |
+| KC-4904 | kodaclaw-desktop | `onboarding.html`（纯 HTML/CSS/JS）：provider 卡片选择（Anthropic/OpenAI）+ API Key 输入 + "开始使用"按钮；`preload.ts` 暴露 `window.kodaclawSetup.complete()` | 手动打开 onboarding.html 验证 UI | Completed |
+| KC-4905 | Makefile | `package-gateway-{mac,mac-x64,win,linux}` dotnet publish 目标；`build-web-prod` 前端构建目标；`package-{mac,win,linux}` 完整打包流水线；`package` 自动检测当前平台；`.gitignore` 补 `publish/` | `make package-mac`（本地 macOS）| Completed |
+
+## Iter 48 — Session 保留策略与存储管理（2026-03-24）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-4801 | Contracts | `WorkspaceAppConfig` 新增 `AutoSessionRetentionDays`（默认 30）/ `AutoSessionRetentionMaxPerTask`（默认 20）；`StorageUsageResponse` + `SessionTypeUsage` DTO | `dotnet build` 0 错 | Completed |
+| KC-4802 | Gateway | `SessionRetentionService`：扫描 `auto-*` 文件夹，按任务名分组，保留最近 N 次且不超过 D 天，跳过无 `meta.json` 的（执行中），删除其余；`SessionRetentionHostedService` 启动时 + 每天凌晨 3 点触发 | `dotnet test --filter SessionRetentionServiceTests` | Completed |
+| KC-4803 | Gateway | `GET /api/system/storage-usage`（三类 session 数量 + 字节）；`DELETE /api/sessions/main/{id}`（禁删活跃 session，禁删非 main- 前缀） | `dotnet test --filter StorageUsageEndpointTests,DeleteMainSessionTests` | Completed |
+| KC-4804 | kodaclaw-web | Settings Desk 新增"存储"分区：三类 session 用量展示；`main-*` 列表支持单条删除（活跃 session 置灰）；`auto-*` 显示自动清理策略说明 | `npm run typecheck` | Completed |
+| KC-4805 | Tests | `SessionRetentionServiceTests`（L1，8 个全绿）+ `StorageUsageContractTests`（L3，4 个全绿）+ `DeleteMainSessionIntegrationTests`（L2，5 个全绿，含 token 验证）；修复 WeChat stub 预存失败（2 接口方法 + 1 类型错误） | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 46 — 微信个人号渠道接入（2026-03-23）
 
 | 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
@@ -1547,6 +1577,36 @@
   - Modules：`apps/kodaclaw-web`。
   - Verification：L0 typecheck；L1 Vitest：`modelCapabilities` 无 Vision → 附件按钮不渲染；`attachedMedia=[{...}]` → 预览区渲染对应数量缩略图；L5 Dogfood：Claude 3.5 Sonnet 附图发送 → Agent 正确描述图片内容。
   - Verification：L0 `npm run typecheck` ✓；L0 `dotnet build` 0 错 0 警告 ✓。
+
+## Iter 47：Chat 会话三项 Bug 修复（KC-BUG-301~303）
+
+- `KC-BUG-301`：`Completed`（2026-03-24）。
+  - 症状：SessionHistoryPanel 点击"恢复"后，消息清空但历史消息永远不加载，只剩系统提示"已恢复会话"。
+  - 根因：`useGatewaySnapshot` 不轮询，`snapshot.activeMainSessionId` 永不更新，导致 `loadHistory` 触发条件永远不满足；`onResumed` 回调无参数丢失 sessionId。
+  - 受影响模块：`apps/kodaclaw-web`（`useSessionHistory.ts`、`SessionHistoryPanel.tsx`、`App.tsx`）
+  - Scope：`onResumed` 回调链改为带 `sessionId: string`；`handleResumeSession(sessionId)` 直接调 `loadHistory(sessionId)` + `refresh()`；不依赖 snapshot 变化触发。
+  - Verification：`npm run typecheck` ✓；L5 Dogfood：恢复历史会话后历史消息正确加载。
+
+- `KC-BUG-302`：`Completed`（2026-03-24）。
+  - 症状：Koda 流式输出时用户 resume/rotate 会话，旧流的 `tool_activity`/`approval_required` 事件仍追加到清空后的消息列表，出现幽灵消息。
+  - 根因：`sendMessage` 未给 `streamChatEvents` 传 `AbortSignal`，`clearMessages` 不通知进行中的流。
+  - 受影响模块：`apps/kodaclaw-web`（`useChatConsole.ts`、`SessionHistoryPanel.tsx`）
+  - Scope：`useChatConsole` 加 `streamAbortRef`；`sendMessage` 每次创建 `AbortController` 传入流；`clearMessages` abort 当前流；catch 过滤 `AbortError`；SessionHistoryPanel 恢复时若 `isStreaming` 为真则先弹内联 confirm banner。
+  - Verification：`npm run typecheck` ✓；L5 Dogfood：流进行中 resume，弹确认；确认后流中断，历史正确加载。
+
+- `KC-BUG-304`：`Completed`（2026-03-24）。
+  - 症状：恢复历史会话后，历史消息顺序颠倒——最新消息显示在最上方，最旧消息在 separator 正上方。
+  - 根因：后端 `LoadSessionMessagesAsync` 以最新优先（`Reverse().Skip().Take()`）返回；前端 `prependHistory` / `loadMoreHistory` 直接使用该顺序 prepend，导致每批消息内部倒序。
+  - 受影响模块：`apps/kodaclaw-web`（`useChatConsole.ts`）
+  - Scope：`prependHistory` 和 `loadMoreHistory` 在 map 前加 `[...items].reverse()`，还原时序后再 prepend。
+  - Verification：`npm run typecheck` ✓；L5 Dogfood：恢复历史会话，消息按时间从旧到新正确排列。
+
+- `KC-BUG-303`：`Completed`（2026-03-24）。
+  - 症状：composer model pill 切换模型后，前端显示新模型名，但后端 `_agents` 命中缓存，实际仍用旧模型回复。
+  - 根因：`MainSessionService` 缓存命中时不重新解析模型；`setDefaultModelEndpoint` 只改 DB，不重置 session。
+  - 受影响模块：`apps/kodaclaw-web`（`App.tsx`）
+  - Scope（Option A2）：`handleModelChange` 切换成功后弹内联 confirm `"切换模型将开始新会话，继续？"`；确认后 `rotateSession()` + `clearMessages("已切换为 [model]，已开始新会话")`；取消后回滚 pill 到旧 model。
+  - Verification：`npm run typecheck` ✓；L5 Dogfood：切换模型 → confirm → 新会话 → 实际使用新模型回复。
 
 ## 自动化任务 per-model 配置（KC-BUG-204 / 优化）
 

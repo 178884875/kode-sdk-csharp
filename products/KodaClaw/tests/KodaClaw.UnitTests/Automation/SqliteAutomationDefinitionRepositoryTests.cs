@@ -142,6 +142,29 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
     }
 
     [Fact]
+    public async Task Upsert_should_reject_minutes_schedule_with_interval_below_minimum()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        var repository = CreateRepository(workspace.Path);
+        var definition = BuildDefinition(
+            id: "auto-invalid-minutes",
+            source: AutomationDefinitionSource.Manual,
+            enabled: true,
+            now: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero)) with
+        {
+            Schedule = new AutomationSchedule(
+                Kind: AutomationScheduleKind.Minutes,
+                Interval: 4,
+                LocalTime: null,
+                DaysOfWeek: null),
+        };
+
+        var action = () => repository.UpsertAsync(definition);
+
+        await action.Should().ThrowAsync<ArgumentException>().Where(ex => ex.ParamName == "Schedule");
+    }
+
+    [Fact]
     public async Task Upsert_should_reject_weekly_schedule_without_days()
     {
         using var workspace = new TempWorkspaceRoot();
