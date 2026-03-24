@@ -307,6 +307,45 @@ public sealed class SqliteModelRegistryRepository : IModelRegistryRepository
                 """;
             await command.ExecuteNonQueryAsync(cancellationToken);
 
+            // Migration: add api_key_secret_ref column if not present.
+            await using var migrateApiKeySecretRef = connection.CreateCommand();
+            migrateApiKeySecretRef.CommandText =
+                $"ALTER TABLE {TableName} ADD COLUMN api_key_secret_ref TEXT;";
+            try
+            {
+                await migrateApiKeySecretRef.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
+            // Migration: add capabilities column if not present.
+            await using var migrateCapabilities = connection.CreateCommand();
+            migrateCapabilities.CommandText =
+                $"ALTER TABLE {TableName} ADD COLUMN capabilities INTEGER;";
+            try
+            {
+                await migrateCapabilities.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
+            // Migration: add context_window_size column if not present.
+            await using var migrateContextWindowSize = connection.CreateCommand();
+            migrateContextWindowSize.CommandText =
+                $"ALTER TABLE {TableName} ADD COLUMN context_window_size INTEGER NOT NULL DEFAULT 128000;";
+            try
+            {
+                await migrateContextWindowSize.ExecuteNonQueryAsync(cancellationToken);
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Column already exists — idempotent migration.
+            }
+
             // Migration: add max_output_tokens column if not present (introduced in KC-4302).
             await using var migrateMaxOutput = connection.CreateCommand();
             migrateMaxOutput.CommandText =

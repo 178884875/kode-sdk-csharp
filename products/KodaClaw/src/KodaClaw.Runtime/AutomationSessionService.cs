@@ -241,7 +241,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             Permissions = _options.Permissions,
             SandboxOptions = new SandboxOptions
             {
-                WorkingDirectory = sessionDirectory,
+                WorkingDirectory = _workspaceService.RootPath,
                 EnforceBoundary = true,
                 AllowPaths = skillsPaths,
             },

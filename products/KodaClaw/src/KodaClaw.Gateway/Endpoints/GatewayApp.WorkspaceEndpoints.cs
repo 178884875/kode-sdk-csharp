@@ -86,6 +86,9 @@ public static partial class GatewayApp
                 eventType: "gateway.workspace.file_updated", level: "info",
                 message: $"Workspace file updated: {target}.",
                 attributes: new Dictionary<string, string?> { ["target"] = target });
+            await workspaceService.TryCommitWorkspaceAsync(
+                $"workspace({target})[user/settings-desk]: edit via Settings Desk",
+                cancellationToken);
             return Results.Ok(new WorkspaceFileResponse(Target: target, Content: body.Content ?? string.Empty));
         });
 

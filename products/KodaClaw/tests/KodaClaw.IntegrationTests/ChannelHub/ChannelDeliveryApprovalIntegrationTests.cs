@@ -147,6 +147,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
     private static ServiceProvider CreateServiceProvider(string workspaceRoot, FakeTelegramApiClient fakeTelegramApiClient)
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
         services.AddKodaClawControlPlane();
         services.AddSingleton<ITelegramApiClient>(fakeTelegramApiClient);

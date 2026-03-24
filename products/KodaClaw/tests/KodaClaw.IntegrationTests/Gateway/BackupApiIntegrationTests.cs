@@ -10,8 +10,10 @@ using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.ModelHub;
 using KodaClaw.PluginHost.Registry;
+using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Gateway;
@@ -450,6 +452,10 @@ public sealed class BackupApiIntegrationTests
                 {
                     services.AddSingleton<ISecretStore>(secretStore);
                 }
+                // Replace with no-op to prevent HeartbeatFileWatcherHostedService from
+                // creating automations that make the workspace non-pristine for import checks.
+                services.Replace(ServiceDescriptor.Singleton<IHeartbeatSyncService>(
+                    _ => new NoOpHeartbeatSyncService()));
             },
             configureConfiguration: configuration =>
             {
@@ -459,6 +465,12 @@ public sealed class BackupApiIntegrationTests
                 });
             },
             useTestWorkspaceService: false);
+    }
+
+    private sealed class NoOpHeartbeatSyncService : IHeartbeatSyncService
+    {
+        public Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HeartbeatSyncResult(0, 0, false));
     }
 
     private static async Task SeedSourceWorkspaceAsync(

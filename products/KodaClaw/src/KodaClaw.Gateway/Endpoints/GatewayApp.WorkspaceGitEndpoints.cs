@@ -1,0 +1,99 @@
+using KodaClaw.Contracts;
+using KodaClaw.Gateway;
+using KodaClaw.Workspace;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
+
+public static partial class GatewayApp
+{
+    private static void MapWorkspaceGitEndpoints(WebApplication app)
+    {
+        var git = app.MapGroup("/api/workspace/git");
+
+        git.MapGet("/log", async (
+            HttpContext context,
+            int? limit,
+            IConfiguration configuration,
+            IWorkspaceGitService gitService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
+                    eventType: "gateway.auth.failed", level: "warning",
+                    message: "Unauthorized access to workspace git log endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var commits = await gitService.GetRecentCommitsAsync(limit ?? 50, cancellationToken);
+            return Results.Ok(new WorkspaceGitLogResponse(commits));
+        });
+
+        git.MapGet("/diff/{hash}", async (
+            HttpContext context,
+            string hash,
+            IConfiguration configuration,
+            IWorkspaceGitService gitService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
+                    eventType: "gateway.auth.failed", level: "warning",
+                    message: "Unauthorized access to workspace git diff endpoint.");
+                return Results.Unauthorized();
+            }
+
+            var diff = await gitService.GetCommitDiffAsync(hash, cancellationToken);
+            return Results.Text(diff, contentType: "text/plain");
+        });
+
+        git.MapPost("/revert-file", async (
+            HttpContext context,
+            WorkspaceGitRevertFileRequest body,
+            IConfiguration configuration,
+            IWorkspaceGitService gitService,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
+                    eventType: "gateway.auth.failed", level: "warning",
+                    message: "Unauthorized access to workspace git revert-file endpoint.");
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var newHash = await gitService.RevertFileToCommitAsync(
+                    body.Hash, body.FilePath, cancellationToken);
+                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.workspace.git",
+                    eventType: "gateway.workspace.git.file_reverted", level: "info",
+                    message: $"Workspace file reverted: {body.FilePath} to {body.Hash[..Math.Min(7, body.Hash.Length)]}.",
+                    attributes: new Dictionary<string, string?>
+                    {
+                        ["filePath"] = body.FilePath,
+                        ["targetHash"] = body.Hash,
+                        ["newHash"] = newHash,
+                    });
+                return Results.Ok(new WorkspaceGitRevertFileResponse(newHash));
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "workspace.git.invalid_path",
+                    Message: ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new ErrorResponse(
+                    Code: "workspace.git.revert_failed",
+                    Message: ex.Message));
+            }
+        });
+    }
+}

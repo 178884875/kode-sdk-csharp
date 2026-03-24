@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import {
   User, Brain, Zap, Radio, Globe, Shield, RefreshCw, AlertTriangle,
-  Palette, Bell, SlidersHorizontal, HardDrive,
+  Palette, Bell, SlidersHorizontal, HardDrive, History,
 } from 'lucide-react';
 import { LocaleToggle } from './LocaleToggle';
 import { WorkspaceIdentityEditor } from './settings/WorkspaceIdentityEditor';
@@ -14,6 +14,7 @@ import { NotificationsSection } from './settings/NotificationsSection';
 import { SystemSection } from './settings/SystemSection';
 import { UpdatesSection } from './settings/UpdatesSection';
 import { StorageSection } from './settings/StorageSection';
+import { HistorySection } from './settings/HistorySection';
 import { RiskSummaryCard } from './settings/RiskSummaryCard';
 import { useLocaleText } from '../i18n/I18nProvider';
 
@@ -22,7 +23,7 @@ type SectionId =
   | 'heartbeat' | 'behavior'
   | 'connections'
   | 'appearance' | 'notifications' | 'preferences'
-  | 'system' | 'updates' | 'risk' | 'storage';
+  | 'system' | 'updates' | 'risk' | 'storage' | 'history';
 
 const STROKE = 1.75;
 const ICON_SIZE = 16;
@@ -51,6 +52,7 @@ export function SettingsDesk() {
         updates: '更新',
         risk: '风险简报',
         storage: '存储',
+        history: '变更历史',
       },
     },
     en: {
@@ -75,6 +77,7 @@ export function SettingsDesk() {
         updates: 'Updates',
         risk: 'Risk',
         storage: 'Storage',
+        history: 'Change History',
       },
     },
   });
@@ -94,6 +97,7 @@ export function SettingsDesk() {
     updates:       useRef<HTMLDivElement | null>(null),
     risk:          useRef<HTMLDivElement | null>(null),
     storage:       useRef<HTMLDivElement | null>(null),
+    history:       useRef<HTMLDivElement | null>(null),
   };
 
   const contentRef = useRef<HTMLDivElement>(null);
@@ -166,6 +170,7 @@ export function SettingsDesk() {
       groupLabel: text.nav.groupAdmin,
       items: [
         { id: 'storage', icon: <HardDrive size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.storage },
+        { id: 'history', icon: <History size={ICON_SIZE} strokeWidth={STROKE} />,       label: text.nav.history },
         { id: 'system',  icon: <Shield size={ICON_SIZE} strokeWidth={STROKE} />,        label: text.nav.system },
         { id: 'updates', icon: <RefreshCw size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.updates },
         { id: 'risk',    icon: <AlertTriangle size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.risk },
@@ -239,6 +244,10 @@ export function SettingsDesk() {
 
         <div ref={refs.storage} data-section="storage" className="settings-split__anchor">
           <StorageSection />
+        </div>
+
+        <div ref={refs.history} data-section="history" className="settings-split__anchor">
+          <HistorySection />
         </div>
 
         <div ref={refs.system} data-section="system" className="settings-split__anchor">

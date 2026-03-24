@@ -1588,5 +1588,9 @@ internal sealed class WorkspaceBackupService
 
         public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        // Backup/restore paths don't participate in git versioning.
+        public Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
     }
 }

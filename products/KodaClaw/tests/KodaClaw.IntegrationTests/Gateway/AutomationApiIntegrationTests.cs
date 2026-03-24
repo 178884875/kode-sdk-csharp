@@ -8,6 +8,7 @@ using KodaClaw.Contracts;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Gateway;
@@ -166,6 +167,13 @@ public sealed class AutomationApiIntegrationTests
             workspaceSnapshot: GatewayAuthIntegrationTests.CreateSnapshot(
                 requiresBootstrap: false,
                 rootPath: workspaceRoot),
+            configureServices: services =>
+            {
+                // Replace with no-op to prevent HeartbeatFileWatcherHostedService from
+                // deleting the seeded test automations on startup.
+                services.Replace(ServiceDescriptor.Singleton<IHeartbeatSyncService>(
+                    _ => new NoOpHeartbeatSyncService()));
+            },
             configureConfiguration: configuration =>
             {
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
@@ -174,6 +182,12 @@ public sealed class AutomationApiIntegrationTests
                 });
             },
             useTestWorkspaceService: false);
+    }
+
+    private sealed class NoOpHeartbeatSyncService : IHeartbeatSyncService
+    {
+        public Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HeartbeatSyncResult(0, 0, false));
     }
 
     private static AutomationDefinition CreateAutomationDefinition(

@@ -438,14 +438,11 @@ public static partial class GatewayApp
             {
                 var allEndpoints = await modelRegistryRepository.ListAsync(cancellationToken);
                 var nextDefault = allEndpoints.FirstOrDefault(e => e.Id != id && e.Enabled);
-                if (nextDefault is null)
+                if (nextDefault is not null)
                 {
-                    return Results.Conflict(new ErrorResponse(
-                        Code: "model_endpoint.cannot_delete_only_default",
-                        Message: "Cannot delete the only default model endpoint. Add another enabled endpoint first."));
+                    await modelRegistryRepository.SetDefaultAsync(nextDefault.Id, DateTimeOffset.UtcNow, cancellationToken);
                 }
-
-                await modelRegistryRepository.SetDefaultAsync(nextDefault.Id, DateTimeOffset.UtcNow, cancellationToken);
+                // If no other endpoint exists, allow deleting the last model without reassigning default.
             }
 
             var deleted = await modelRegistryRepository.DeleteAsync(id, cancellationToken);

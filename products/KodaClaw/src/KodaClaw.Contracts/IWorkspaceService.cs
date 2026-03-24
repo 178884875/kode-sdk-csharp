@@ -19,4 +19,11 @@ public interface IWorkspaceService
     Task<WorkspaceMcpConfig> ReadMcpConfigAsync(CancellationToken cancellationToken = default);
 
     Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Stages tracked workspace files and commits with the given message.
+    /// No-op (returns false) when git is not initialised or there is nothing to commit.
+    /// Never throws.
+    /// </summary>
+    Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default);
 }

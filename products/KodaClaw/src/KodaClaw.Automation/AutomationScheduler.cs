@@ -466,17 +466,17 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
     private static DateTimeOffset ComputeNextDailyRun(AutomationSchedule schedule, DateTimeOffset now)
     {
-        // Use machine local time so that LocalTime="09:00" fires at 09:00 local, not 09:00 UTC.
-        var localNow = now.ToLocalTime();
+        // Use UTC so that LocalTime="09:00" is interpreted as 09:00 UTC regardless of server timezone.
+        var utcNow = now.ToUniversalTime();
         var localTime = ParseLocalTime(schedule.LocalTime);
         var candidate = new DateTimeOffset(
-            localNow.Year,
-            localNow.Month,
-            localNow.Day,
+            utcNow.Year,
+            utcNow.Month,
+            utcNow.Day,
             localTime.Hour,
             localTime.Minute,
             0,
-            localNow.Offset);
+            TimeSpan.Zero);
         if (candidate <= now)
         {
             candidate = candidate.AddDays(1);
@@ -487,15 +487,15 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
     private static DateTimeOffset ComputeNextWeeklyRun(AutomationSchedule schedule, DateTimeOffset now)
     {
-        // Use machine local time so that LocalTime="09:00" fires at 09:00 local, not 09:00 UTC.
-        var localNow = now.ToLocalTime();
+        // Use UTC so that LocalTime="09:00" is interpreted as 09:00 UTC regardless of server timezone.
+        var utcNow = now.ToUniversalTime();
         var localTime = ParseLocalTime(schedule.LocalTime);
         // DaysOfWeek is validated non-empty by AutomationValidation.ValidateSchedule.
         var activeDays = schedule.DaysOfWeek!.ToHashSet();
 
         for (var offset = 0; offset <= 7; offset++)
         {
-            var date = localNow.Date.AddDays(offset);
+            var date = utcNow.Date.AddDays(offset);
             var day = ToScheduleDay(date.DayOfWeek);
             if (!activeDays.Contains(day))
             {
@@ -509,7 +509,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 localTime.Hour,
                 localTime.Minute,
                 0,
-                localNow.Offset);
+                TimeSpan.Zero);
             if (candidate > now)
             {
                 return candidate;

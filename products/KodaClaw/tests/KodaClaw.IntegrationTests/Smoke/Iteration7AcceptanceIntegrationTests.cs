@@ -18,6 +18,7 @@ using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Smoke;
@@ -211,6 +212,10 @@ public sealed class Iteration7AcceptanceIntegrationTests
                 configureServices: services =>
                 {
                     services.AddSingleton<ISecretStore>(targetSecretStore);
+                    // Replace with no-op to prevent HeartbeatFileWatcherHostedService from
+                    // creating automations that make the workspace non-pristine for import.
+                    services.Replace(ServiceDescriptor.Singleton<IHeartbeatSyncService>(
+                        _ => new NoOpHeartbeatSyncService()));
                 },
                 configureConfiguration: configuration =>
                 {
@@ -264,6 +269,10 @@ public sealed class Iteration7AcceptanceIntegrationTests
             configureServices: services =>
             {
                 services.AddSingleton<ISecretStore>(secretStore);
+                // Replace with no-op to prevent HeartbeatFileWatcherHostedService from
+                // creating automations that inflate the seeded workspace state.
+                services.Replace(ServiceDescriptor.Singleton<IHeartbeatSyncService>(
+                    _ => new NoOpHeartbeatSyncService()));
             },
             configureConfiguration: configuration =>
             {
@@ -652,5 +661,11 @@ public sealed class Iteration7AcceptanceIntegrationTests
                 Directory.Delete(Path, recursive: true);
             }
         }
+    }
+
+    private sealed class NoOpHeartbeatSyncService : IHeartbeatSyncService
+    {
+        public Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HeartbeatSyncResult(0, 0, false));
     }
 }

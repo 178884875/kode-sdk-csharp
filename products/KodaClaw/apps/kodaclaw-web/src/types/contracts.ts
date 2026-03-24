@@ -1221,3 +1221,25 @@ export interface StorageUsageResponse {
   channel: SessionStorageUsage;
   totalSizeBytes: number;
 }
+
+export interface WorkspaceGitCommit {
+  hash: string;
+  shortHash: string;
+  message: string;
+  author: string;
+  committedAt: string;
+  changedFiles: string[];
+}
+
+export interface WorkspaceGitLogResponse {
+  commits: WorkspaceGitCommit[];
+}
+
+export interface WorkspaceGitRevertFileRequest {
+  hash: string;
+  filePath: string;
+}
+
+export interface WorkspaceGitRevertFileResponse {
+  newHash: string;
+}

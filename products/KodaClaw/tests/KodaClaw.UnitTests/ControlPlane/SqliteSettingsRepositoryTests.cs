@@ -143,6 +143,8 @@ public sealed class SqliteSettingsRepositoryTests
 
         public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+        public Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default) => Task.FromResult(false);
+
 
         private WorkspaceSnapshot CreateSnapshot(bool initialized = false)
         {

@@ -56,6 +56,10 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
 
         Emit(context, "workspace_memory_appended", new { date, path = filePath });
 
+        await _workspaceService.TryCommitWorkspaceAsync(
+            $"workspace(memory)[agent]: append daily {date}",
+            cancellationToken);
+
         return ToolResult.Ok(new { ok = true, date, path = filePath });
     }
 }

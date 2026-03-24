@@ -30,10 +30,13 @@ public sealed class WorkspaceService : IWorkspaceService
         KodaClawWorkspaceLayout.MediaDirectory,
     ];
 
-    public WorkspaceService(KodaClawWorkspaceOptions options)
+    private readonly IWorkspaceGitService? _git;
+
+    public WorkspaceService(KodaClawWorkspaceOptions options, IWorkspaceGitService? git = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         RootPath = options.ResolveRootPath();
+        _git = git;
     }
 
     public string RootPath { get; }
@@ -153,6 +156,9 @@ public sealed class WorkspaceService : IWorkspaceService
             DefaultWorkspaceTemplates.CanvasState(),
             cancellationToken);
 
+        if (_git is not null)
+            await _git.EnsureGitRepoAsync(cancellationToken);
+
         return await GetSnapshotAsync(cancellationToken);
     }
 
@@ -217,6 +223,11 @@ public sealed class WorkspaceService : IWorkspaceService
             return new WorkspaceMcpConfig();
         }
     }
+
+    public Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default) =>
+        _git is not null
+            ? _git.TryCommitAsync(message, cancellationToken)
+            : Task.FromResult(false);
 
     public async Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
     {

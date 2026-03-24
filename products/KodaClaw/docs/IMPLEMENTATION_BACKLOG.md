@@ -2,6 +2,17 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 51 — Workspace Git 版本管理（2026-03-24）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5101 | Contracts + Workspace | `WorkspaceGitCommit` / `WorkspaceGitLogResponse` / `WorkspaceGitRevertFileRequest` records；`IWorkspaceGitService` 接口；`LibGit2Sharp` NuGet 加入 `KodaClaw.Workspace` | `dotnet build` 0 错 | Completed |
+| KC-5102 | Workspace | `WorkspaceGitService` 实现：`EnsureGitRepoAsync`（幂等 init + 存量迁移 + `.gitignore` + `.gitattributes`）；`TryCommitAsync`（`SemaphoreSlim` 并发安全，空 diff 跳过，异常静默）；`GetRecentCommitsAsync` / `GetCommitDiffAsync` / `RevertFileToCommitAsync` | `dotnet test --filter WorkspaceGitServiceTests` | Completed |
+| KC-5103 | Workspace + Runtime | 4 个集成点 auto-commit：`EnsureInitializedAsync` → git init；`WorkspaceProtocolUpdateTool` → commit（source=agent）；`WorkspaceMemoryAppendTool` → commit（source=agent）；`PUT /api/workspace/file` → commit（source=user/settings-desk） | `dotnet test --filter WorkspaceGitIntegrationTests` | Completed |
+| KC-5104 | Gateway | `GatewayApp.WorkspaceGitEndpoints.cs`：`GET /api/workspace/git/log`、`GET /api/workspace/git/diff/{hash}`、`POST /api/workspace/git/revert-file`；DI 注册 `IWorkspaceGitService` | `dotnet test --filter WorkspaceGitEndpointTests` | Completed |
+| KC-5105 | kodaclaw-web | `api.ts` 加 3 个 git API；Settings Desk 新增 `HistorySection.tsx`（commit 时间线 + source badge + diff 展开 + 回滚按钮 + 隐私悖论告知文案） | `npm run typecheck` | Completed |
+| KC-5106 | Tests | `WorkspaceGitServiceTests`（L1，含并发安全）+ `WorkspaceGitContractTests`（L3）+ `WorkspaceGitIntegrationTests`（L2）；新增失败 0 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 50 — Channel DM 主会话等价升级 + Session Reset 命令（2026-03-24）
 
 | 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |

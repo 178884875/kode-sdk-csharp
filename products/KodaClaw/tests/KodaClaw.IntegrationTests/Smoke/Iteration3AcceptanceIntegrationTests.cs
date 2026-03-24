@@ -6,10 +6,12 @@ using FluentAssertions;
 using KodaClaw.Automation;
 using KodaClaw.Contracts;
 using KodaClaw.IntegrationTests.Gateway;
+using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace KodaClaw.IntegrationTests.Smoke;
@@ -130,6 +132,10 @@ public sealed class Iteration3AcceptanceIntegrationTests
             configureServices: services =>
             {
                 services.AddSingleton<IModelProvider>(new StubModelProvider());
+                // Replace with no-op to prevent HeartbeatFileWatcherHostedService from
+                // creating default automations that inflate RunOnceAsync() count.
+                services.Replace(ServiceDescriptor.Singleton<IHeartbeatSyncService>(
+                    _ => new NoOpHeartbeatSyncService()));
             },
             configureConfiguration: configuration =>
             {
@@ -141,6 +147,12 @@ public sealed class Iteration3AcceptanceIntegrationTests
                 });
             },
             useTestWorkspaceService: false);
+    }
+
+    private sealed class NoOpHeartbeatSyncService : IHeartbeatSyncService
+    {
+        public Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new HeartbeatSyncResult(0, 0, false));
     }
 
     private static AutomationDefinition CreateDefinition()

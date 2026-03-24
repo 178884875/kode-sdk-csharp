@@ -99,6 +99,11 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
             bytes = patched.Length,
         });
 
+        var sectionTag = string.IsNullOrWhiteSpace(args.Section) ? args.Target : $"{args.Target}/{args.Section}";
+        await _workspaceService.TryCommitWorkspaceAsync(
+            $"workspace({args.Target})[agent]: update {sectionTag}",
+            cancellationToken);
+
         return ToolResult.Ok(new { ok = true, target = args.Target, section = args.Section, path = filePath });
     }
 

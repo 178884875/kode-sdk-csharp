@@ -81,6 +81,9 @@ import {
   type SessionMessagesResponse,
   type MediaMeta,
   type PushToChannelResponse,
+  type WorkspaceGitLogResponse,
+  type WorkspaceGitRevertFileRequest,
+  type WorkspaceGitRevertFileResponse,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
@@ -1245,4 +1248,40 @@ export async function deleteMainSession(sessionId: string): Promise<void> {
     const err = await response.json().catch(() => ({})) as { message?: string };
     throw new Error(err.message ?? `Delete failed: ${response.status}`);
   }
+}
+
+export async function fetchWorkspaceGitLog(limit = 50): Promise<WorkspaceGitLogResponse> {
+  const response = await fetch(
+    resolveGatewayPath(`/api/workspace/git/log?limit=${limit}`),
+    { headers: buildHeaders() },
+  );
+  if (!response.ok) throw new Error(`Git log failed: ${response.status}`);
+  return readJson<WorkspaceGitLogResponse>(response);
+}
+
+export async function fetchWorkspaceGitDiff(hash: string): Promise<string> {
+  const response = await fetch(
+    resolveGatewayPath(`/api/workspace/git/diff/${encodeURIComponent(hash)}`),
+    { headers: buildHeaders() },
+  );
+  if (!response.ok) throw new Error(`Git diff failed: ${response.status}`);
+  return response.text();
+}
+
+export async function revertWorkspaceFile(
+  req: WorkspaceGitRevertFileRequest,
+): Promise<WorkspaceGitRevertFileResponse> {
+  const response = await fetch(
+    resolveGatewayPath("/api/workspace/git/revert-file"),
+    {
+      method: "POST",
+      headers: { ...buildHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    },
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({})) as { message?: string };
+    throw new Error(err.message ?? `Revert failed: ${response.status}`);
+  }
+  return readJson<WorkspaceGitRevertFileResponse>(response);
 }
