@@ -251,7 +251,7 @@ ACCEPTANCE_PACK 验收矩阵
 **近期完成**（Iter 55，2026-03-25）：
 - HEARTBEAT.md Cron 调度重构（KC-5501~5504）
   - `HeartbeatAutomationCompiler`：新增 `- cron: "..."` bullet 解析（Cronos 验证）；`LegacyScheduleToCron` 将旧 5 种 `- schedule:` 表达式转换为等价 cron string；`TryReadFieldValue` 自动去除引号（KC-5501）
-  - 删除 `AutomationSchedule` / `AutomationScheduleKind` / `AutomationScheduleDay` 三个 Contracts 类型；`AutomationDefinition.Schedule` → `CronExpression: string`；`AutomationScheduler.ComputeNextRunAt` 改用 Cronos + `TimeZoneInfo.Utc`（UTC 语义确定性）；新增 NuGet `Cronos`（KC-5502）
+  - 删除 `AutomationSchedule` / `AutomationScheduleKind` / `AutomationScheduleDay` 三个 Contracts 类型；`AutomationDefinition.Schedule` → `CronExpression: string`；`AutomationScheduler.ComputeNextRunAt` 改用 Cronos + `TimeZoneInfo.Local`（本机本地时区，用户直写本地时间无需换算 UTC）；新增 NuGet `Cronos`（KC-5502）
   - SQLite 迁移：4 列（`schedule_kind/interval/local_time/days_of_week`）→ 1 列 `cron`；旧行 `cron=NULL` fallback `"0 * * * *"`；`schedule_kind` 改为 `NULL`（KC-5503）
   - `contracts.ts` 删 schedule 嵌套类型加 `cronExpression: string`；`AutomationsDesk.tsx` `formatSchedule` 直接展示 cron 字符串；`koda-automation/SKILL.md` 完整改写 v2.0；`DefaultWorkspaceTemplates.Heartbeat()` 改为 `- cron:` 格式；`WorkspaceProtocolUpdateTool` 描述更新（KC-5504）
   - 全量回归：`dotnet build` 0 错 0 警告；`dotnet test KodaClaw.sln -m:1` 通过（1 个预存在 flaky 不计）；`npm run typecheck` 通过

@@ -19,6 +19,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly IMcpHubService? _mcpHubService;
+    private readonly IThreadBindingRepository? _threadBindingRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
@@ -27,7 +28,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         ChannelSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IModelRegistryRepository? modelRegistryRepository = null,
-        IMcpHubService? mcpHubService = null)
+        IMcpHubService? mcpHubService = null,
+        IThreadBindingRepository? threadBindingRepository = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -35,6 +37,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _modelRegistryRepository = modelRegistryRepository;
         _mcpHubService = mcpHubService;
+        _threadBindingRepository = threadBindingRepository;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -315,15 +318,33 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         documents.Add(new PromptContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
     }
 
-    public Task EvictSessionAsync(string sessionId, CancellationToken cancellationToken = default)
+    public async Task<string> RotateSessionAsync(ThreadBinding binding, CancellationToken cancellationToken = default)
     {
-        if (_agents.TryGetValue(sessionId, out var agent))
+        ArgumentNullException.ThrowIfNull(binding);
+
+        if (_agents.TryGetValue(binding.SessionId, out var agent))
         {
-            _agents.Remove(sessionId);
-            return agent.DisposeAsync().AsTask();
+            _agents.Remove(binding.SessionId);
+            await agent.DisposeAsync();
         }
 
-        return Task.CompletedTask;
+        var newSessionId = GenerateChannelSessionId(binding.ConnectorKind, binding.ThreadType);
+
+        if (_threadBindingRepository is not null)
+        {
+            await _threadBindingRepository.UpsertAsync(
+                binding with { SessionId = newSessionId, UpdatedAt = DateTimeOffset.UtcNow },
+                cancellationToken);
+        }
+
+        return newSessionId;
+    }
+
+    private static string GenerateChannelSessionId(ChannelConnectorKind connectorKind, ChannelThreadType threadType)
+    {
+        var kind = connectorKind.ToString().ToLowerInvariant();
+        var thread = threadType == ChannelThreadType.DirectMessage ? "dm" : "group";
+        return $"channel-{kind}-{thread}-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..8]}";
     }
 
     private async Task<IReadOnlyList<string>> BuildSessionToolsAsync(

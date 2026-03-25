@@ -842,12 +842,14 @@ internal sealed class WorkspaceRepairService
 
     private static SessionKind ResolveSessionKind(string sessionId)
     {
-        if (sessionId.StartsWith("channel-dm-", StringComparison.OrdinalIgnoreCase))
+        if (sessionId.StartsWith("channel-", StringComparison.OrdinalIgnoreCase)
+            && sessionId.Contains("-dm-", StringComparison.OrdinalIgnoreCase))
         {
             return SessionKind.ChannelDirectMessage;
         }
 
-        if (sessionId.StartsWith("channel-group-", StringComparison.OrdinalIgnoreCase))
+        if (sessionId.StartsWith("channel-", StringComparison.OrdinalIgnoreCase)
+            && sessionId.Contains("-group-", StringComparison.OrdinalIgnoreCase))
         {
             return SessionKind.ChannelGroup;
         }

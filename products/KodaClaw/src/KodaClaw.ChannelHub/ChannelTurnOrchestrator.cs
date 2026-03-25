@@ -111,7 +111,7 @@ public sealed class ChannelTurnOrchestrator
         var trimmedText = envelope.Text?.Trim() ?? "";
         if (IsSessionResetCommand(trimmedText))
         {
-            await _channelSessionService.EvictSessionAsync(processing.Binding.SessionId, cancellationToken);
+            await _channelSessionService.RotateSessionAsync(processing.Binding, cancellationToken);
             const string resetConfirmation = "已开启新会话。";
             try
             {

@@ -17,7 +17,12 @@ public interface IChannelSessionService
         bool hasExplicitMention,
         CancellationToken cancellationToken = default);
 
-    Task EvictSessionAsync(string sessionId, CancellationToken cancellationToken = default);
+    /// <summary>
+    /// Evicts the current agent for the given binding and rotates the binding's session ID
+    /// so the next inbound turn starts a fresh session (new directory, clean history).
+    /// Returns the newly assigned session ID.
+    /// </summary>
+    Task<string> RotateSessionAsync(ThreadBinding binding, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(
