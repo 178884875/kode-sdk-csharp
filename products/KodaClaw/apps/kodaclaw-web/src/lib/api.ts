@@ -84,6 +84,7 @@ import {
   type WorkspaceGitLogResponse,
   type WorkspaceGitRevertFileRequest,
   type WorkspaceGitRevertFileResponse,
+  type SkillDescriptor,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
@@ -1284,4 +1285,15 @@ export async function revertWorkspaceFile(
     throw new Error(err.message ?? `Revert failed: ${response.status}`);
   }
   return readJson<WorkspaceGitRevertFileResponse>(response);
+}
+
+export async function fetchSkills(signal?: AbortSignal): Promise<SkillDescriptor[]> {
+  const response = await fetch(resolveGatewayPath("/api/skills"), {
+    signal,
+    headers: buildHeaders(),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to load skills: ${response.status} ${response.statusText}`);
+  }
+  return readJson<SkillDescriptor[]>(response);
 }

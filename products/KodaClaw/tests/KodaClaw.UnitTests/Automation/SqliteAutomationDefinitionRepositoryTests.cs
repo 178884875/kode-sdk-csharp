@@ -29,11 +29,7 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
             Prompt: "Summarize the workspace changes.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: "09:30",
-                DaysOfWeek: new[] { AutomationScheduleDay.Monday, AutomationScheduleDay.Wednesday, AutomationScheduleDay.Friday }),
+            CronExpression: "30 9 * * 1,3,5",
             Enabled: true,
             InputPaths: new[] { "docs/roadmap.md", "docs/status.md" },
             ModelId: null,
@@ -60,11 +56,7 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
         actual.Source.Should().Be(expected.Source);
         actual.SourcePath.Should().Be(expected.SourcePath);
         actual.Enabled.Should().Be(expected.Enabled);
-        actual.Schedule.Should().NotBeNull();
-        actual.Schedule.Kind.Should().Be(expected.Schedule.Kind);
-        actual.Schedule.Interval.Should().Be(expected.Schedule.Interval);
-        actual.Schedule.LocalTime.Should().Be(expected.Schedule.LocalTime);
-        actual.Schedule.DaysOfWeek.Should().Equal(expected.Schedule.DaysOfWeek!);
+        actual.CronExpression.Should().Be(expected.CronExpression);
         actual.InputPaths.Should().Equal(expected.InputPaths!);
         actual.CreatedAt.Should().Be(expected.CreatedAt);
         actual.UpdatedAt.Should().Be(expected.UpdatedAt);
@@ -95,98 +87,6 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
         filtered[0].Id.Should().Be("auto-001");
     }
 
-    [Fact]
-    public async Task Upsert_should_reject_hourly_schedule_without_interval()
-    {
-        using var workspace = new TempWorkspaceRoot();
-        var repository = CreateRepository(workspace.Path);
-        var definition = BuildDefinition(
-            id: "auto-invalid-hourly",
-            source: AutomationDefinitionSource.Manual,
-            enabled: true,
-            now: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero)) with
-        {
-            Schedule = new AutomationSchedule(
-                Kind: AutomationScheduleKind.Hourly,
-                Interval: 0,
-                LocalTime: null,
-                DaysOfWeek: null),
-        };
-
-        var action = () => repository.UpsertAsync(definition);
-
-        await action.Should().ThrowAsync<ArgumentException>().Where(ex => ex.ParamName == "Schedule");
-    }
-
-    [Fact]
-    public async Task Upsert_should_reject_daily_schedule_without_valid_local_time()
-    {
-        using var workspace = new TempWorkspaceRoot();
-        var repository = CreateRepository(workspace.Path);
-        var definition = BuildDefinition(
-            id: "auto-invalid-daily",
-            source: AutomationDefinitionSource.Manual,
-            enabled: true,
-            now: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero)) with
-        {
-            Schedule = new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "9:30",
-                DaysOfWeek: null),
-        };
-
-        var action = () => repository.UpsertAsync(definition);
-
-        await action.Should().ThrowAsync<ArgumentException>().Where(ex => ex.ParamName == "Schedule");
-    }
-
-    [Fact]
-    public async Task Upsert_should_reject_minutes_schedule_with_interval_below_minimum()
-    {
-        using var workspace = new TempWorkspaceRoot();
-        var repository = CreateRepository(workspace.Path);
-        var definition = BuildDefinition(
-            id: "auto-invalid-minutes",
-            source: AutomationDefinitionSource.Manual,
-            enabled: true,
-            now: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero)) with
-        {
-            Schedule = new AutomationSchedule(
-                Kind: AutomationScheduleKind.Minutes,
-                Interval: 4,
-                LocalTime: null,
-                DaysOfWeek: null),
-        };
-
-        var action = () => repository.UpsertAsync(definition);
-
-        await action.Should().ThrowAsync<ArgumentException>().Where(ex => ex.ParamName == "Schedule");
-    }
-
-    [Fact]
-    public async Task Upsert_should_reject_weekly_schedule_without_days()
-    {
-        using var workspace = new TempWorkspaceRoot();
-        var repository = CreateRepository(workspace.Path);
-        var definition = BuildDefinition(
-            id: "auto-invalid-weekly",
-            source: AutomationDefinitionSource.Manual,
-            enabled: true,
-            now: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero)) with
-        {
-            Schedule = new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: "09:30",
-                DaysOfWeek: Array.Empty<AutomationScheduleDay>()),
-        };
-
-        var action = () => repository.UpsertAsync(definition);
-
-        await action.Should().ThrowAsync<ArgumentException>().Where(ex => ex.ParamName == "Schedule");
-    }
-
     private static SqliteAutomationDefinitionRepository CreateRepository(string rootPath)
     {
         return new SqliteAutomationDefinitionRepository(new FakeWorkspaceService(rootPath));
@@ -204,11 +104,7 @@ public sealed class SqliteAutomationDefinitionRepositoryTests
             Prompt: "Run scheduled workspace check.",
             Source: source,
             SourcePath: source == AutomationDefinitionSource.Heartbeat ? "workspace/HEARTBEAT.md" : null,
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 9 * * *",
             Enabled: enabled,
             InputPaths: new[] { "docs/notes.md" },
             ModelId: null,

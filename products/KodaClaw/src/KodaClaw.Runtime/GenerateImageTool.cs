@@ -1,3 +1,4 @@
+using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -80,7 +81,7 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
             Route: $"/canvas/{artifactId}",
             SessionId: args.SessionId,
             CorrelationId: null,
-            MetadataJson: null);
+            MetadataJson: JsonSerializer.Serialize(new { mediaId = result.MediaId }));
 
         await _canvasRepository.UpsertAsync(artifact, cancellationToken);
 

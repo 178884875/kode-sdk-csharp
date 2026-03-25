@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IModelRegistryRepository, SqliteModelRegistryRepository>();
         services.TryAddSingleton<IGenerationService, OpenAIImageGenerationService>();
+        services.TryAddSingleton<ISpeechService, OpenAICompatibleTtsService>();
         return services;
     }
 }

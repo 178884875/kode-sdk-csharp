@@ -608,11 +608,7 @@ public sealed class BackupApiIntegrationTests
             Prompt: "Summarize operator heartbeat.",
             Source: AutomationDefinitionSource.Manual,
             SourcePath: heartbeatPath,
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: [heartbeatPath],
             ModelId: null,

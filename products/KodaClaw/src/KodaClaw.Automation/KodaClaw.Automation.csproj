@@ -4,6 +4,7 @@
     <RootNamespace>KodaClaw.Automation</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Cronos" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
   </ItemGroup>

@@ -6,7 +6,7 @@ public sealed record AutomationDefinition(
     string Prompt,
     AutomationDefinitionSource Source,
     string? SourcePath,
-    AutomationSchedule Schedule,
+    string CronExpression,
     bool Enabled,
     IReadOnlyList<string>? InputPaths,
     string? ModelId,

@@ -30,11 +30,7 @@ public sealed class AutomationSchedulerIntegrationTests
 
         var definition = fixture.BuildDefinition(
             id: "auto-due-success",
-            schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Hourly,
-                Interval: 2,
-                LocalTime: null,
-                DaysOfWeek: null),
+            cronExpression: "0 */2 * * *",
             nextRunAt: now.AddMinutes(-1));
         await fixture.Definitions.UpsertAsync(definition);
 
@@ -273,11 +269,7 @@ public sealed class AutomationSchedulerIntegrationTests
 
         var definition = fixture.BuildDefinition(
             id: "auto-daily",
-            schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            cronExpression: "0 9 * * *",
             nextRunAt: null);
         await fixture.Definitions.UpsertAsync(definition);
 
@@ -285,16 +277,21 @@ public sealed class AutomationSchedulerIntegrationTests
         var firstManualRun = await fixture.Scheduler.RunOnceAsync();
         var afterFirstRun = await fixture.Definitions.GetByIdAsync(definition.Id);
 
-        fixture.Clock.SetUtcNow(new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero));
+        // Advance clock to the computed next-run time so the automation becomes due again.
+        // This is timezone-agnostic: we drive the clock to wherever ComputeNextRunAt placed it.
+        fixture.Clock.SetUtcNow(afterFirstRun!.NextRunAt!.Value);
         var secondManualRun = await fixture.Scheduler.RunOnceAsync();
         var afterSecondRun = await fixture.Definitions.GetByIdAsync(definition.Id);
 
+        var expectedAfterFirst = AutomationCronComputer.ComputeNextRunAt("0 9 * * *", now);
+        var expectedAfterSecond = AutomationCronComputer.ComputeNextRunAt("0 9 * * *", afterFirstRun.NextRunAt!.Value);
+
         disabledTick.Should().Be(0);
         firstManualRun.Should().Be(1);
-        afterFirstRun!.NextRunAt.Should().Be(new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero));
+        afterFirstRun!.NextRunAt.Should().Be(expectedAfterFirst);
 
         secondManualRun.Should().Be(1);
-        afterSecondRun!.NextRunAt.Should().Be(new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero));
+        afterSecondRun!.NextRunAt.Should().Be(expectedAfterSecond);
     }
 
     [Fact]
@@ -479,7 +476,7 @@ public sealed class AutomationSchedulerIntegrationTests
 
         public AutomationDefinition BuildDefinition(
             string id,
-            AutomationSchedule? schedule = null,
+            string? cronExpression = null,
             DateTimeOffset? nextRunAt = null,
             IReadOnlyList<string>? notificationChannels = null,
             AutomationNotifyMode notifyMode = AutomationNotifyMode.None)
@@ -490,11 +487,7 @@ public sealed class AutomationSchedulerIntegrationTests
                 Prompt: $"Run automation {id}.",
                 Source: AutomationDefinitionSource.Manual,
                 SourcePath: null,
-                Schedule: schedule ?? new AutomationSchedule(
-                    Kind: AutomationScheduleKind.Hourly,
-                    Interval: 1,
-                    LocalTime: null,
-                    DaysOfWeek: null),
+                CronExpression: cronExpression ?? "0 * * * *",
                 Enabled: true,
                 InputPaths: null,
                 ModelId: null,

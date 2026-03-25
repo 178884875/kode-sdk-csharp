@@ -18,18 +18,7 @@ public sealed class AutomationContractsTests
             Prompt: "Review unresolved inbox items.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek:
-                [
-                    AutomationScheduleDay.Monday,
-                    AutomationScheduleDay.Tuesday,
-                    AutomationScheduleDay.Wednesday,
-                    AutomationScheduleDay.Thursday,
-                    AutomationScheduleDay.Friday,
-                ]),
+            CronExpression: "0 9 * * 1-5",
             Enabled: true,
             InputPaths: ["inbox", "tasks"],
             ModelId: null,
@@ -46,8 +35,7 @@ public sealed class AutomationContractsTests
         var roundTrip = JsonSerializer.Deserialize<AutomationDefinition>(json, JsonOptions);
 
         json.Should().Contain("\"source\":\"Heartbeat\"");
-        json.Should().Contain("\"kind\":\"Weekly\"");
-        json.Should().Contain("\"daysOfWeek\":[\"Monday\",\"Tuesday\",\"Wednesday\",\"Thursday\",\"Friday\"]");
+        json.Should().Contain("\"cronExpression\"");
         roundTrip.Should().BeEquivalentTo(payload);
     }
 
@@ -82,11 +70,7 @@ public sealed class AutomationContractsTests
             Prompt: "Review unresolved inbox items.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 9 * * *",
             Enabled: true,
             InputPaths: ["workspace/inbox"],
             ModelId: null,

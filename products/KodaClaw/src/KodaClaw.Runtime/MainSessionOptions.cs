@@ -38,13 +38,13 @@ public sealed class MainSessionOptions
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =
     [
-        "fs_write",
+        // "fs_write",
         "fs_edit",
         "fs_rm",
         "bash_run",
         "bash_kill",
-        "todo_write",
-        "skill_activate",
+        // "todo_write",
+        // "skill_activate",
     ];
 
     public string Model { get; init; } = "koda-main";

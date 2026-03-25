@@ -94,7 +94,10 @@ public sealed class OpenAIImageGenerationService : IGenerationService
             ? "https://api.openai.com"
             : baseUrl.TrimEnd('/');
 
-        var url = $"{endpoint}/v1/images/generations";
+        // If the base URL already ends with /v1, don't append it again.
+        var url = endpoint.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+            ? $"{endpoint}/images/generations"
+            : $"{endpoint}/v1/images/generations";
         var body = new Dictionary<string, object?>
         {
             ["model"] = string.IsNullOrWhiteSpace(modelId) ? "dall-e-3" : modelId,

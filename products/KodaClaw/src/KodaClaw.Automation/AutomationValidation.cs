@@ -1,19 +1,17 @@
-using System.Globalization;
+using Cronos;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.Automation;
 
 internal static class AutomationValidation
 {
-    private const string LocalTimeFormat = "HH:mm";
-
     public static void ValidateDefinition(AutomationDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ValidateRequired(definition.Id, nameof(definition.Id));
         ValidateRequired(definition.Title, nameof(definition.Title));
         ValidateRequired(definition.Prompt, nameof(definition.Prompt));
-        ValidateSchedule(definition.Schedule, nameof(definition.Schedule));
+        ValidateCronExpression(definition.CronExpression, nameof(definition.CronExpression));
 
         if (definition.CreatedAt == default)
         {
@@ -77,53 +75,20 @@ internal static class AutomationValidation
         }
     }
 
-    private static void ValidateSchedule(AutomationSchedule schedule, string parameterName)
+    private static void ValidateCronExpression(string? cronExpression, string parameterName)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
-
-        switch (schedule.Kind)
+        if (string.IsNullOrWhiteSpace(cronExpression))
         {
-            case AutomationScheduleKind.Minutes:
-                if (schedule.Interval is null || schedule.Interval < 5)
-                {
-                    throw new ArgumentException("Minutes schedule requires interval >= 5.", parameterName);
-                }
-
-                break;
-            case AutomationScheduleKind.Hourly:
-                if (schedule.Interval is null || schedule.Interval < 1)
-                {
-                    throw new ArgumentException("Hourly schedule requires interval >= 1.", parameterName);
-                }
-
-                break;
-            case AutomationScheduleKind.Daily:
-                ValidateLocalTime(schedule.LocalTime, parameterName);
-                break;
-            case AutomationScheduleKind.Weekly:
-                ValidateLocalTime(schedule.LocalTime, parameterName);
-                if (schedule.DaysOfWeek is not { Count: > 0 })
-                {
-                    throw new ArgumentException("Weekly schedule requires at least one day of week.", parameterName);
-                }
-
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(parameterName, schedule.Kind, "Unsupported schedule kind.");
-        }
-    }
-
-    private static void ValidateLocalTime(string? localTime, string parameterName)
-    {
-        if (string.IsNullOrWhiteSpace(localTime))
-        {
-            throw new ArgumentException("Schedule requires local time in HH:mm format.", parameterName);
+            throw new ArgumentException("CronExpression is required.", parameterName);
         }
 
-        var normalized = localTime.Trim();
-        if (!TimeOnly.TryParseExact(normalized, LocalTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        try
         {
-            throw new ArgumentException("Schedule requires local time in HH:mm format.", parameterName);
+            CronExpression.Parse(cronExpression.Trim());
+        }
+        catch (CronFormatException ex)
+        {
+            throw new ArgumentException($"Invalid cron expression '{cronExpression}': {ex.Message}", parameterName);
         }
     }
 }

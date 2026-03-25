@@ -46,20 +46,9 @@ public static partial class GatewayApp
 
         media.MapGet("/{id}", async (
             string id,
-            HttpContext context,
-            IConfiguration configuration,
             IMediaStore mediaStore,
-            IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context,
-                    source: "gateway.auth", eventType: "gateway.auth.failed",
-                    level: "warning", message: "Unauthorized access to media endpoint.");
-                return Results.Unauthorized();
-            }
-
             var meta = await mediaStore.GetMetaAsync(id, cancellationToken);
             if (meta is null)
                 return Results.NotFound(new ErrorResponse(Code: "media.not_found", Message: "Media file was not found."));

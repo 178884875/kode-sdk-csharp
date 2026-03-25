@@ -465,7 +465,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         Model = configuredModel,
                         SystemPrompt = prompt.SystemPrompt,
                         Tools = _options.Tools,
-                        Permissions = permissions,
+                        Permissions = (permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
                         SandboxOptions = new SandboxOptions
                         {
                             WorkingDirectory = _workspaceService.RootPath,
@@ -476,6 +476,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         {
                             Paths = skillsPaths,
                             ValidateOnLoad = false,
+                            AutoActivate = BuiltinSkills.ChatAutoActivate,
                         },
                         Context = new ContextManagerOptions
                         {
@@ -700,7 +701,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
             Tools = tools,
-            Permissions = permissions ?? _options.Permissions,
+            Permissions = (permissions ?? _options.Permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
             SandboxOptions = new SandboxOptions
             {
                 WorkingDirectory = _workspaceService.RootPath,
@@ -711,6 +712,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             {
                 Paths = skillsPaths,
                 ValidateOnLoad = false,
+                AutoActivate = BuiltinSkills.ChatAutoActivate,
             },
             Context = new ContextManagerOptions
             {

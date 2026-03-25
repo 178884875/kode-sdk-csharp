@@ -523,11 +523,7 @@ public sealed class Iteration7AcceptanceIntegrationTests
             Prompt: "Summarize inbox items.",
             Source: AutomationDefinitionSource.Manual,
             SourcePath: null,
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Hourly,
-                Interval: 1,
-                LocalTime: null,
-                DaysOfWeek: null),
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: ["workspace/inbox"],
             ModelId: null,

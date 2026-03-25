@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { getGatewayUrl } from "../lib/config";
-import { buildHeaders } from "../lib/api";
+import { fetchSkills } from "../lib/api";
+import { type SkillDescriptor } from "../types/contracts";
 import { useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
@@ -8,15 +8,6 @@ import { Button } from "./ui/Button";
 import { Lightbulb } from "lucide-react";
 
 type SkillSource = "built-in" | "global" | "workspace";
-
-type SkillDescriptor = {
-  name: string;
-  description: string | null;
-  source: SkillSource;
-  path: string;
-  hasResources: boolean;
-};
-
 
 const sourceBadgeMap: Record<SkillSource, string> = {
   "built-in": "mode-badge",
@@ -26,14 +17,17 @@ const sourceBadgeMap: Record<SkillSource, string> = {
 
 const SOURCE_ORDER: SkillSource[] = ["built-in", "global", "workspace"];
 
-async function fetchSkills(signal?: AbortSignal): Promise<SkillDescriptor[]> {
-  const base = getGatewayUrl() || "";
-  const response = await fetch(`${base}/api/skills`, { signal, headers: buildHeaders() });
-  if (!response.ok) {
-    throw new Error(`Failed to load skills: ${response.status} ${response.statusText}`);
+/** builtin-core before optional; same kind alphabetical */
+function sortSkills(skills: SkillDescriptor[], source: SkillSource): SkillDescriptor[] {
+  if (source !== "built-in") {
+    return [...skills].sort((a, b) => a.name.localeCompare(b.name));
   }
-
-  return response.json() as Promise<SkillDescriptor[]>;
+  return [...skills].sort((a, b) => {
+    const aCore = a.kind === "builtin-core" ? 0 : 1;
+    const bCore = b.kind === "builtin-core" ? 0 : 1;
+    if (aCore !== bCore) return aCore - bCore;
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export function SkillsDesk() {
@@ -55,6 +49,10 @@ export function SkillsDesk() {
       hasResources: "含资源文件",
       noDescription: "未提供描述",
       loadError: "加载技能列表失败。",
+      skillKindBuiltinCore: "核心",
+      skillKindOptional: "可选",
+      skillAllowedToolsLabel: "所需工具",
+      skillCompatibilityLabel: "兼容性",
     },
     en: {
       eyebrow: "Capability Layer",
@@ -73,6 +71,10 @@ export function SkillsDesk() {
       hasResources: "Has resources",
       noDescription: "No description provided",
       loadError: "Failed to load skills.",
+      skillKindBuiltinCore: "Core",
+      skillKindOptional: "Optional",
+      skillAllowedToolsLabel: "Allowed tools",
+      skillCompatibilityLabel: "Compatibility",
     },
   });
 
@@ -122,13 +124,22 @@ export function SkillsDesk() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Group skills by source in display order
   const groupedSkills = SOURCE_ORDER
     .map((source) => ({
       source,
-      items: skills.filter((s) => s.source === source),
+      items: sortSkills(skills.filter((s) => s.source === source), source),
     }))
     .filter((group) => group.items.length > 0);
+
+  function kindBadgeClass(kind: string): string {
+    return kind === "builtin-core"
+      ? "skill-card__kind-badge skill-card__kind-badge--core"
+      : "skill-card__kind-badge skill-card__kind-badge--optional";
+  }
+
+  function kindLabel(kind: string): string {
+    return kind === "builtin-core" ? text.skillKindBuiltinCore : text.skillKindOptional;
+  }
 
   return (
     <div className="control-plane-stack" data-testid="skills-desk">
@@ -176,8 +187,11 @@ export function SkillsDesk() {
                 <div className="skill-card__header">
                   <strong className="skill-card__name">{skill.name}</strong>
                   <div className="skill-card__badges">
-                    <span className={sourceBadgeMap[skill.source]}>
-                      {text.sourceLabels[skill.source]}
+                    <span className={kindBadgeClass(skill.kind)}>
+                      {kindLabel(skill.kind)}
+                    </span>
+                    <span className={sourceBadgeMap[skill.source as SkillSource]}>
+                      {text.sourceLabels[skill.source as SkillSource]}
                     </span>
                     {skill.hasResources ? (
                       <span className="mode-badge">{text.hasResources}</span>
@@ -187,6 +201,23 @@ export function SkillsDesk() {
                 <p className="skill-card__desc">
                   {skill.description ?? text.noDescription}
                 </p>
+                {skill.tags.length > 0 ? (
+                  <div className="skill-card__tags">
+                    {skill.tags.slice(0, 3).map((tag) => (
+                      <span key={tag} className="skill-card__tag">{tag}</span>
+                    ))}
+                  </div>
+                ) : null}
+                {skill.allowedTools.length > 0 ? (
+                  <p className="skill-card__requires">
+                    {text.skillAllowedToolsLabel}: {skill.allowedTools.join(", ")}
+                  </p>
+                ) : null}
+                {skill.compatibility ? (
+                  <p className="skill-card__requires" style={{ color: "var(--text-tertiary)" }}>
+                    {text.skillCompatibilityLabel}: {skill.compatibility}
+                  </p>
+                ) : null}
                 <p className="skill-card__path">{skill.path}</p>
               </div>
             ))}

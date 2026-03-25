@@ -238,7 +238,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             SystemPrompt = systemPrompt,
             MaxIterations = _options.MaxIterations,
             Tools = tools ?? _options.Tools,
-            Permissions = _options.Permissions,
+            Permissions = (_options.Permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
             SandboxOptions = new SandboxOptions
             {
                 WorkingDirectory = _workspaceService.RootPath,
@@ -249,6 +249,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             {
                 Paths = skillsPaths,
                 ValidateOnLoad = false,
+                AutoActivate = BuiltinSkills.AutomationAutoActivate,
             },
             Context = new ContextManagerOptions
             {

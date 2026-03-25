@@ -94,7 +94,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         Model = configuredModel,
                         SystemPrompt = systemPrompt,
                         Tools = resumeTools,
-                        Permissions = _options.Permissions,
+                        Permissions = (_options.Permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
                         SandboxOptions = new SandboxOptions
                         {
                             // KC-5003: DM sessions use workspace root; Group sessions stay isolated.
@@ -108,6 +108,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         {
                             Paths = skillsPaths,
                             ValidateOnLoad = false,
+                            AutoActivate = BuiltinSkills.ChannelAutoActivate,
                         },
                         Context = new ContextManagerOptions
                         {
@@ -387,6 +388,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 Paths = skillsPaths,
                 ValidateOnLoad = false,
+                AutoActivate = BuiltinSkills.ChannelAutoActivate,
             },
             Context = new ContextManagerOptions
             {

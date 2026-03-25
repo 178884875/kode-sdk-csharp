@@ -70,8 +70,6 @@ public sealed class ChatSessionService : IChatSessionService
                 Reason: "workspace_updated");
         }
 
-        var workspaceUpdated = false;
-
         // Build content blocks for multimodal messages
         var contentBlocks = await BuildContentBlocksAsync(request, cancellationToken);
 
@@ -143,8 +141,6 @@ public sealed class ChatSessionService : IChatSessionService
                     break;
 
                 case ToolEndEvent toolEnd:
-                    if (string.Equals(toolEnd.Call.Name, "workspace_protocol_update", StringComparison.Ordinal))
-                        workspaceUpdated = true;
                     yield return new ChatStreamEvent(
                         Type: "tool_activity",
                         SessionId: sessionId,
@@ -199,10 +195,6 @@ public sealed class ChatSessionService : IChatSessionService
                         Sequence: envelope.Bookmark.Seq,
                         Timestamp: envelope.Bookmark.Timestamp,
                         Reason: done.Reason);
-                    if (workspaceUpdated)
-                    {
-                        _mainSessionService.RequestWorkspaceRotation();
-                    }
                     yield break;
 
                 case ErrorEvent error

@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Text.Json;
+using Cronos;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -328,7 +328,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         {
             UpdatedAt = completedAt,
             LastRunAt = completedAt,
-            NextRunAt = ComputeNextRunAt(definition.Schedule, completedAt),
+            NextRunAt = ComputeNextRunAt(definition.CronExpression, completedAt),
             LastRunStatus = AutomationRunStatus.Succeeded,
             LastError = null,
         };
@@ -452,102 +452,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
         return definition.NextRunAt is null || definition.NextRunAt <= now;
     }
 
-    private static DateTimeOffset ComputeNextRunAt(AutomationSchedule schedule, DateTimeOffset now)
-    {
-        return schedule.Kind switch
-        {
-            AutomationScheduleKind.Minutes => now.AddMinutes(schedule.Interval ?? 15),
-            AutomationScheduleKind.Hourly => now.AddHours(schedule.Interval ?? 1),
-            AutomationScheduleKind.Daily => ComputeNextDailyRun(schedule, now),
-            AutomationScheduleKind.Weekly => ComputeNextWeeklyRun(schedule, now),
-            _ => now.AddHours(1),
-        };
-    }
-
-    private static DateTimeOffset ComputeNextDailyRun(AutomationSchedule schedule, DateTimeOffset now)
-    {
-        // Use UTC so that LocalTime="09:00" is interpreted as 09:00 UTC regardless of server timezone.
-        var utcNow = now.ToUniversalTime();
-        var localTime = ParseLocalTime(schedule.LocalTime);
-        var candidate = new DateTimeOffset(
-            utcNow.Year,
-            utcNow.Month,
-            utcNow.Day,
-            localTime.Hour,
-            localTime.Minute,
-            0,
-            TimeSpan.Zero);
-        if (candidate <= now)
-        {
-            candidate = candidate.AddDays(1);
-        }
-
-        return candidate;
-    }
-
-    private static DateTimeOffset ComputeNextWeeklyRun(AutomationSchedule schedule, DateTimeOffset now)
-    {
-        // Use UTC so that LocalTime="09:00" is interpreted as 09:00 UTC regardless of server timezone.
-        var utcNow = now.ToUniversalTime();
-        var localTime = ParseLocalTime(schedule.LocalTime);
-        // DaysOfWeek is validated non-empty by AutomationValidation.ValidateSchedule.
-        var activeDays = schedule.DaysOfWeek!.ToHashSet();
-
-        for (var offset = 0; offset <= 7; offset++)
-        {
-            var date = utcNow.Date.AddDays(offset);
-            var day = ToScheduleDay(date.DayOfWeek);
-            if (!activeDays.Contains(day))
-            {
-                continue;
-            }
-
-            var candidate = new DateTimeOffset(
-                date.Year,
-                date.Month,
-                date.Day,
-                localTime.Hour,
-                localTime.Minute,
-                0,
-                TimeSpan.Zero);
-            if (candidate > now)
-            {
-                return candidate;
-            }
-        }
-
-        return now.AddDays(7);
-    }
-
-    private static TimeOnly ParseLocalTime(string? localTime)
-    {
-        var normalized = (localTime ?? "00:00").Trim();
-        if (TimeOnly.TryParseExact(
-            normalized,
-            "HH:mm",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out var parsed))
-        {
-            return parsed;
-        }
-
-        return new TimeOnly(0, 0);
-    }
-
-    private static AutomationScheduleDay ToScheduleDay(DayOfWeek day)
-    {
-        return day switch
-        {
-            DayOfWeek.Monday => AutomationScheduleDay.Monday,
-            DayOfWeek.Tuesday => AutomationScheduleDay.Tuesday,
-            DayOfWeek.Wednesday => AutomationScheduleDay.Wednesday,
-            DayOfWeek.Thursday => AutomationScheduleDay.Thursday,
-            DayOfWeek.Friday => AutomationScheduleDay.Friday,
-            DayOfWeek.Saturday => AutomationScheduleDay.Saturday,
-            _ => AutomationScheduleDay.Sunday,
-        };
-    }
+    private static DateTimeOffset ComputeNextRunAt(string cronExpression, DateTimeOffset after)
+        => AutomationCronComputer.ComputeNextRunAt(cronExpression, after);
 
     private static string? NormalizeText(string? value)
     {

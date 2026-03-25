@@ -119,6 +119,12 @@ public record SkillsConfig
     /// Whether to validate format on load.
     /// </summary>
     public bool ValidateOnLoad { get; init; } = true;
+
+    /// <summary>
+    /// Skills to activate automatically at session start.
+    /// Missing skill names are silently skipped.
+    /// </summary>
+    public IReadOnlyList<string>? AutoActivate { get; init; }
 }
 
 /// <summary>

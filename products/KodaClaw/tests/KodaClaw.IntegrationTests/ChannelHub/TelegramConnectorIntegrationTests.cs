@@ -303,6 +303,18 @@ public sealed class TelegramConnectorIntegrationTests
             SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 99002 });
         }
+
+        public Task<TelegramSendMessageResult> SendAudioAsync(
+            string botToken,
+            long chatId,
+            Stream audio,
+            string contentType,
+            string? caption,
+            CancellationToken cancellationToken = default)
+        {
+            SendCalls.Add(new SendCall(botToken, chatId, caption ?? string.Empty));
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 99003 });
+        }
     }
 
     private sealed record SendCall(string Token, long ChatId, string Text);

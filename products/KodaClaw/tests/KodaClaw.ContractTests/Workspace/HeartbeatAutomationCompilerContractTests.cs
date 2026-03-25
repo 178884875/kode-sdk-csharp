@@ -40,48 +40,31 @@ public sealed class HeartbeatAutomationCompilerContractTests
         var definitions = _compiler.Compile(markdown);
 
         definitions.Should().HaveCount(5);
-        definitions[0].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
-            Kind: AutomationScheduleKind.Minutes,
-            Interval: 15,
-            LocalTime: null,
-            DaysOfWeek: null));
-        definitions[1].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
-            Kind: AutomationScheduleKind.Hourly,
-            Interval: 2,
-            LocalTime: null,
-            DaysOfWeek: null));
-        definitions[2].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
-            Kind: AutomationScheduleKind.Daily,
-            Interval: null,
-            LocalTime: "09:00",
-            DaysOfWeek: null));
-        definitions[3].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
-            Kind: AutomationScheduleKind.Weekly,
-            Interval: null,
-            LocalTime: "09:00",
-            DaysOfWeek:
-            [
-                AutomationScheduleDay.Monday,
-                AutomationScheduleDay.Tuesday,
-                AutomationScheduleDay.Wednesday,
-                AutomationScheduleDay.Thursday,
-                AutomationScheduleDay.Friday,
-            ]));
-        definitions[4].Schedule.Should().BeEquivalentTo(new AutomationSchedule(
-            Kind: AutomationScheduleKind.Weekly,
-            Interval: null,
-            LocalTime: "18:30",
-            DaysOfWeek:
-            [
-                AutomationScheduleDay.Monday,
-                AutomationScheduleDay.Wednesday,
-                AutomationScheduleDay.Friday,
-            ]));
+        definitions[0].CronExpression.Should().Be("*/15 * * * *");
+        definitions[1].CronExpression.Should().Be("0 */2 * * *");
+        definitions[2].CronExpression.Should().Be("0 9 * * *");
+        definitions[3].CronExpression.Should().Be("0 9 * * 1-5");
+        definitions[4].CronExpression.Should().Be("30 18 * * 1,3,5");
 
         definitions.Should().OnlyContain(x => x.Source == AutomationDefinitionSource.Heartbeat);
         definitions.Should().OnlyContain(x => x.SourcePath == "workspace/HEARTBEAT.md");
         definitions.Should().OnlyContain(x => x.CreatedAt == DateTimeOffset.UnixEpoch);
         definitions.Should().OnlyContain(x => x.UpdatedAt == DateTimeOffset.UnixEpoch);
+    }
+
+    [Fact]
+    public void Compile_should_support_native_cron_field()
+    {
+        var markdown = """
+## Weekday Morning
+- cron: "5 10 * * 1-5"
+- prompt: Weekday morning check.
+""";
+
+        var definitions = _compiler.Compile(markdown);
+
+        definitions.Should().ContainSingle();
+        definitions[0].CronExpression.Should().Be("5 10 * * 1-5");
     }
 
     [Fact]
@@ -183,7 +166,7 @@ prompt: missing bullet marker
 
         action.Should()
             .Throw<HeartbeatCompilationException>()
-            .WithMessage("*invalid schedule*");
+            .WithMessage("*Unsupported legacy schedule*");
     }
 
     [Fact]
@@ -203,7 +186,7 @@ prompt: missing bullet marker
 
         missingSchedule.Should()
             .Throw<HeartbeatCompilationException>()
-            .WithMessage("*missing required 'schedule'*");
+            .WithMessage("*missing required schedule*");
         missingPrompt.Should()
             .Throw<HeartbeatCompilationException>()
             .WithMessage("*missing required 'prompt'*");

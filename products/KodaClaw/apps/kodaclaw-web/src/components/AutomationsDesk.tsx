@@ -21,7 +21,6 @@ import type {
   AutomationDefinition,
   AutomationDefinitionSource,
   AutomationRunRecord,
-  AutomationSchedule,
   SessionDetail,
 } from "../types/contracts";
 
@@ -152,10 +151,17 @@ export function AutomationsDesk() {
         everyHours: (interval: number) => `每 ${interval} 小时`,
         daily: "每天",
         dailyAt: (localTime: string) => `每天 ${localTime}`,
+        weekdays: (localTime: string) => `工作日 ${localTime}`,
         weekly: (days: string, localTime?: string | null) =>
           `每周 ${days}${localTime ? ` ${localTime}` : ""}`,
         selectedDays: "指定日期",
       },
+      scheduleLabel: "调度计划",
+      cronRaw: "Cron",
+      nextRunAt: "下次运行",
+      nextRunAbsolute: (abs: string) => `（${abs}）`,
+      nextRunToday: (t: string) => `今天 ${t}`,
+      nextRunTomorrow: (t: string) => `明天 ${t}`,
       dayNames: {
         Monday: "周一",
         Tuesday: "周二",
@@ -286,15 +292,22 @@ export function AutomationsDesk() {
         heartbeat: "Heartbeat",
       },
       schedule: {
-        everyMinutes: (interval: number) => `Every ${interval} minutes`,
+        everyMinutes: (interval: number) => `Every ${interval} min`,
         hourly: "Every hour",
-        everyHours: (interval: number) => `Every ${interval} hours`,
+        everyHours: (interval: number) => `Every ${interval}h`,
         daily: "Daily",
-        dailyAt: (localTime: string) => `Daily at ${localTime}`,
+        dailyAt: (localTime: string) => `Daily ${localTime}`,
+        weekdays: (localTime: string) => `Weekdays ${localTime}`,
         weekly: (days: string, localTime?: string | null) =>
-          `Weekly on ${days}${localTime ? ` at ${localTime}` : ""}`,
+          `${days}${localTime ? ` ${localTime}` : ""}`,
         selectedDays: "selected days",
       },
+      scheduleLabel: "Schedule",
+      cronRaw: "Cron",
+      nextRunAt: "Next run",
+      nextRunAbsolute: (abs: string) => `(${abs})`,
+      nextRunToday: (t: string) => `Today ${t}`,
+      nextRunTomorrow: (t: string) => `Tomorrow ${t}`,
       dayNames: {
         Monday: "Monday",
         Tuesday: "Tuesday",
@@ -402,26 +415,69 @@ export function AutomationsDesk() {
     return text.triggerLabels[trigger as keyof typeof text.triggerLabels] ?? trigger;
   }
 
-  function resolveDayLabel(day: string): string {
-    return text.dayNames[day as keyof typeof text.dayNames] ?? day;
+  /** Convert a 5-field cron expression to a human-readable description. */
+  function parseCronHuman(expr: string): string {
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length !== 5) return expr;
+    const [min, hour, dom, month, dow] = parts;
+
+    // Only handle the common dom=* month=* subset.
+    if (dom !== "*" || month !== "*") return expr;
+
+    // Every N minutes: */N * * * *
+    if (min.startsWith("*/") && hour === "*" && dow === "*") {
+      const n = parseInt(min.slice(2), 10);
+      if (Number.isFinite(n) && n > 0) return text.schedule.everyMinutes(n);
+    }
+
+    // Every N hours: (0|M) */N * * *
+    if (hour.startsWith("*/") && dow === "*") {
+      const n = parseInt(hour.slice(2), 10);
+      if (Number.isFinite(n) && n > 0)
+        return n === 1 ? text.schedule.hourly : text.schedule.everyHours(n);
+    }
+
+    // Specific time of day
+    const h = /^\d+$/.test(hour) ? parseInt(hour, 10) : NaN;
+    const m = /^\d+$/.test(min) ? parseInt(min, 10) : NaN;
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return expr;
+
+    const timeStr = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+
+    if (dow === "*") return text.schedule.dailyAt(timeStr);
+    if (dow === "1-5") return text.schedule.weekdays(timeStr);
+
+    const dayKeyMap: Record<string, keyof typeof text.dayNames> = {
+      "0": "Sunday", "1": "Monday", "2": "Tuesday", "3": "Wednesday",
+      "4": "Thursday", "5": "Friday", "6": "Saturday", "7": "Sunday",
+    };
+    const dayLabel = dow
+      .split(",")
+      .map((d) => { const k = dayKeyMap[d.trim()]; return k ? text.dayNames[k] : d; })
+      .join("/");
+    return text.schedule.weekly(dayLabel, timeStr);
   }
 
-  function formatSchedule(schedule: AutomationSchedule): string {
-    if (schedule.kind === "Minutes") {
-      return text.schedule.everyMinutes(schedule.interval ?? 15);
-    }
+  function formatSchedule(cronExpression: string): string {
+    return parseCronHuman(cronExpression);
+  }
 
-    if (schedule.kind === "Hourly") {
-      const interval = schedule.interval ?? 1;
-      return interval === 1 ? text.schedule.hourly : text.schedule.everyHours(interval);
-    }
-
-    if (schedule.kind === "Daily") {
-      return schedule.localTime ? text.schedule.dailyAt(schedule.localTime) : text.schedule.daily;
-    }
-
-    const days = schedule.daysOfWeek?.map(resolveDayLabel).join(", ") ?? text.schedule.selectedDays;
-    return text.schedule.weekly(days, schedule.localTime);
+  /**
+   * Format the absolute next-run time as a short "today HH:MM" / "tomorrow HH:MM" / date string.
+   * Returns empty string if dateStr is null/undefined.
+   */
+  function formatNextRunAbsolute(dateStr: string | null | undefined): string {
+    if (!dateStr) return "";
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return "";
+    const now = new Date();
+    const timeStr = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const tomorrowMidnight = new Date(todayMidnight.getTime() + 86400000);
+    const dayAfterMidnight = new Date(todayMidnight.getTime() + 2 * 86400000);
+    if (date >= todayMidnight && date < tomorrowMidnight) return text.nextRunToday(timeStr);
+    if (date >= tomorrowMidnight && date < dayAfterMidnight) return text.nextRunTomorrow(timeStr);
+    return formatDateTime(dateStr, "");
   }
 
   function formatDuration(
@@ -860,74 +916,81 @@ export function AutomationsDesk() {
               return (
                 <article
                   key={automation.id}
-                  className={`automation-card${automation.enabled ? "" : " automation-card--disabled"}${isSelected ? " automation-card--selected" : ""}`}
+                  className={`automation-card${automation.enabled ? "" : " automation-card--disabled"}${isSelected ? " automation-card--selected" : ""}${isRunningNow ? " automation-card--running" : ""}`}
                   data-testid={`automation-item-${automation.id}`}
                 >
-                  <div className="automation-card__header">
-                    <span className="automation-card__source">{resolveSourceLabel(automation.source)}</span>
-                    <span className={automation.enabled ? "mode-badge mode-badge--main" : "mode-badge"}>
-                      {automation.enabled ? text.states.enabled : text.states.disabled}
-                    </span>
-                  </div>
-                  <strong className="automation-card__title">{automation.title}</strong>
-                  <span className="automation-card__schedule">{formatSchedule(automation.schedule)}</span>
-                  <div className="automation-card__meta">
-                    <span className="automation-card__meta-item">
-                      <span className="metric-label">{text.nextRun}</span>
+                  <div className="automation-card__stripe" aria-hidden="true" />
+                  <div className="automation-card__body">
+                    {/* Row 1: title + enabled badge */}
+                    <div className="automation-card__row automation-card__row--topline">
+                      <strong className="automation-card__title">{automation.title}</strong>
+                      <span className={automation.enabled ? "mode-badge mode-badge--main automation-card__badge" : "mode-badge automation-card__badge"}>
+                        {automation.enabled ? text.states.enabled : text.states.disabled}
+                      </span>
+                    </div>
+                    {/* Row 2: schedule + next run time */}
+                    <div className="automation-card__row automation-card__row--schedule">
+                      <span className="automation-card__schedule" title={automation.cronExpression}>
+                        {formatSchedule(automation.cronExpression)}
+                      </span>
                       <span
-                        className="metric-value"
+                        className="automation-card__nextrun"
                         title={formatDateTime(automation.nextRunAt, text.unavailable)}
                       >
                         {formatRelativeTime(automation.nextRunAt)}
+                        {(() => {
+                          const abs = formatNextRunAbsolute(automation.nextRunAt);
+                          return abs ? (
+                            <span className="automation-card__nextrun-abs">{text.nextRunAbsolute(abs)}</span>
+                          ) : null;
+                        })()}
                       </span>
-                    </span>
-                    <span className="automation-card__meta-sep">·</span>
-                    <span
-                      className={`automation-card__meta-item automation-card__status--${(automation.lastRunStatus ?? "none").toLowerCase()}${isRunningNow ? " automation-card__status--live" : ""}`}
-                    >
-                      {isRunningNow && <span className="automation-status-spinner" aria-hidden="true" />}
-                      {resolveRunStatusLabel(automation.lastRunStatus)}
-                    </span>
-                    {automation.modelId ? (
-                      <>
+                    </div>
+                    {/* Row 3: source + last status + actions */}
+                    <div className="automation-card__row automation-card__row--footer">
+                      <div className="automation-card__meta">
+                        <span className="automation-card__source">{resolveSourceLabel(automation.source)}</span>
                         <span className="automation-card__meta-sep">·</span>
-                        <span className="automation-card__meta-item automation-card__model-tag" title={automation.modelId}>
-                          {automation.modelId}
+                        <span
+                          className={`automation-card__meta-item automation-card__status--${(automation.lastRunStatus ?? "none").toLowerCase()}${isRunningNow ? " automation-card__status--live" : ""}`}
+                        >
+                          {isRunningNow && <span className="automation-status-spinner" aria-hidden="true" />}
+                          {resolveRunStatusLabel(automation.lastRunStatus)}
                         </span>
-                      </>
-                    ) : null}
-                    {automation.notificationChannels && automation.notificationChannels.length > 0 ? (
-                      <>
-                        <span className="automation-card__meta-sep">·</span>
-                        <span className="automation-card__meta-item automation-card__channels-tag">
-                          {automation.notificationChannels.length} {text.channels}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                  <div className="automation-item-actions">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      selected={isSelected}
-                      data-testid={`automation-select-${automation.id}`}
-                      aria-pressed={isSelected}
-                      onClick={() => handleSelectAutomation(automation.id)}
-                      disabled={isLoadingList || isRefreshing}
-                    >
-                      {isSelected ? text.inspecting : text.inspectDetail}
-                    </Button>
-                    {automation.enabled ? (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        data-testid={`automation-trigger-${automation.id}`}
-                        onClick={() => { handleTriggerAutomation(automation); }}
-                        disabled={pendingTriggerIds[automation.id] ?? isRunningNow}
-                      >
-                        {pendingTriggerIds[automation.id] ? text.triggering : text.triggerNow}
-                      </Button>
-                    ) : null}
+                        {automation.notificationChannels && automation.notificationChannels.length > 0 ? (
+                          <>
+                            <span className="automation-card__meta-sep">·</span>
+                            <span className="automation-card__meta-item automation-card__channels-tag">
+                              {automation.notificationChannels.length} {text.channels}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
+                      <div className="automation-card__actions">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          selected={isSelected}
+                          data-testid={`automation-select-${automation.id}`}
+                          aria-pressed={isSelected}
+                          onClick={() => handleSelectAutomation(automation.id)}
+                          disabled={isLoadingList || isRefreshing}
+                        >
+                          {isSelected ? text.inspecting : text.inspectDetail}
+                        </Button>
+                        {automation.enabled ? (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            data-testid={`automation-trigger-${automation.id}`}
+                            onClick={() => { handleTriggerAutomation(automation); }}
+                            disabled={pendingTriggerIds[automation.id] ?? isRunningNow}
+                          >
+                            {pendingTriggerIds[automation.id] ? text.triggering : text.triggerNow}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </article>
               );
@@ -941,7 +1004,7 @@ export function AutomationsDesk() {
               <h3 className="desk-section-title">{selectedAutomation.title}</h3>
               <p className="desk-section-desc">
                 {text.detailSubtitle(
-                  formatSchedule(selectedAutomation.schedule),
+                  formatSchedule(selectedAutomation.cronExpression),
                   resolveSourceLabel(selectedAutomation.source),
                 )}
               </p>
@@ -967,8 +1030,22 @@ export function AutomationsDesk() {
                       ? text.toggleDisable
                       : text.toggleEnable}
                 </Button>
-                <span className="metric-label">
+                <span className="metric-label" title={formatDateTime(selectedAutomation.nextRunAt, text.unavailable)}>
                   {text.nextRunHint(formatRelativeTime(selectedAutomation.nextRunAt))}
+                  {(() => {
+                    const abs = formatNextRunAbsolute(selectedAutomation.nextRunAt);
+                    return abs ? (
+                      <span className="automations-next-run-abs">{text.nextRunAbsolute(abs)}</span>
+                    ) : null;
+                  })()}
+                </span>
+              </div>
+
+              <div className="metric-item automation-detail-metric" data-testid="automation-detail-schedule">
+                <span className="metric-label">{text.scheduleLabel}</span>
+                <span className="metric-value">
+                  {formatSchedule(selectedAutomation.cronExpression)}
+                  <code className="automation-cron-raw" title={text.cronRaw}>{selectedAutomation.cronExpression}</code>
                 </span>
               </div>
 

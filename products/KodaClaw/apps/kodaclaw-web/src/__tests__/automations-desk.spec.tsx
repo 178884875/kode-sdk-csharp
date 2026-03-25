@@ -48,10 +48,7 @@ function buildAutomation(overrides: Partial<AutomationDefinition> = {}): Automat
     prompt: "Summarize inbox events and produce an operator digest.",
     source: "Manual",
     sourcePath: "/workspace/automations/digest.md",
-    schedule: {
-      kind: "Daily",
-      localTime: "09:30",
-    },
+    cronExpression: "30 9 * * *",
     enabled: true,
     inputPaths: ["/workspace/inbox", "/workspace/notes"],
     createdAt: "2026-03-18T08:00:00.000Z",
@@ -163,11 +160,7 @@ describe("AutomationsDesk", () => {
         title: "Weekly heartbeat check",
         source: "Heartbeat",
         enabled: false,
-        schedule: {
-          kind: "Weekly",
-          daysOfWeek: ["Monday", "Wednesday", "Friday"],
-          localTime: "11:15",
-        },
+        cronExpression: "15 11 * * 1,3,5",
       }),
     ];
 

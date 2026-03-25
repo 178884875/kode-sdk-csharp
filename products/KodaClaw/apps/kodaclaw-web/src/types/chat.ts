@@ -19,6 +19,8 @@ export interface ChatMessage {
   durationMs?: number | null;
   // history fields
   isHistory?: boolean;
+  // tool warning: marks system messages that originated from a tool_warning event
+  isToolWarning?: boolean;
   // local preview URLs for sent images (user messages only)
   mediaUrls?: string[];
 }

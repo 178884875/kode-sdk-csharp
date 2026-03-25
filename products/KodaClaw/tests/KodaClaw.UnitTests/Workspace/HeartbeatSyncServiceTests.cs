@@ -208,11 +208,7 @@ public sealed class HeartbeatSyncServiceTests : IDisposable
             Prompt: "Summarize daily progress.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: null,
             ModelId: null,

@@ -25,5 +25,13 @@ public interface ITelegramApiClient
         string contentType,
         string? caption,
         CancellationToken cancellationToken = default);
+
+    Task<TelegramSendMessageResult> SendAudioAsync(
+        string botToken,
+        long chatId,
+        Stream audio,
+        string contentType,
+        string? caption,
+        CancellationToken cancellationToken = default);
 }
 

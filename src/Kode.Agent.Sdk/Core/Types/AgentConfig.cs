@@ -163,6 +163,13 @@ public record PermissionConfig
     public IReadOnlyList<string>? DenyTools { get; init; }
 
     /// <summary>
+    /// Tools hidden from the model's tool schema until revealed via skill activation.
+    /// Hidden tools are still registered and executable if explicitly granted,
+    /// but their schema is not sent to the model until a skill calls GrantTools().
+    /// </summary>
+    public IReadOnlyList<string>? SchemaHiddenTools { get; init; }
+
+    /// <summary>
     /// Optional metadata for custom permission modes.
     /// </summary>
     public IReadOnlyDictionary<string, object?>? Metadata { get; init; }

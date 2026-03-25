@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -58,19 +59,12 @@ public static partial class GatewayApp
                     }
 
                     var skillName = Path.GetFileName(skillDir);
-                    string? description = null;
+                    SkillFrontmatterParser.ParsedFrontmatter frontmatter;
 
                     try
                     {
-                        var lines = await File.ReadAllLinesAsync(skillFile, cancellationToken);
-                        foreach (var line in lines)
-                        {
-                            if (line.StartsWith("description:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                description = line["description:".Length..].Trim().Trim('"', '\'');
-                                break;
-                            }
-                        }
+                        var content = await File.ReadAllTextAsync(skillFile, cancellationToken);
+                        frontmatter = SkillFrontmatterParser.Parse(content);
                     }
                     catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                     {
@@ -78,17 +72,23 @@ public static partial class GatewayApp
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
                     {
-                        // Non-critical — skip description if file cannot be read
+                        _ = ex;
+                        frontmatter = new SkillFrontmatterParser.ParsedFrontmatter(null, "optional", null, [], [], null);
                     }
 
                     var hasResources = Directory.GetFiles(skillDir).Length > 1;
 
                     items.Add(new SkillDescriptor(
                         Name: skillName,
-                        Description: description,
+                        Description: frontmatter.Description,
                         Source: source,
                         Path: skillDir,
-                        HasResources: hasResources));
+                        HasResources: hasResources,
+                        Kind: frontmatter.Kind,
+                        Tags: frontmatter.Tags,
+                        AllowedTools: frontmatter.AllowedTools,
+                        Version: frontmatter.Version,
+                        Compatibility: frontmatter.Compatibility));
                 }
             }
 
@@ -107,11 +107,4 @@ public static partial class GatewayApp
             return Results.Ok(items);
         });
     }
-
-    private sealed record SkillDescriptor(
-        string Name,
-        string? Description,
-        string Source,
-        string Path,
-        bool HasResources);
 }

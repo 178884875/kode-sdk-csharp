@@ -137,6 +137,12 @@ public sealed class WeChatConnector : IChannelConnector
         if (string.IsNullOrWhiteSpace(draft.MessageText))
             throw new ArgumentException("WeChat outbound draft message text is required.", nameof(draft));
 
+        // 微信个人号不支持音频发送（需 AMR 格式转码），明确拒绝
+        var audioAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase));
+        if (audioAttachment is not null)
+            throw new NotSupportedException("微信个人号不支持发送音频文件");
+
         // 优先从内存缓存读取 contextToken（收到对方消息时缓存，持续有效直到 Gateway 重启）
         // 缓存未命中时回退到 MetadataJson（如 channel_send 工具直接调用时）
         var cacheKey = $"{accountId}::{draft.ExternalThreadId}";

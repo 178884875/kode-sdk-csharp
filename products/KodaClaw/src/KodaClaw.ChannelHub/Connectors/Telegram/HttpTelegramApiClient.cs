@@ -112,6 +112,52 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         return envelope.Result;
     }
 
+    public async Task<TelegramSendMessageResult> SendAudioAsync(
+        string botToken,
+        long chatId,
+        Stream audio,
+        string contentType,
+        string? caption,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            throw new ArgumentException("A non-empty telegram bot token is required.", nameof(botToken));
+        }
+
+        ArgumentNullException.ThrowIfNull(audio);
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(chatId.ToString(System.Globalization.CultureInfo.InvariantCulture)), "chat_id");
+        var audioContent = new StreamContent(audio);
+        audioContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        form.Add(audioContent, "audio", "speech.mp3");
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            form.Add(new StringContent(caption), "caption");
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildEndpoint(botToken, "sendAudio"))
+        {
+            Content = form,
+        };
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var envelope = await response.Content
+            .ReadFromJsonAsync<TelegramApiResponse<TelegramSendMessageResult>>(JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (envelope is null || !envelope.Ok || envelope.Result is null)
+        {
+            throw new InvalidOperationException(
+                $"Telegram API 'sendAudio' failed: {envelope?.Description ?? "unknown error"}");
+        }
+
+        return envelope.Result;
+    }
+
     private async Task<T> SendAsync<T>(
         string botToken,
         string method,

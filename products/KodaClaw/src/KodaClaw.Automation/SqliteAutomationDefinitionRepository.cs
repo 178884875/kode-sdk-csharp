@@ -35,10 +35,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 prompt,
                 source,
                 source_path,
-                schedule_kind,
-                schedule_interval,
-                schedule_local_time,
-                schedule_days_of_week,
+                cron,
                 enabled,
                 input_paths,
                 model_id,
@@ -57,10 +54,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 $prompt,
                 $source,
                 $sourcePath,
-                $scheduleKind,
-                $scheduleInterval,
-                $scheduleLocalTime,
-                $scheduleDaysOfWeek,
+                $cron,
                 $enabled,
                 $inputPaths,
                 $modelId,
@@ -78,10 +72,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 prompt = excluded.prompt,
                 source = excluded.source,
                 source_path = excluded.source_path,
-                schedule_kind = excluded.schedule_kind,
-                schedule_interval = excluded.schedule_interval,
-                schedule_local_time = excluded.schedule_local_time,
-                schedule_days_of_week = excluded.schedule_days_of_week,
+                cron = excluded.cron,
                 enabled = excluded.enabled,
                 input_paths = excluded.input_paths,
                 model_id = excluded.model_id,
@@ -116,10 +107,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 prompt,
                 source,
                 source_path,
-                schedule_kind,
-                schedule_interval,
-                schedule_local_time,
-                schedule_days_of_week,
+                cron,
                 enabled,
                 input_paths,
                 model_id,
@@ -181,10 +169,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
                 prompt,
                 source,
                 source_path,
-                schedule_kind,
-                schedule_interval,
-                schedule_local_time,
-                schedule_days_of_week,
+                cron,
                 enabled,
                 input_paths,
                 model_id,
@@ -235,10 +220,7 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
         command.Parameters.AddWithValue("$prompt", definition.Prompt);
         command.Parameters.AddWithValue("$source", definition.Source.ToString());
         command.Parameters.AddWithValue("$sourcePath", (object?)definition.SourcePath ?? DBNull.Value);
-        command.Parameters.AddWithValue("$scheduleKind", definition.Schedule.Kind.ToString());
-        command.Parameters.AddWithValue("$scheduleInterval", (object?)definition.Schedule.Interval ?? DBNull.Value);
-        command.Parameters.AddWithValue("$scheduleLocalTime", (object?)NormalizeNullableText(definition.Schedule.LocalTime) ?? DBNull.Value);
-        command.Parameters.AddWithValue("$scheduleDaysOfWeek", (object?)SerializeDays(definition.Schedule.DaysOfWeek) ?? DBNull.Value);
+        command.Parameters.AddWithValue("$cron", definition.CronExpression);
         command.Parameters.AddWithValue("$enabled", definition.Enabled ? 1 : 0);
         command.Parameters.AddWithValue("$inputPaths", (object?)SerializeTextList(definition.InputPaths) ?? DBNull.Value);
         command.Parameters.AddWithValue("$modelId", (object?)NormalizeNullableText(definition.ModelId) ?? DBNull.Value);
@@ -254,57 +236,34 @@ public sealed class SqliteAutomationDefinitionRepository : IAutomationDefinition
 
     private static AutomationDefinition MapDefinition(SqliteDataReader reader)
     {
+        // Column order: 0=id, 1=title, 2=prompt, 3=source, 4=source_path,
+        //               5=cron, 6=enabled, 7=input_paths, 8=model_id,
+        //               9=notification_channels, 10=notify_mode,
+        //               11=created_at, 12=updated_at, 13=last_run_at, 14=next_run_at,
+        //               15=last_run_status, 16=last_error
+
+        // For rows migrated from legacy schema where cron may be NULL, fall back to
+        // a safe default so the application does not crash on existing data.
+        var cronExpression = ReadNullableText(reader, 5) ?? "0 * * * *";
+
         return new AutomationDefinition(
             Id: reader.GetString(0),
             Title: reader.GetString(1),
             Prompt: reader.GetString(2),
             Source: ParseEnum<AutomationDefinitionSource>(reader.GetString(3)),
             SourcePath: ReadNullableText(reader, 4),
-            Schedule: new AutomationSchedule(
-                Kind: ParseEnum<AutomationScheduleKind>(reader.GetString(5)),
-                Interval: reader.IsDBNull(6) ? null : reader.GetInt32(6),
-                LocalTime: ReadNullableText(reader, 7),
-                DaysOfWeek: DeserializeDays(ReadNullableText(reader, 8))),
-            Enabled: reader.GetInt64(9) != 0,
-            InputPaths: DeserializeTextList(ReadNullableText(reader, 10)),
-            ModelId: ReadNullableText(reader, 11),
-            NotificationChannels: DeserializeTextList(ReadNullableText(reader, 12)),
-            NotifyMode: (AutomationNotifyMode)reader.GetInt32(13),
-            CreatedAt: ParseTimestamp(reader.GetString(14)),
-            UpdatedAt: ParseTimestamp(reader.GetString(15)),
-            LastRunAt: reader.IsDBNull(16) ? null : ParseTimestamp(reader.GetString(16)),
-            NextRunAt: reader.IsDBNull(17) ? null : ParseTimestamp(reader.GetString(17)),
-            LastRunStatus: reader.IsDBNull(18) ? null : ParseEnum<AutomationRunStatus>(reader.GetString(18)),
-            LastError: ReadNullableText(reader, 19));
-    }
-
-    private static string? SerializeDays(IReadOnlyList<AutomationScheduleDay>? days)
-    {
-        if (days is not { Count: > 0 })
-        {
-            return null;
-        }
-
-        var raw = days.Select(value => value.ToString()).ToArray();
-        return JsonSerializer.Serialize(raw, JsonOptions);
-    }
-
-    private static IReadOnlyList<AutomationScheduleDay>? DeserializeDays(string? rawValue)
-    {
-        if (string.IsNullOrWhiteSpace(rawValue))
-        {
-            return null;
-        }
-
-        var values = JsonSerializer.Deserialize<string[]>(rawValue, JsonOptions);
-        if (values is not { Length: > 0 })
-        {
-            return null;
-        }
-
-        return values
-            .Select(value => Enum.Parse<AutomationScheduleDay>(value, ignoreCase: false))
-            .ToArray();
+            CronExpression: cronExpression,
+            Enabled: reader.GetInt64(6) != 0,
+            InputPaths: DeserializeTextList(ReadNullableText(reader, 7)),
+            ModelId: ReadNullableText(reader, 8),
+            NotificationChannels: DeserializeTextList(ReadNullableText(reader, 9)),
+            NotifyMode: (AutomationNotifyMode)reader.GetInt32(10),
+            CreatedAt: ParseTimestamp(reader.GetString(11)),
+            UpdatedAt: ParseTimestamp(reader.GetString(12)),
+            LastRunAt: reader.IsDBNull(13) ? null : ParseTimestamp(reader.GetString(13)),
+            NextRunAt: reader.IsDBNull(14) ? null : ParseTimestamp(reader.GetString(14)),
+            LastRunStatus: reader.IsDBNull(15) ? null : ParseEnum<AutomationRunStatus>(reader.GetString(15)),
+            LastError: ReadNullableText(reader, 16));
     }
 
     private static string? SerializeTextList(IReadOnlyList<string>? values)

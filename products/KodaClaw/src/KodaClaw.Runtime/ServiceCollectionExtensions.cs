@@ -118,6 +118,13 @@ public static class ServiceCollectionExtensions
                     _ => new GenerateImageTool(generationService, workspaceService, canvasRepository));
             }
 
+            var speechService = sp.GetService<KodaClaw.ModelHub.ISpeechService>();
+            if (speechService is not null)
+            {
+                toolRegistry.Register("generate_speech",
+                    _ => new GenerateSpeechTool(speechService));
+            }
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
                 ModelProvider = sp.GetRequiredService<IModelProvider>(),

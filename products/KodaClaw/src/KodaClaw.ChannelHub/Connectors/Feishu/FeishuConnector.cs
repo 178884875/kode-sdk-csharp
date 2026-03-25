@@ -175,6 +175,46 @@ public sealed class FeishuConnector : IChannelConnector
             }
         }
 
+        var audioAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase));
+
+        if (audioAttachment is not null && _mediaStore is not null)
+        {
+            var stream = await _mediaStore.OpenReadAsync(audioAttachment.MediaId, cancellationToken)
+                .ConfigureAwait(false);
+            if (stream is not null)
+            {
+                try
+                {
+                    await using (stream.ConfigureAwait(false))
+                    {
+                        var fileKey = await _apiClient.UploadAudioFileAsync(
+                            tenantToken, stream, audioAttachment.ContentType, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await _apiClient.SendAudioMessageAsync(
+                            tenantToken,
+                            receiveId,
+                            receiveIdType,
+                            fileKey,
+                            caption: draft.MessageText,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+                catch (Exception)
+                {
+                    // 飞书音频上传权限不足时降级为文本提示，不中断工具调用
+                    await _apiClient.SendTextMessageAsync(
+                        tenantToken, receiveId, receiveIdType,
+                        $"[语音消息发送失败，请检查飞书 App 文件上传权限]\n{draft.MessageText}",
+                        cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+
         await _apiClient.SendTextMessageAsync(
             tenantToken, receiveId, receiveIdType, draft.MessageText, cancellationToken)
             .ConfigureAwait(false);

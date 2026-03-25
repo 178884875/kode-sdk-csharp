@@ -1446,7 +1446,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
     private ModelRequest BuildModelRequest()
     {
-        var toolsToExpose = _tools.AsEnumerable();
+        var toolsToExpose = _tools
+            .Where(t => _permissionManager.IsSchemaVisible(t.Name))
+            .AsEnumerable();
         var toolsOverride = _nextModelToolsOverride;
         if (toolsOverride != null)
         {
@@ -2468,6 +2470,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             skipStandardEnding: true,
             cancellationToken: cancellationToken);
 
+        if (skill.AllowedTools is { Count: > 0 })
+        {
+            _permissionManager.GrantTools(skill.AllowedTools);
+        }
+
         _eventBus.EmitMonitor(new SkillActivatedEvent
         {
             Type = "skill_activated",
@@ -2842,7 +2849,34 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             Timestamp = NowMs()
         });
 
-        // Template runtime skills behavior (autoActivate / recommend).
+        // 1. SkillsConfig.AutoActivate (KodaClaw config path, does not require Template system)
+        if (_config.Skills?.AutoActivate is { Count: > 0 })
+        {
+            var autoActivated = await _skillsManager.AutoActivateAsync(_config.Skills.AutoActivate, cancellationToken);
+            if (autoActivated.Count > 0)
+            {
+                foreach (var skill in autoActivated)
+                {
+                    var xml = SkillsInjector.ToActivatedXml(skill);
+                    await RemindAsync(xml, category: "general", skipStandardEnding: false, cancellationToken: cancellationToken);
+                }
+
+                var granted1 = autoActivated
+                    .SelectMany(s => s.AllowedTools ?? [])
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+                _permissionManager.GrantTools(granted1);
+
+                _eventBus.EmitMonitor(new SkillActivatedEvent
+                {
+                    Type = "skill_activated",
+                    Skill = string.Join(", ", autoActivated.Select(s => s.Name)),
+                    ActivatedBy = "auto",
+                    Timestamp = NowMs()
+                });
+            }
+        }
+
+        // 2. Template runtime skills behavior (autoActivate / recommend).
         TemplateSkillsConfig? templateSkills = null;
         if (_dependencies.TemplateRegistry != null &&
             !string.IsNullOrWhiteSpace(_config.TemplateId) &&
@@ -2862,6 +2896,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                     var xml = SkillsInjector.ToActivatedXml(skill);
                     await RemindAsync(xml, category: "general", skipStandardEnding: false, cancellationToken: cancellationToken);
                 }
+
+                var granted2 = autoActivated
+                    .SelectMany(s => s.AllowedTools ?? [])
+                    .Distinct(StringComparer.OrdinalIgnoreCase);
+                _permissionManager.GrantTools(granted2);
 
                 _eventBus.EmitMonitor(new SkillActivatedEvent
                 {

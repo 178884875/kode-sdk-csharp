@@ -655,6 +655,17 @@ public sealed class ChannelApiIntegrationTests
         {
             return Task.FromResult(new TelegramSendMessageResult { MessageId = 2 });
         }
+
+        public Task<TelegramSendMessageResult> SendAudioAsync(
+            string botToken,
+            long chatId,
+            Stream audio,
+            string contentType,
+            string? caption,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new TelegramSendMessageResult { MessageId = 3 });
+        }
     }
 
     private static TelegramUpdate CreateDirectMessageUpdate(int updateId, int messageId, string text)

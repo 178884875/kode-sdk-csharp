@@ -199,6 +199,26 @@ public sealed class FeishuUploadImageData
     public string? ImageKey { get; init; }
 }
 
+// ── 文件上传响应（音频等） ─────────────────────────────────────────────────
+
+public sealed class FeishuUploadFileResponse
+{
+    [JsonPropertyName("code")]
+    public int Code { get; init; }
+
+    [JsonPropertyName("msg")]
+    public string? Msg { get; init; }
+
+    [JsonPropertyName("data")]
+    public FeishuUploadFileData? Data { get; init; }
+}
+
+public sealed class FeishuUploadFileData
+{
+    [JsonPropertyName("file_key")]
+    public string? FileKey { get; init; }
+}
+
 // ── WS 长连接 endpoint ────────────────────────────────────────────────────
 
 /// <summary>

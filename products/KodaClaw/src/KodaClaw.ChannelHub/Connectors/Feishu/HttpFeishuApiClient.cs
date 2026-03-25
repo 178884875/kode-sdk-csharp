@@ -168,6 +168,68 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         return messageId;
     }
 
+    public async Task<string> UploadAudioFileAsync(
+        string accessToken,
+        Stream audio,
+        string contentType,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(audio);
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("audio"), "file_type");
+        var audioContent = new StreamContent(audio);
+        audioContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(audioContent, "file", "speech.mp3");
+        form.Add(new StringContent("speech.mp3"), "file_name");
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/open-apis/im/v1/files");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Content = form;
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content
+            .ReadFromJsonAsync<FeishuUploadFileResponse>(JsonOptions, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (result is null || result.Code != 0 || string.IsNullOrWhiteSpace(result.Data?.FileKey))
+        {
+            throw new InvalidOperationException(
+                $"Feishu upload audio failed: code={result?.Code}, msg={result?.Msg}");
+        }
+
+        return result.Data.FileKey;
+    }
+
+    public async Task<string> SendAudioMessageAsync(
+        string accessToken,
+        string receiveId,
+        string receiveIdType,
+        string fileKey,
+        string? caption,
+        CancellationToken cancellationToken = default)
+    {
+        var content = JsonSerializer.Serialize(new { file_key = fileKey }, JsonOptions);
+        using var request = BuildSendMessageRequest(accessToken, receiveId, receiveIdType, "audio", content);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        var messageId = await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
+
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            await SendTextMessageAsync(accessToken, receiveId, receiveIdType, caption, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return messageId;
+    }
+
     public async Task<FeishuWsEndpoint> GetWsEndpointAsync(
         string appId,
         string appSecret,

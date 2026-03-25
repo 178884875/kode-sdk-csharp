@@ -238,6 +238,45 @@ ACCEPTANCE_PACK 验收矩阵
 
 无进行中条目。
 
+**近期完成**（Iter 56，2026-03-25）：
+- TTS 语音合成（KC-5601~5605）
+  - `ISpeechService` 接口 + `GenerateSpeechResult` record；`OpenAICompatibleTtsService`：调用 `/v1/audio/speech`，voice 自动 fallback（xiaomimimo → `mimo_default`，否则 `alloy`），响应流写入 `IMediaStore`；DI `TryAddSingleton`；model-presets.json 新增 `openai-tts-1` 预置（KC-5601）
+  - `GenerateSpeechTool`（`generate_speech`）：text/voice/endpointId 参数，返回 `{ ok, mediaId, mediaUrl, contentType }`；发出 `speech_generated` 诊断事件；`InvalidOperationException` → `ToolResult.Fail`；DI 注册同 `generate_image` null-safe 模式（KC-5602）
+  - `ITelegramApiClient` + `HttpTelegramApiClient` 新增 `SendAudioAsync`（multipart, sendAudio API）；`TelegramConnector.SendAsync` 新增 `audio/*` content-type 分支（KC-5603）
+  - `IFeishuApiClient` + `HttpFeishuApiClient` 新增 `UploadAudioFileAsync` + `SendAudioMessageAsync`；`FeishuConnector` audio 路径带 try/catch fallback 到文本（KC-5603）
+  - `WeChatConnector` 遇音频附件直接 `throw new NotSupportedException("微信个人号不支持发送音频文件")`（上层已捕获）（KC-5603）
+  - `koda-channels/SKILL.md`：`allowed-tools` 追加 `generate_speech`；新增语音消息段落（组合用法示例）；平台音频支持矩阵；MiMo style 标签示例；版本升至 1.1（KC-5604）
+  - 测试：`OpenAICompatibleTtsServiceTests`（L1, 6）+ `GenerateSpeechToolTests`（L1, 6）+ `TelegramConnectorAudioTests`（L2, 3）+ `SpeechContractTests`（L3, 4）；全量回归 711 个测试全绿（KC-5605）
+
+**近期完成**（Iter 55，2026-03-25）：
+- HEARTBEAT.md Cron 调度重构（KC-5501~5504）
+  - `HeartbeatAutomationCompiler`：新增 `- cron: "..."` bullet 解析（Cronos 验证）；`LegacyScheduleToCron` 将旧 5 种 `- schedule:` 表达式转换为等价 cron string；`TryReadFieldValue` 自动去除引号（KC-5501）
+  - 删除 `AutomationSchedule` / `AutomationScheduleKind` / `AutomationScheduleDay` 三个 Contracts 类型；`AutomationDefinition.Schedule` → `CronExpression: string`；`AutomationScheduler.ComputeNextRunAt` 改用 Cronos + `TimeZoneInfo.Utc`（UTC 语义确定性）；新增 NuGet `Cronos`（KC-5502）
+  - SQLite 迁移：4 列（`schedule_kind/interval/local_time/days_of_week`）→ 1 列 `cron`；旧行 `cron=NULL` fallback `"0 * * * *"`；`schedule_kind` 改为 `NULL`（KC-5503）
+  - `contracts.ts` 删 schedule 嵌套类型加 `cronExpression: string`；`AutomationsDesk.tsx` `formatSchedule` 直接展示 cron 字符串；`koda-automation/SKILL.md` 完整改写 v2.0；`DefaultWorkspaceTemplates.Heartbeat()` 改为 `- cron:` 格式；`WorkspaceProtocolUpdateTool` 描述更新（KC-5504）
+  - 全量回归：`dotnet build` 0 错 0 警告；`dotnet test KodaClaw.sln -m:1` 通过（1 个预存在 flaky 不计）；`npm run typecheck` 通过
+
+**近期完成**（Iter 54，2026-03-25）：
+- agentskills.io 标准对齐 + `allowed-tools` 功能化（KC-5401~5404）
+  - SDK `SkillsLoader`：新增 `case "allowed-tools":` 连字符分支，改为空格分隔；新增 `metadata:` 嵌套块状态机，`SkillMetadata.Metadata` 不再为 null；暴露 `public static SkillMetadata ParseFrontmatter(string content)`（KC-5401）
+  - SDK `PermissionManager`：新增 `GrantTools(IEnumerable<string>)`，`_allowTools==null` 时 no-op；`Agent.cs` 两条 AutoActivate 路径激活后各调 `_permissionManager.GrantTools()`，skill `allowed-tools` 中的工具自动加入 session 白名单（KC-5402）
+  - 5 个内置 SKILL.md 迁移至标准格式（`allowed-tools` 空格分隔，`metadata:` 块存 `kind/version/tags`，新增 `compatibility: KodaClaw 1.x`）；`SkillFrontmatterParser` 精简为 SDK 委托；`SkillDescriptor` `Requires`→`AllowedTools` + 新增 `Compatibility`（KC-5403）
+  - `contracts.ts` `requires`→`allowedTools` + 加 `compatibility?`；`SkillsDesk.tsx` i18n key 重命名 + compatibility 展示行；`SkillFrontmatterParserTests` 全量重写（12 个）；`SkillDescriptorContractTests`（4 个）+ `SkillsEndpointIntegrationTests` 字段更新（KC-5404）
+  - 全量回归：`dotnet build` 0 错 0 警告；`dotnet test KodaClaw.sln -m:1` 691 个测试全绿；`npm run typecheck` 通过
+
+**近期完成**（Iter 53，2026-03-25）：
+- Skills 自动激活三会话接入（KC-5301~5302）
+  - SDK `SkillsConfig` record 新增 `AutoActivate: IReadOnlyList<string>?` 字段；`Agent.cs` session 启动时在 Template 激活路径之前执行 `SkillsManager.AutoActivateAsync`，将激活结果注入 system prompt 并发出 `SkillActivatedEvent`（KC-5301）
+  - `KodaClaw.Runtime/BuiltinSkills.cs`：Chat→`[koda-workspace, koda-memory]`、Channel→`[koda-workspace, koda-channels]`、Automation→`[koda-workspace, koda-automation]`；`koda-canvas` 不自动激活；3 个 SDK L1 + 5 个 Runtime L1 测试（KC-5302）
+  - `MainSessionService`（2 处）、`ChannelSessionService`（2 处）、`AutomationSessionService`（1 处）`SkillsConfig` 均加 `AutoActivate`
+  - 全量回归：`dotnet test KodaClaw.sln -m:1` 693 个测试全绿
+
+**近期完成**（Iter 52，2026-03-25）：
+- Skills frontmatter 规范 + 内置技能库 + SkillsDesk 升级（KC-5201~5203）
+  - `SkillFrontmatterParser`（`KodaClaw.Gateway/Infrastructure/`）：解析 `kind/version/tags/requires` 扩展字段，`ParseInlineList` 支持 `[a, b, c]` 内联格式；`SkillDescriptor` 晋升至 `KodaClaw.Contracts/SkillContracts.cs`（KC-5201）
+  - 4 个内置技能 SKILL.md：`koda-workspace`（更新）、`koda-automation`（heartbeat YAML / cron）、`koda-canvas`（artifact 类型 / image 生成）、`koda-channels`（channel_send / BindingId / 平台差异）、`koda-memory`（MEMORY.md 索引 / 写入策略）（KC-5202）
+  - SkillsDesk UI：kind badge（builtin-core amber / optional neutral）、tags chips、requires 行；`sortSkills()` builtin-core 优先；`contracts.ts` + `api.ts` + CSS token 全量更新；15 L1 + 3 L3 + 3 L2 测试（KC-5203）
+
 **近期完成**（Iter 46，2026-03-24）：
 - 微信个人号渠道接入（KC-4601~4606）
   - `ChannelConnectorKind.WeChat = 3`；`WeChatQrCodeResult` / `WeChatQrCodeStatus` contracts（KC-4601）

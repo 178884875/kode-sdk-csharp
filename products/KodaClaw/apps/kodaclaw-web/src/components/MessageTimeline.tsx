@@ -1,11 +1,144 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { MessageSquare, Settings, X } from "lucide-react";
+import { CheckCircle, MessageSquare, X, XCircle, type LucideProps } from "lucide-react";
+import type { ForwardRefExoticComponent, RefAttributes } from "react";
 import type { ChatMessage, ChatRole } from "../types/chat";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { EmptyState } from "./ui/EmptyState";
 import { ApprovalCard } from "./chat/ApprovalCard";
+
+// ── Tool Band: groups consecutive tool calls into a flat chip row ──────────────
+
+type ToolGroupItem = {
+  msg: ChatMessage;
+  seq: number;        // 1-indexed occurrence of this toolName within the group
+  warning?: string;   // associated tool_warning text, if any
+};
+
+type RenderItem =
+  | { kind: "message"; msg: ChatMessage }
+  | { kind: "tool_group"; items: ToolGroupItem[] };
+
+function groupMessages(messages: ChatMessage[]): RenderItem[] {
+  const result: RenderItem[] = [];
+  let currentGroup: ToolGroupItem[] | null = null;
+  const nameCounts: Record<string, number> = {};
+
+  function flushGroup() {
+    if (currentGroup && currentGroup.length > 0) {
+      result.push({ kind: "tool_group", items: currentGroup });
+    }
+    currentGroup = null;
+    for (const k in nameCounts) delete nameCounts[k];
+  }
+
+  for (const msg of messages) {
+    const isDecidedApproval = msg.role === "approval" && msg.decision !== "pending";
+    const isToolActivity = msg.role === "tool_activity";
+    const isToolWarning = msg.role === "system" && msg.isToolWarning === true;
+
+    if (isDecidedApproval || isToolActivity) {
+      if (!currentGroup) currentGroup = [];
+      const toolName = msg.toolName ?? "tool";
+      nameCounts[toolName] = (nameCounts[toolName] ?? 0) + 1;
+      currentGroup.push({ msg, seq: nameCounts[toolName] });
+    } else if (isToolWarning) {
+      if (currentGroup && currentGroup.length > 0) {
+        currentGroup[currentGroup.length - 1].warning = msg.text.replace(/^⚠\s*/, "");
+      } else {
+        flushGroup();
+        result.push({ kind: "message", msg });
+      }
+    } else {
+      flushGroup();
+      result.push({ kind: "message", msg });
+    }
+  }
+
+  flushGroup();
+  return result;
+}
+
+function extractBashCommand(inputPreview?: string | null): string | null {
+  if (!inputPreview) return null;
+  try {
+    const parsed = JSON.parse(inputPreview);
+    if (typeof parsed.command === "string") return parsed.command;
+  } catch { /* not JSON */ }
+  return inputPreview.length < 300 ? inputPreview : null;
+}
+
+function ToolBand({ items }: { items: ToolGroupItem[] }) {
+  // Compute total occurrences per tool name to decide whether to show sequence numbers
+  const totalCounts = items.reduce<Record<string, number>>((acc, item) => {
+    const name = item.msg.toolName ?? "tool";
+    acc[name] = (acc[name] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <div className="tool-band">
+      {items.map((item, idx) => {
+        const toolName = item.msg.toolName ?? "tool";
+        const showSeq = totalCounts[toolName] > 1;
+        const isBashRun = toolName === "bash_run";
+        const command = isBashRun ? extractBashCommand(item.msg.inputPreview) : null;
+        const hasWarning = !!item.warning;
+
+        type LucideIcon = ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
+        let statusClass = "tool-chip--activity";
+        let StatusIcon: LucideIcon | null = null;
+        let statusLabel: string | null = null;
+
+        if (item.msg.role === "approval") {
+          if (item.msg.decision === "approved") {
+            statusClass = hasWarning ? "tool-chip--warning" : "tool-chip--approved";
+            StatusIcon = hasWarning ? null : CheckCircle;
+          } else {
+            statusClass = "tool-chip--rejected";
+            StatusIcon = XCircle;
+            statusLabel = "已拒绝";
+          }
+        } else if (hasWarning) {
+          statusClass = "tool-chip--warning";
+        }
+
+        if (hasWarning) {
+          statusLabel = item.warning ?? null;
+        }
+
+        const durationMs = item.msg.durationMs;
+
+        return (
+          <div key={item.msg.id ?? idx} className={`tool-chip ${statusClass}`}>
+            <div className="tool-chip__header">
+              {StatusIcon && (
+                <StatusIcon size={11} strokeWidth={2} aria-hidden="true" />
+              )}
+              {hasWarning && !StatusIcon && (
+                <span className="tool-chip__warn-icon" aria-hidden="true">△</span>
+              )}
+              <code className="tool-chip__name">
+                {toolName}
+                {showSeq && <sub className="tool-chip__seq">{item.seq}</sub>}
+              </code>
+              {statusLabel && (
+                <span className="tool-chip__status-label">{statusLabel}</span>
+              )}
+              {!statusLabel && durationMs != null && (
+                <span className="tool-chip__dur">· {durationMs}ms</span>
+              )}
+            </div>
+            {command && (
+              <div className="tool-chip__cmd" title={command}>{command}</div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
 
@@ -279,7 +412,13 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
               title={text.empty}
             />
           ) : (
-            messages.map((message) => {
+            groupMessages(messages).map((item, idx) => {
+              if (item.kind === "tool_group") {
+                return <ToolBand key={`tg-${idx}`} items={item.items} />;
+              }
+
+              const message = item.msg;
+
               if (message.role === "user") {
                 return (
                   <article key={message.id} className={`message message--user${message.isHistory ? " message--history" : ""}`}>
@@ -313,18 +452,6 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
                       )}
                     </div>
                   </article>
-                );
-              }
-
-              if (message.role === "tool_activity") {
-                return (
-                  <div key={message.id} className="tool-activity-block">
-                    <Settings size={11} strokeWidth={2} className="tool-activity-block__icon" />
-                    <span className="tool-activity-block__name">{message.toolName ?? "tool"}</span>
-                    {message.durationMs != null && (
-                      <span className="tool-activity-block__dur">{message.durationMs}ms</span>
-                    )}
-                  </div>
                 );
               }
 

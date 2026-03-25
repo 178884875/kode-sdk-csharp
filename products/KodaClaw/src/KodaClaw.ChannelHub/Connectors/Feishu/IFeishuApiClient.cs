@@ -46,4 +46,20 @@ public interface IFeishuApiClient
         string imageKey,
         string? caption,
         CancellationToken cancellationToken = default);
+
+    /// <summary>上传音频文件，返回 file_key</summary>
+    Task<string> UploadAudioFileAsync(
+        string accessToken,
+        Stream audio,
+        string contentType,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>发送音频消息（使用已上传的 file_key）</summary>
+    Task<string> SendAudioMessageAsync(
+        string accessToken,
+        string receiveId,
+        string receiveIdType,
+        string fileKey,
+        string? caption,
+        CancellationToken cancellationToken = default);
 }

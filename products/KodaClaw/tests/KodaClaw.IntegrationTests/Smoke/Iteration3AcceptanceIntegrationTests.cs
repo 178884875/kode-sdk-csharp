@@ -163,11 +163,7 @@ public sealed class Iteration3AcceptanceIntegrationTests
             Prompt: "Summarize unresolved inbox items and publish a concise heartbeat.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: ["workspace/inbox", "workspace/tasks"],
             ModelId: null,

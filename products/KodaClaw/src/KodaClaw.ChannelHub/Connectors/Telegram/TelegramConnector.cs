@@ -144,6 +144,30 @@ public sealed class TelegramConnector : IChannelConnector
             }
         }
 
+        var audioAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase));
+
+        if (audioAttachment is not null && _mediaStore is not null)
+        {
+            var stream = await _mediaStore.OpenReadAsync(audioAttachment.MediaId, cancellationToken)
+                .ConfigureAwait(false);
+            if (stream is not null)
+            {
+                await using (stream.ConfigureAwait(false))
+                {
+                    await _apiClient.SendAudioAsync(
+                        startedAccount.Configuration.BotToken,
+                        chatId,
+                        stream,
+                        audioAttachment.ContentType,
+                        caption: draft.MessageText,
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                return;
+            }
+        }
+
         await _apiClient.SendMessageAsync(
             startedAccount.Configuration.BotToken,
             chatId,

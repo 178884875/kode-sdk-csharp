@@ -36,6 +36,8 @@
     <!-- Examples -->
     <PackageVersion Include="DotNetEnv" Version="3.1.1" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.5" />
+    <!-- Scheduling -->
+    <PackageVersion Include="Cronos" Version="0.9.0" />
     <!-- Git -->
     <PackageVersion Include="LibGit2Sharp" Version="0.30.0" />
     <!-- Serilog -->

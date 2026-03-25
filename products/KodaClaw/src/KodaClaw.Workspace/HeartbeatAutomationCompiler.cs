@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
+using Cronos;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.Workspace;
@@ -9,19 +10,20 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
 {
     internal const string HeartbeatSourcePath = $"{KodaClawWorkspaceLayout.WorkspaceDirectory}/{KodaClawWorkspaceLayout.HeartbeatFile}";
 
-    private static readonly Regex MinutesPattern = new(
+    // Legacy schedule: patterns — converted to cron for backward compatibility.
+    private static readonly Regex LegacyMinutesPattern = new(
         "^every\\s+(\\d+)m$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex HourlyPattern = new(
+    private static readonly Regex LegacyHourlyPattern = new(
         "^hourly\\s+(\\d+)h$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex DailyPattern = new(
+    private static readonly Regex LegacyDailyPattern = new(
         "^daily\\s+(\\d{2}:\\d{2})$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex WeekdaysPattern = new(
+    private static readonly Regex LegacyWeekdaysPattern = new(
         "^weekdays\\s+(\\d{2}:\\d{2})$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex WeeklyPattern = new(
+    private static readonly Regex LegacyWeeklyPattern = new(
         "^weekly\\s+(.+?)\\s+(\\d{2}:\\d{2})$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
@@ -98,12 +100,25 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 throw new HeartbeatCompilationException("Expected a top-level bullet field.", lineNumber);
             }
 
-            if (TryReadFieldValue(bulletContent, "schedule", out var schedule))
+            if (TryReadFieldValue(bulletContent, "cron", out var cronExpr))
             {
-                currentSection.ScheduleExpression = EnsureSingleAssignment(
-                    currentSection.ScheduleExpression,
+                currentSection.CronExpression = EnsureSingleAssignment(
+                    currentSection.CronExpression,
+                    "cron",
+                    cronExpr,
+                    lineNumber);
+                lineIndex++;
+                continue;
+            }
+
+            if (TryReadFieldValue(bulletContent, "schedule", out var scheduleExpr))
+            {
+                // Legacy field — convert to cron on the fly.
+                var cron = LegacyScheduleToCron(scheduleExpr, lineNumber);
+                currentSection.CronExpression = EnsureSingleAssignment(
+                    currentSection.CronExpression,
                     "schedule",
-                    schedule,
+                    cron,
                     lineNumber);
                 lineIndex++;
                 continue;
@@ -201,6 +216,110 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
         return sections;
     }
 
+    /// <summary>
+    /// Converts a legacy <c>schedule:</c> expression to a standard 5-field cron string.
+    /// Supported forms: "every 15m", "hourly 2h", "daily 09:00", "weekdays 09:00", "weekly mon,wed,fri 18:30".
+    /// </summary>
+    internal static string LegacyScheduleToCron(string expression, int lineNumber = 0)
+    {
+        var expr = expression.Trim();
+
+        var minutesMatch = LegacyMinutesPattern.Match(expr);
+        if (minutesMatch.Success)
+        {
+            var interval = int.Parse(minutesMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (interval < 5)
+            {
+                throw new HeartbeatCompilationException(
+                    $"Legacy schedule '{expr}': minimum interval is 5 minutes.", lineNumber);
+            }
+
+            return $"*/{interval} * * * *";
+        }
+
+        var hourlyMatch = LegacyHourlyPattern.Match(expr);
+        if (hourlyMatch.Success)
+        {
+            var interval = int.Parse(hourlyMatch.Groups[1].Value, CultureInfo.InvariantCulture);
+            if (interval < 1)
+            {
+                throw new HeartbeatCompilationException(
+                    $"Legacy schedule '{expr}': hourly interval must be >= 1.", lineNumber);
+            }
+
+            return $"0 */{interval} * * *";
+        }
+
+        var dailyMatch = LegacyDailyPattern.Match(expr);
+        if (dailyMatch.Success)
+        {
+            var (hour, minute) = ParseHHMM(dailyMatch.Groups[1].Value, expr, lineNumber);
+            return $"{minute} {hour} * * *";
+        }
+
+        var weekdaysMatch = LegacyWeekdaysPattern.Match(expr);
+        if (weekdaysMatch.Success)
+        {
+            var (hour, minute) = ParseHHMM(weekdaysMatch.Groups[1].Value, expr, lineNumber);
+            return $"{minute} {hour} * * 1-5";
+        }
+
+        var weeklyMatch = LegacyWeeklyPattern.Match(expr);
+        if (weeklyMatch.Success)
+        {
+            var dayTokens = weeklyMatch.Groups[1].Value
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (dayTokens.Length == 0)
+            {
+                throw new HeartbeatCompilationException(
+                    $"Legacy schedule '{expr}': weekly schedule requires at least one day.", lineNumber);
+            }
+
+            var dayNumbers = new List<int>(dayTokens.Length);
+            foreach (var token in dayTokens)
+            {
+                dayNumbers.Add(ParseDayToken(token, expr, lineNumber));
+            }
+
+            dayNumbers.Sort();
+            var (hour, minute) = ParseHHMM(weeklyMatch.Groups[2].Value, expr, lineNumber);
+            return $"{minute} {hour} * * {string.Join(",", dayNumbers)}";
+        }
+
+        throw new HeartbeatCompilationException(
+            $"Unsupported legacy schedule '{expr}'. " +
+            "Use '- cron: \"0 9 * * *\"' instead. " +
+            "Legacy forms: 'every 15m', 'hourly 2h', 'daily 09:00', 'weekdays 09:00', 'weekly mon,wed,fri 18:30'.",
+            lineNumber);
+    }
+
+    private static (int Hour, int Minute) ParseHHMM(string token, string expression, int lineNumber)
+    {
+        if (TimeOnly.TryParseExact(token, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var t))
+        {
+            return (t.Hour, t.Minute);
+        }
+
+        throw new HeartbeatCompilationException(
+            $"Invalid time token '{token}' in schedule '{expression}'.", lineNumber);
+    }
+
+    private static int ParseDayToken(string token, string expression, int lineNumber)
+    {
+        return token.ToLowerInvariant() switch
+        {
+            "sun" => 0,
+            "mon" => 1,
+            "tue" => 2,
+            "wed" => 3,
+            "thu" => 4,
+            "fri" => 5,
+            "sat" => 6,
+            _ => throw new HeartbeatCompilationException(
+                $"Invalid weekday token '{token}' in schedule '{expression}'.", lineNumber),
+        };
+    }
+
     private static int ParseChannels(string[] lines, int startIndex, SectionDraft section)
     {
         var lineIndex = startIndex;
@@ -278,7 +397,7 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
             return false;
         }
 
-        value = bulletContent[prefix.Length..].Trim();
+        value = bulletContent[prefix.Length..].Trim().Trim('"', '\'');
         if (value.Length == 0)
         {
             throw new HeartbeatCompilationException($"Field '{fieldName}' cannot be empty.");
@@ -330,9 +449,11 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 throw new HeartbeatCompilationException("Automation title is required.");
             }
 
-            if (string.IsNullOrWhiteSpace(section.ScheduleExpression))
+            if (string.IsNullOrWhiteSpace(section.CronExpression))
             {
-                throw new HeartbeatCompilationException($"Automation '{title}' is missing required 'schedule' field.");
+                throw new HeartbeatCompilationException(
+                    $"Automation '{title}' is missing required schedule. " +
+                    "Use '- cron: \"0 9 * * *\"' or legacy '- schedule: daily 09:00'.");
             }
 
             if (string.IsNullOrWhiteSpace(section.Prompt))
@@ -340,7 +461,18 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 throw new HeartbeatCompilationException($"Automation '{title}' is missing required 'prompt' field.");
             }
 
-            var schedule = ParseSchedule(section.ScheduleExpression, title);
+            // Validate that the cron expression is parseable by Cronos.
+            var cronExpr = section.CronExpression.Trim();
+            try
+            {
+                CronExpression.Parse(cronExpr);
+            }
+            catch (CronFormatException ex)
+            {
+                throw new HeartbeatCompilationException(
+                    $"Automation '{title}' has invalid cron expression '{cronExpr}': {ex.Message}");
+            }
+
             var slug = SlugifyTitle(title);
             var count = slugCounts.TryGetValue(slug, out var previousCount) ? previousCount + 1 : 1;
             slugCounts[slug] = count;
@@ -352,7 +484,7 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 Prompt: section.Prompt,
                 Source: AutomationDefinitionSource.Heartbeat,
                 SourcePath: HeartbeatSourcePath,
-                Schedule: schedule,
+                CronExpression: cronExpr,
                 Enabled: section.Enabled,
                 InputPaths: section.Inputs.ToArray(),
                 ModelId: section.ModelId,
@@ -367,139 +499,6 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
         }
 
         return definitions;
-    }
-
-    private static AutomationSchedule ParseSchedule(string expression, string title)
-    {
-        var normalizedExpression = expression.Trim();
-        if (normalizedExpression.Length == 0)
-        {
-            throw new HeartbeatCompilationException($"Automation '{title}' has an empty schedule expression.");
-        }
-
-        var minutesMatch = MinutesPattern.Match(normalizedExpression);
-        if (minutesMatch.Success)
-        {
-            var intervalMinutes = int.Parse(minutesMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-            if (intervalMinutes < 5)
-            {
-                throw new HeartbeatCompilationException(
-                    $"Automation '{title}' has invalid minutes interval '{normalizedExpression}': minimum is 5 minutes.");
-            }
-
-            return new AutomationSchedule(
-                Kind: AutomationScheduleKind.Minutes,
-                Interval: intervalMinutes,
-                LocalTime: null,
-                DaysOfWeek: null);
-        }
-
-        var hourlyMatch = HourlyPattern.Match(normalizedExpression);
-        if (hourlyMatch.Success)
-        {
-            var intervalHours = int.Parse(hourlyMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-            if (intervalHours <= 0)
-            {
-                throw new HeartbeatCompilationException(
-                    $"Automation '{title}' has invalid hourly interval '{normalizedExpression}'.");
-            }
-
-            return new AutomationSchedule(
-                Kind: AutomationScheduleKind.Hourly,
-                Interval: intervalHours,
-                LocalTime: null,
-                DaysOfWeek: null);
-        }
-
-        var dailyMatch = DailyPattern.Match(normalizedExpression);
-        if (dailyMatch.Success)
-        {
-            var localTime = ParseTimeToken(dailyMatch.Groups[1].Value, title, normalizedExpression);
-            return new AutomationSchedule(
-                Kind: AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: localTime.ToString("HH:mm", CultureInfo.InvariantCulture),
-                DaysOfWeek: null);
-        }
-
-        var weekdaysMatch = WeekdaysPattern.Match(normalizedExpression);
-        if (weekdaysMatch.Success)
-        {
-            var localTime = ParseTimeToken(weekdaysMatch.Groups[1].Value, title, normalizedExpression);
-            return new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: localTime.ToString("HH:mm", CultureInfo.InvariantCulture),
-                DaysOfWeek:
-                [
-                    AutomationScheduleDay.Monday,
-                    AutomationScheduleDay.Tuesday,
-                    AutomationScheduleDay.Wednesday,
-                    AutomationScheduleDay.Thursday,
-                    AutomationScheduleDay.Friday,
-                ]);
-        }
-
-        var weeklyMatch = WeeklyPattern.Match(normalizedExpression);
-        if (weeklyMatch.Success)
-        {
-            var dayTokens = weeklyMatch.Groups[1].Value
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (dayTokens.Length == 0)
-            {
-                throw new HeartbeatCompilationException(
-                    $"Automation '{title}' has invalid weekly schedule '{normalizedExpression}'.");
-            }
-
-            var days = new List<AutomationScheduleDay>(dayTokens.Length);
-            foreach (var token in dayTokens)
-            {
-                days.Add(ParseDayToken(token, title, normalizedExpression));
-            }
-
-            var localTime = ParseTimeToken(weeklyMatch.Groups[2].Value, title, normalizedExpression);
-            return new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: localTime.ToString("HH:mm", CultureInfo.InvariantCulture),
-                DaysOfWeek: days.ToArray());
-        }
-
-        throw new HeartbeatCompilationException(
-            $"Automation '{title}' has invalid schedule '{normalizedExpression}'. " +
-            "Supported forms: 'every 15m', 'hourly 2h', 'daily 09:00', 'weekdays 09:00', 'weekly mon,wed,fri 18:30'.");
-    }
-
-    private static TimeOnly ParseTimeToken(string token, string title, string expression)
-    {
-        if (TimeOnly.TryParseExact(
-            token,
-            "HH:mm",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out var localTime))
-        {
-            return localTime;
-        }
-
-        throw new HeartbeatCompilationException(
-            $"Automation '{title}' has invalid time token in schedule '{expression}'.");
-    }
-
-    private static AutomationScheduleDay ParseDayToken(string token, string title, string expression)
-    {
-        return token.ToLowerInvariant() switch
-        {
-            "mon" => AutomationScheduleDay.Monday,
-            "tue" => AutomationScheduleDay.Tuesday,
-            "wed" => AutomationScheduleDay.Wednesday,
-            "thu" => AutomationScheduleDay.Thursday,
-            "fri" => AutomationScheduleDay.Friday,
-            "sat" => AutomationScheduleDay.Saturday,
-            "sun" => AutomationScheduleDay.Sunday,
-            _ => throw new HeartbeatCompilationException(
-                $"Automation '{title}' has invalid weekday token '{token}' in schedule '{expression}'."),
-        };
     }
 
     private static string SlugifyTitle(string title)
@@ -639,7 +638,7 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
     {
         public string Title { get; } = title;
 
-        public string? ScheduleExpression { get; set; }
+        public string? CronExpression { get; set; }
 
         public string? Prompt { get; set; }
 

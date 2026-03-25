@@ -14,8 +14,15 @@ internal static class CanvasArtifactValidation
         ValidateRequired(artifact.Title, nameof(artifact.Title));
         ValidateRequired(artifact.Summary, nameof(artifact.Summary));
         ValidateRequired(artifact.Source, nameof(artifact.Source));
-        ValidateWorkspaceCanvasPath(artifact.EntryPath, nameof(artifact.EntryPath));
-        ValidateWorkspaceCanvasPath(artifact.AssetDirectory, nameof(artifact.AssetDirectory));
+        if (artifact.Kind == CanvasArtifactKind.Image)
+        {
+            ValidateMediaPath(artifact.EntryPath, nameof(artifact.EntryPath));
+        }
+        else
+        {
+            ValidateWorkspaceCanvasPath(artifact.EntryPath, nameof(artifact.EntryPath));
+            ValidateWorkspaceCanvasPath(artifact.AssetDirectory, nameof(artifact.AssetDirectory));
+        }
 
         if (artifact.CreatedAt == default)
         {
@@ -56,6 +63,25 @@ internal static class CanvasArtifactValidation
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new ArgumentException($"{parameterName} is required.", parameterName);
+        }
+    }
+
+    private static void ValidateMediaPath(string? rawPath, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            throw new ArgumentException($"{parameterName} is required.", parameterName);
+        }
+
+        var normalized = rawPath.Trim().Replace('\\', '/');
+        if (Path.IsPathRooted(normalized) || normalized.StartsWith("/", StringComparison.Ordinal))
+        {
+            throw new ArgumentException($"{parameterName} must be a workspace-relative path.", parameterName);
+        }
+
+        if (!normalized.StartsWith("media/", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException($"{parameterName} for Image artifacts must be under media/.", parameterName);
         }
     }
 

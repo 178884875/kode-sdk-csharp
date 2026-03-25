@@ -499,7 +499,7 @@ public static class DefaultWorkspaceTemplates
 # Heartbeat
 
 ## Daily Inbox Digest
-- schedule: daily 09:00
+- cron: "0 9 * * *"
 - prompt: Review unresolved inbox items and produce a concise morning summary with next actions.
 - enabled: true
 - inputs:
@@ -507,7 +507,7 @@ public static class DefaultWorkspaceTemplates
   - tasks
 
 ## Weekday Memory Hygiene
-- schedule: weekdays 18:30
+- cron: "30 18 * * 1-5"
 - prompt: Check workspace memory files for stale facts and suggest cleanup actions before end of day.
 - enabled: false
 - inputs:
@@ -515,7 +515,7 @@ public static class DefaultWorkspaceTemplates
   - memory/
 
 ## Nightly Memory Consolidation
-- schedule: daily 23:45
+- cron: "45 23 * * *"
 - prompt: >
     Review today's memory captures in the daily file and consolidate them into MEMORY.md.
     Merge new facts with existing ones, remove duplicates, generalize recurring patterns,

@@ -11,13 +11,7 @@ namespace KodaClaw.UnitTests.Automation;
 
 public sealed class AutomationSchedulerTests
 {
-    private static readonly AutomationSchedule DefaultSchedule = new(
-        Kind: AutomationScheduleKind.Hourly,
-        Interval: 1,
-        LocalTime: null,
-        DaysOfWeek: null);
-
-    [Fact]
+[Fact]
     public async Task TickAsync_should_be_noop_when_AutomationsEnabled_is_false()
     {
         var now = new DateTimeOffset(2026, 3, 20, 9, 0, 0, TimeSpan.Zero);
@@ -190,7 +184,7 @@ public sealed class AutomationSchedulerTests
             Prompt: $"Run {id}.",
             Source: AutomationDefinitionSource.Manual,
             SourcePath: null,
-            Schedule: DefaultSchedule,
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: null,
             ModelId: null,

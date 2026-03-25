@@ -67,16 +67,7 @@ public sealed class AutomationApiContractsTests
             Prompt: "Review unresolved inbox items and summarize the queue.",
             Source: AutomationDefinitionSource.Heartbeat,
             SourcePath: "workspace/HEARTBEAT.md",
-            Schedule: new AutomationSchedule(
-                Kind: AutomationScheduleKind.Weekly,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek:
-                [
-                    AutomationScheduleDay.Monday,
-                    AutomationScheduleDay.Wednesday,
-                    AutomationScheduleDay.Friday,
-                ]),
+            CronExpression: "0 9 * * 1,3,5",
             Enabled: enabled,
             InputPaths: ["workspace/inbox", "workspace/tasks"],
             ModelId: null,

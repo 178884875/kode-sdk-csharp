@@ -2,6 +2,27 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 56 — TTS 语音合成（2026-03-25）
+
+> FREEZE doc: `docs/ITERATION_56_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5601 | ModelHub | `ISpeechService` 接口 + `OpenAICompatibleTtsService`（兼容 MiMo / OpenAI TTS-1）；DI 注册；新增 `mimo-tts-default` 和 `openai-tts-1` 两个预置 ModelEndpoint（`capabilities=TextToSpeech`） | `dotnet build` 0 错；`dotnet test --filter OpenAICompatibleTtsServiceTests` | Completed |
+| KC-5602 | Runtime | `GenerateSpeechTool`（text/voice/endpoint_id 参数，返回 mediaId + mediaUrl）；诊断事件 `speech_generated` | `dotnet test --filter GenerateSpeechToolTests` | Completed |
+| KC-5603 | ChannelHub | `TelegramConnector` 按 content-type 路由：`audio/*` → `sendAudio`（mp3 直传，无转码）；`FeishuConnector` uploadFile + sendAudio；`WeChatConnector` 明确拒绝并抛 `NotSupportedException`（不静默失败） | `dotnet test --filter TelegramConnectorAudioTests` | Completed |
+| KC-5604 | Gateway/skills | `koda-channels/SKILL.md`：`allowed-tools` 加 `generate_speech`；新增语音发送段落（`generate_speech → channel_send(mediaId)` 组合模式）；平台支持矩阵补音频行；MiMo style 标签示例；版本升至 1.1 | `npm run typecheck`；人工验证 SkillsDesk 展示 | Completed |
+| KC-5605 | Tests | `OpenAICompatibleTtsServiceTests`（L1, 6）+ `GenerateSpeechToolTests`（L1, 6）+ `TelegramConnectorAudioTests`（L2, 3）+ `SpeechContractTests`（L3, 4）；全量回归 711 个测试全绿 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 55 — HEARTBEAT.md Cron 调度重构（2026-03-25）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5501 | Workspace | `HeartbeatAutomationCompiler` 新增 `- cron: "..."` bullet 解析（Cronos 验证）；`LegacyScheduleToCron` 将旧 `- schedule:` 5 种表达式机械转换为等价 cron string；两者不能同时出现；`SectionDraft.CronExpression` 替换原 `ScheduleExpression`；5 个 Regex 定义删除 | `dotnet test --filter HeartbeatAutomationCompilerContractTests` | Completed |
+| KC-5502 | Contracts + Automation | 删除 `AutomationSchedule` / `AutomationScheduleKind` / `AutomationScheduleDay`；`AutomationDefinition.Schedule` → `CronExpression: string`；`AutomationScheduler.ComputeNextRunAt` 换 Cronos + `TimeZoneInfo.Utc`（UTC 语义确定性）；`AutomationValidation` schedule 校验简化；新增 NuGet `Cronos` | `dotnet test --filter AutomationSchedulerTests,AutomationSchedulerIntegrationTests` | Completed |
+| KC-5503 | Storage | SQLite 迁移：4 列（`schedule_kind/interval/local_time/days_of_week`）→ 1 列 `cron`；`SqliteAutomationDefinitionRepository` 读写改为 `cron` 列；旧行 `cron=NULL` 时 fallback `"0 * * * *"` | `dotnet test --filter SqliteAutomationDefinitionRepositoryTests,HeartbeatSyncIntegrationTests` | Completed |
+| KC-5504 | kodaclaw-web + Skills | `contracts.ts` 删 schedule 嵌套类型，加 `cronExpression: string`；`AutomationsDesk.tsx` `formatSchedule` 直接展示 cron 字符串；`koda-automation/SKILL.md` 完整改写（版本 2.0，cron 格式表 + UTC 注意 + legacy 兼容表）；`DefaultWorkspaceTemplates.Heartbeat()` 示例改为 `- cron:`；`WorkspaceProtocolUpdateTool` 描述更新 | `npm run typecheck && dotnet test --filter HeartbeatLegacyCompatibilityTests` | Completed |
+
 ## Iter 51 — Workspace Git 版本管理（2026-03-24）
 
 | 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
@@ -1618,6 +1639,78 @@
   - 受影响模块：`apps/kodaclaw-web`（`App.tsx`）
   - Scope（Option A2）：`handleModelChange` 切换成功后弹内联 confirm `"切换模型将开始新会话，继续？"`；确认后 `rotateSession()` + `clearMessages("已切换为 [model]，已开始新会话")`；取消后回滚 pill 到旧 model。
   - Verification：`npm run typecheck` ✓；L5 Dogfood：切换模型 → confirm → 新会话 → 实际使用新模型回复。
+
+## 迭代 53：Skills 会话启动自动激活（KC-5301~5302）
+
+范围冻结：见 `docs/ITERATION_53_FREEZE.md`（2026-03-25）。SDK `SkillsConfig` 新增 `AutoActivate` 字段，KodaClaw 三类 session service 按 session 类型配置对应的内置技能自动激活。**依赖迭代 52 的 KC-5201/5202 完成。**
+
+- `KC-5301`：`Completed`（2026-03-25）。
+  - User Outcome：`SkillsConfig` 支持 `AutoActivate` 字段，Agent 会话启动时自动激活指定技能，无需依赖 Template 系统；emit `SkillActivatedEvent(activatedBy="auto")`。
+  - Scope：`Kode.Agent.Sdk/Core/Skills/SkillTypes.cs` — `SkillsConfig` 新增 `IReadOnlyList<string>? AutoActivate { get; init; }`；`Agent.cs` skills 初始化区块（约第 2845 行前）新增从 `_config.Skills?.AutoActivate` 读取并调用 `_skillsManager.AutoActivateAsync()` 的逻辑，复用现有 Template 路径的 context 注入和 event emit 代码；技能名不存在时静默跳过（SDK 已有行为）；与 Template `AutoActivate` 不互斥，各自独立运行。
+  - Modules：`Kode.Agent.Sdk`。
+  - Verification：`dotnet build` 0 错 0 警告；L1 `SkillsConfigAutoActivateTests`（`Kode.Agent.Tests`）3 个全通过；`dotnet test Kode.Agent.Tests --filter SkillsConfigAutoActivate` 通过。
+
+- `KC-5302`：`Completed`（2026-03-25）。
+  - User Outcome：主对话 session 启动后 Agent 无需手动 `skill_activate` 即可引用 workspace 协议和记忆管理细节；渠道 session 自动具备 channel_send 知识；自动化 session 自动具备 HEARTBEAT.md 语法知识。
+  - Scope：`KodaClaw.Runtime` 新增 `BuiltinSkills.cs` 静态常量类（放 Runtime 层，非 Contracts，因为是 session 配置行为而非公共契约；5 个技能名常量 + 3 个 AutoActivate 列表：`ChatAutoActivate=[koda-workspace, koda-memory]`、`ChannelAutoActivate=[koda-workspace, koda-channels]`、`AutomationAutoActivate=[koda-workspace, koda-automation]`）；`MainSessionService.cs` 2 处（新建+resume）、`ChannelSessionService.cs` 2 处（DM 新建+resume）、`AutomationSessionService.cs` 1 处的 `SkillsConfig` 构造加 `AutoActivate` 字段（注意：主对话 skills 配置在 `MainSessionService.cs`，不在 `ChatSessionService.cs`）；`koda-canvas` 不加入任何 session 的自动激活列表。
+  - Modules：`KodaClaw.Runtime`。
+  - Verification：`dotnet build` 0 错 0 警告；L1 `BuiltinSkillsTests`（`KodaClaw.UnitTests`）5 个全通过；`dotnet test KodaClaw.sln -m:1` 693 个测试 0 失败。
+
+---
+
+## 迭代 54：agentskills.io 标准对齐 + `allowed-tools` 功能化（KC-5401~5404）
+
+范围冻结：见 `docs/ITERATION_54_FREEZE.md`（2026-03-25）。将 SKILL.md 非标准顶层字段（`requires/kind/version/tags`）迁移至标准位置（`allowed-tools` + `metadata:` 块），修复 SDK 解析 bug，实现 skill 激活时自动扩展工具白名单的完整功能链路。**依赖迭代 52+53 完成。**
+
+- `KC-5401`：`Completed`。
+  - User Outcome：SDK `SkillsLoader` 正确解析标准 `allowed-tools`（连字符，空格分隔）和 `metadata:` 嵌套块；`SkillMetadata.Metadata` 不再为 null；`SkillsLoader.ParseFrontmatter(string)` 暴露为 public static，供 KodaClaw Gateway 复用。
+  - Scope：`Kode.Agent.Sdk/Core/Skills/SkillsLoader.cs` — 新增 `case "allowed-tools":` 分支，改为空格分隔解析；新增 `metadata:` 嵌套块状态机解析，填充 `SkillMetadata.Metadata`；将 `ParseSkillFile` 内核提取为 `public static SkillMetadata ParseFrontmatter(string content)`。
+  - Modules：`Kode.Agent.Sdk`。
+  - Verification：`dotnet build` 0 错 0 警告 ✓；L0 通过 ✓。
+
+- `KC-5402`：`Completed`。
+  - User Outcome：skill 激活后其 `allowed-tools` 中列出的工具自动加入 session 工具白名单，不再需要在 `AgentConfig.Tools` 中预先配置；白名单为空（mode=auto）时不受影响。
+  - Scope：`PermissionManager.cs` 新增 `public void GrantTools(IEnumerable<string>)`（`_allowTools==null` 时 no-op，防止全放行模式被误变为白名单模式；`lock (_lock)` 保证线程安全）；`Agent.cs` `InitializeSkillsAsync` 中 `SkillsConfig.AutoActivate` 和 Template AutoActivate 两条路径激活完成后，各调 `_permissionManager.GrantTools(activated.SelectMany(s => s.AllowedTools ?? []).Distinct())`。
+  - Modules：`Kode.Agent.Sdk`。
+  - Verification：`dotnet build` 0 错 0 警告 ✓。
+
+- `KC-5403`：`Completed`。
+  - User Outcome：5 个内置 SKILL.md 使用标准格式（`allowed-tools` 空格分隔，`metadata:` 块存 `kind/version/tags`，新增 `compatibility: KodaClaw 1.x`）；KodaClaw `SkillFrontmatterParser` 精简为 SDK 委托 + dict 提取，消除重复解析逻辑；`SkillDescriptor.Requires` 重命名为 `AllowedTools`，新增 `Compatibility` 字段。
+  - Scope：5 个 SKILL.md 格式迁移（`koda-workspace/automation/canvas/channels/memory`）；`SkillFrontmatterParser.cs` 改为调 `SkillsLoader.ParseFrontmatter` + 从 `Metadata` dict 提取 `kind/version/tags`，删除 `ParseInlineList`，`ParsedFrontmatter` 字段 `Requires`→`AllowedTools` + 加 `Compatibility`；`SkillContracts.cs` `SkillDescriptor` 同步重命名 + 加字段；`GatewayApp.SkillsEndpoints.cs` 改为 `ReadAllTextAsync` + 更新构造。
+  - Modules：`KodaClaw.Gateway`、`KodaClaw.Contracts`、`KodaClaw.Gateway/skills`。
+  - Verification：`dotnet build` 0 错 0 警告 ✓；L1 `SkillFrontmatterParserTests` 12/12 ✓；L3 `SkillDescriptorContractTests` 4/4 ✓；L2 `SkillsEndpointIntegrationTests` 通过 ✓。
+
+- `KC-5404`：`Completed`。
+  - User Outcome：SkillsDesk 显示"所需工具"（AllowedTools），新增 `compatibility` 展示行（有值时显示）；前端类型与后端 contract 一致。
+  - Scope：`contracts.ts` `SkillDescriptor` 字段 `requires`→`allowedTools`，加 `compatibility?: string | null`；`SkillsDesk.tsx` 渲染逻辑 + i18n key（`skillAllowedToolsLabel`/`skillCompatibilityLabel`）+ compatibility 行（有值时显示，`--text-tertiary` 色）。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck` 通过 ✓；全量 691 个后端测试通过 ✓。
+
+---
+
+## 迭代 52：Skills 内容扩充 + Frontmatter 规范（KC-5201~5203）
+
+范围冻结：见 `docs/ITERATION_52_FREEZE.md`（2026-03-25）。补全 4 个核心内置技能文件，规范化 SKILL.md frontmatter（新增 kind/tags/requires/version），升级 `GET /api/skills` 解析和 SkillsDesk 展示。
+
+- `KC-5201`：`Completed`（2026-03-25）。
+  - User Outcome：`GET /api/skills` 返回的每个 `SkillDescriptor` 包含 `kind`、`tags`、`requires`、`version` 字段；前端可据此区分核心技能与可选技能；`koda-workspace` frontmatter 同步补齐新字段。
+  - Scope：`KodaClaw.Contracts` — 新建 `SkillContracts.cs`，将 `SkillDescriptor` 从 `GatewayApp.SkillsEndpoints.cs` 的 `private sealed record` 提升至 Contracts 层，同时扩展 `string Kind`、`IReadOnlyList<string> Tags`、`IReadOnlyList<string> Requires`、`string? Version` 四个字段；`GatewayApp.SkillsEndpoints.cs` 删除内部 record，引用 Contracts 类型；新建 `KodaClaw.Gateway/Infrastructure/SkillFrontmatterParser.cs`（internal，`InternalsVisibleTo` 对测试开放）；`skills/koda-workspace/SKILL.md` frontmatter 补齐新字段；`contracts.ts` 新增 `SkillDescriptor` 接口；`api.ts` 新增 `fetchSkills(signal?)` 函数。
+  - Modules：`KodaClaw.Contracts`、`KodaClaw.Gateway`、`apps/kodaclaw-web`。
+  - Verification：`dotnet build` 0 错 0 警告；`npm run typecheck` 通过；L1 `SkillFrontmatterParserTests` 15 个全通过；L3 `SkillDescriptorContractTests` 3 个全通过；L2 `SkillsEndpointIntegrationTests` 3 个全通过。
+
+- `KC-5202`：`Completed`（2026-03-25）。
+  - User Outcome：`skill_list` 发现 5 个内置技能（原有 1 个 + 新增 4 个）；新用户第一次激活 `koda-automation` 后 Agent 能正确回答 HEARTBEAT.md 语法问题。
+  - Scope：新增 4 个技能文件（纯 Markdown，`.csproj` 的 `skills/**` glob 自动打包，无需代码改动）：`skills/koda-automation/SKILL.md`（HEARTBEAT.md YAML 语法、cron、channels 推送、delivery-mode 三种模式、常用模板）；`skills/koda-canvas/SKILL.md`（artifact 类型、canvas_write 参数、图片生成）；`skills/koda-channels/SKILL.md`（channel_send 参数、Telegram/飞书/微信格式差异、媒体附件）；`skills/koda-memory/SKILL.md`（MEMORY.md 索引格式、何时写、与 USER.md 的区别）；所有文件按 KC-5201 规范写 frontmatter（kind: builtin-core，tags/requires 使用 inline list 格式）。
+  - Modules：`KodaClaw.Gateway/skills/`。
+  - Verification：`dotnet build` 0 错 0 警告；L5 Dogfood：真实 Gateway 启动后 `GET /api/skills` 返回 5 个内置技能，koda-automation kind="builtin-core"。
+
+- `KC-5203`：`Completed`（2026-03-25）。
+  - User Outcome：SkillsDesk 展示 kind badge（builtin-core 用 amber 色突出）、tags chips、requires 提示行；built-in 组内 builtin-core 技能优先排列。
+  - Scope：`SkillsDesk.tsx` 删除本地 `type SkillDescriptor` 和本地 `fetchSkills`，改为从 `contracts.ts`/`api.ts` 导入（KC-5201 已添加）；保留按 source 三组结构，built-in 组内按 kind 排序（builtin-core 先）；技能卡片新增 kind badge、tags chips（上限 3 个）、requires 行（非空时显示）；`useLocaleText()` 内联对象扩展 3 个键（zh: `核心`/`可选`/`依赖工具`，en: `Core`/`Optional`/`Requires`）（**不**修改 `app-strings.ts`）；CSS 新增 6 个 `.skill-card__*` token 类（`--core` 使用 `--accent`/`--accent-soft`，`--optional` 使用 `--text-tertiary`/`--border-subtle`），全部使用 CSS token 变量。
+  - Modules：`apps/kodaclaw-web`。
+  - Verification：`npm run typecheck` 通过；L5 Dogfood：SkillsDesk 展示 5 个技能，built-in 组内 koda-* 排在前，koda-automation 显示 amber "核心" badge 和 tags。
+
+---
 
 ## 自动化任务 per-model 配置（KC-BUG-204 / 优化）
 

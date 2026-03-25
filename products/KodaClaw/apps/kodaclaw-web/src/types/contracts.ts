@@ -23,15 +23,6 @@ export type ApprovalKind =
 export type ApprovalStatus = "Pending" | "Approved" | "Rejected" | "Canceled";
 export type AutomationDefinitionSource = "Heartbeat" | "Manual";
 export type AutomationRunStatus = "Queued" | "Running" | "Succeeded" | "Failed" | "Canceled";
-export type AutomationScheduleKind = "Minutes" | "Hourly" | "Daily" | "Weekly";
-export type AutomationScheduleDay =
-  | "Monday"
-  | "Tuesday"
-  | "Wednesday"
-  | "Thursday"
-  | "Friday"
-  | "Saturday"
-  | "Sunday";
 export type CanvasArtifactKind =
   | "Report"
   | "Dashboard"
@@ -424,20 +415,13 @@ export interface ApprovalQueryResponse {
   items: Approval[];
 }
 
-export interface AutomationSchedule {
-  kind: AutomationScheduleKind;
-  interval?: number | null;
-  localTime?: string | null;
-  daysOfWeek?: AutomationScheduleDay[] | null;
-}
-
 export interface AutomationDefinition {
   id: string;
   title: string;
   prompt: string;
   source: AutomationDefinitionSource;
   sourcePath?: string | null;
-  schedule: AutomationSchedule;
+  cronExpression: string;
   enabled: boolean;
   inputPaths?: string[] | null;
   modelId?: string | null;
@@ -1242,4 +1226,17 @@ export interface WorkspaceGitRevertFileRequest {
 
 export interface WorkspaceGitRevertFileResponse {
   newHash: string;
+}
+
+export interface SkillDescriptor {
+  name: string;
+  description?: string | null;
+  source: string;
+  path: string;
+  hasResources: boolean;
+  kind: string;
+  tags: string[];
+  allowedTools: string[];
+  version?: string | null;
+  compatibility?: string | null;
 }

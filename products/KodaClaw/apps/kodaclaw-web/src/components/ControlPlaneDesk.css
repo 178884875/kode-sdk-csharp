@@ -557,6 +557,52 @@
   overflow-wrap: anywhere;
 }
 
+.skill-card__kind-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.skill-card__kind-badge--core {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent-soft);
+}
+
+.skill-card__kind-badge--optional {
+  background: transparent;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.skill-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.skill-card__tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+.skill-card__requires {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
 /* ── SessionsDiagnosticsDesk：紧凑时间线日志 ── */
 .diag-event-log {
   display: flex;
@@ -1063,18 +1109,54 @@
 /* ── Automation card (list panel) ── */
 .automation-card {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  flex-direction: row;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-secondary);
+  overflow: hidden;
   cursor: default;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.automation-card:hover {
+  border-color: var(--border-hover, color-mix(in srgb, var(--brand) 30%, var(--border)));
+  background: var(--surface-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.07);
+}
+
+/* Left status stripe */
+.automation-card__stripe {
+  width: 3px;
+  flex-shrink: 0;
+  background: var(--border-subtle);
+  transition: background 0.2s, width 0.15s;
+}
+
+.automation-card:hover .automation-card__stripe {
+  width: 4px;
+}
+
+.automation-card:not(.automation-card--disabled) .automation-card__stripe {
+  background: var(--brand);
+}
+
+.automation-card--running .automation-card__stripe {
+  background: var(--brand);
+  animation: stripe-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes stripe-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.35; }
 }
 
 .automation-card--disabled {
-  opacity: 0.65;
+  opacity: 0.6;
+}
+
+.automation-card--disabled:hover {
+  opacity: 0.75;
+  box-shadow: none;
 }
 
 .automation-card--selected {
@@ -1083,39 +1165,108 @@
   background: var(--surface-primary);
 }
 
-.automation-card__header {
+/* Card body (all rows) */
+.automation-card__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+
+/* Shared row layout */
+.automation-card__row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
+  min-width: 0;
 }
 
-.automation-card__source {
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
+.automation-card__row--schedule {
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.automation-card__row--footer {
+  gap: var(--space-2);
 }
 
 .automation-card__title {
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-primary);
-  line-height: 1.4;
+  line-height: 1.35;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+  transition: color 0.15s;
+}
+
+.automation-card:hover .automation-card__title {
+  color: var(--text-accent, var(--brand));
+}
+
+/* Compact badge — just enough to label state without crowding the title */
+.automation-card__badge {
+  font-size: 0.6rem;
+  line-height: 1;
+  padding: 2px 5px;
+  flex-shrink: 0;
+  letter-spacing: 0.03em;
 }
 
 .automation-card__schedule {
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
+  cursor: default;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.automation-card__nextrun {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Absolute time shown after relative next-run hint */
+.automation-card__nextrun-abs,
+.automations-next-run-abs {
+  margin-left: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+/* Raw cron expression shown inline after human-readable schedule */
+.automation-cron-raw {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-1);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono, monospace);
+  color: var(--text-tertiary);
+  background: var(--surface-muted, var(--bg-secondary));
+  border-radius: var(--radius-sm, 3px);
+  vertical-align: middle;
+}
+
+/* Footer: meta + actions */
 .automation-card__meta {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
   font-size: var(--font-size-xs);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .automation-card__meta-item {
@@ -1127,6 +1278,14 @@
 .automation-card__meta-sep {
   color: var(--text-tertiary);
   padding: 0 2px;
+}
+
+.automation-card__source {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
 .automation-card__status--succeeded { color: var(--green, #4ade80); }
@@ -1160,6 +1319,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Actions in footer row — hidden until card hover */
+.automation-card__actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  align-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.automation-card:hover .automation-card__actions,
+.automation-card:focus-within .automation-card__actions {
+  opacity: 1;
 }
 
 /* Prompt body: full display, fixed height, scrollable, markdown */
@@ -1232,11 +1406,7 @@
   box-shadow: var(--shadow-md);
 }
 
-.automation-item-actions {
-  display: flex;
-  gap: var(--space-2);
-  margin-top: var(--space-1);
-}
+/* .automation-item-actions — replaced by .automation-card__actions (inline in footer row) */
 
 .metric-item--compact { gap: 2px; }
 

@@ -142,7 +142,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
         if (event.type === "tool_warning") {
           setMessages((current) => [
             ...current,
-            createMessage("system", `⚠ ${event.reason ?? "工具调用失败"}`, "done", event.sessionId),
+            { ...createMessage("system", `⚠ ${event.reason ?? "工具调用失败"}`, "done", event.sessionId), isToolWarning: true },
           ]);
           continue;
         }
@@ -159,7 +159,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           const toolMsg = createMessage("tool_activity", "", "done", event.sessionId);
           setMessages((current) => [
             ...current,
-            { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null },
+            { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null, inputPreview: event.inputPreview ?? null },
           ]);
           continue;
         }

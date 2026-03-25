@@ -41,8 +41,10 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         "Changes to identity/soul/ontology/user/memory/agents take effect at the next session start. " +
         "Changes to heartbeat take effect immediately via the hot-sync pipeline.\n\n" +
         "HEARTBEAT.md section syntax (all fields are bullet items under a ## Title heading):\n" +
-        "  Required: `- schedule: <expr>` and `- prompt: <text>`\n" +
-        "  Schedule expressions: `every 15m` | `hourly 2h` | `daily 09:00` | `weekdays 09:00` | `weekly mon,wed,fri 18:30`\n" +
+        "  Required: `- cron: \"<5-field-cron>\"` and `- prompt: <text>`\n" +
+        "  Cron expressions use UTC time. Standard 5-field format: minute hour day month weekday\n" +
+        "  Common patterns: `0 9 * * *` (09:00 UTC daily) | `0 9 * * 1-5` (weekdays 09:00 UTC) | `*/15 * * * *` (every 15 min)\n" +
+        "  Legacy `- schedule:` is still accepted (e.g. `daily 09:00`) but `- cron:` is preferred.\n" +
         "  Optional: `- enabled: true|false` (default true)\n" +
         "  Optional: `- inputs:` followed by indented `- <workspace-relative-path>` bullets\n" +
         "  Optional: `- channels:` followed by indented `- <bindingId>` bullets (BindingId is copied from ChannelsDesk)\n" +
@@ -52,7 +54,7 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         "    approval = Queue result to Inbox; user manually triggers push\n" +
         "  IMPORTANT: never combine a prompt that says 'push/send to Telegram' with delivery-mode: auto — that causes double-sending. Use auto only when the prompt is purely generative (e.g. 'summarize today\\'s news') and does not instruct the Agent to send anything.\n" +
         "  Example section content:\n" +
-        "    - schedule: daily 09:00\n" +
+        "    - cron: \"0 9 * * *\"\n" +
         "    - prompt: Summarize yesterday's tasks and prepare today's plan.\n" +
         "    - channels:\n" +
         "      - tg-main-abc123\n" +

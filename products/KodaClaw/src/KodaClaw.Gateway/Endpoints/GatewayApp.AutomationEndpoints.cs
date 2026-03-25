@@ -67,7 +67,20 @@ public static partial class GatewayApp
                     ["count"] = items.Count.ToString(),
                 });
 
-            return Results.Ok(new AutomationDefinitionsQueryResponse(items));
+            // Recompute NextRunAt for display: the stored value may reflect an older timezone
+            // assumption or a scheduler-internal override (claim lock / failure-retry delay).
+            // The frontend always wants "next time this cron fires" in local time.
+            var now = DateTimeOffset.UtcNow;
+            var displayItems = items
+                .Select(d => d with
+                {
+                    NextRunAt = AutomationCronComputer.ComputeNextRunAt(
+                        d.CronExpression,
+                        d.LastRunAt ?? now),
+                })
+                .ToArray();
+
+            return Results.Ok(new AutomationDefinitionsQueryResponse(displayItems));
         });
 
         automations.MapGet("/{id}", async (
@@ -123,7 +136,14 @@ public static partial class GatewayApp
                     ["source"] = definition.Source.ToString(),
                 });
 
-            return Results.Ok(definition);
+            var displayDefinition = definition with
+            {
+                NextRunAt = AutomationCronComputer.ComputeNextRunAt(
+                    definition.CronExpression,
+                    definition.LastRunAt ?? DateTimeOffset.UtcNow),
+            };
+
+            return Results.Ok(displayDefinition);
         });
 
         automations.MapGet("/{id}/runs", async (

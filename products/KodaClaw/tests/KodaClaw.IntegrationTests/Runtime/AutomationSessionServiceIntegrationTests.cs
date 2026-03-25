@@ -336,11 +336,7 @@ public sealed class AutomationSessionServiceIntegrationTests
             Prompt: prompt,
             Source: AutomationDefinitionSource.Manual,
             SourcePath: null,
-            Schedule: new KodaClaw.Contracts.AutomationSchedule(
-                Kind: KodaClaw.Contracts.AutomationScheduleKind.Daily,
-                Interval: null,
-                LocalTime: "09:00",
-                DaysOfWeek: null),
+            CronExpression: "0 * * * *",
             Enabled: true,
             InputPaths: inputPaths,
             ModelId: null,

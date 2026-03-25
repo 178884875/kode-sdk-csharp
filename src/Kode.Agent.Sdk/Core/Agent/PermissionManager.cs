@@ -19,6 +19,7 @@ public sealed class PermissionManager
     private readonly HashSet<string>? _allowTools;
     private readonly HashSet<string>? _denyTools;
     private readonly HashSet<string>? _requireApprovalTools;
+    private readonly HashSet<string> _schemaHiddenTools;
 
     public PermissionManager(
         IEventBus eventBus,
@@ -35,6 +36,9 @@ public sealed class PermissionManager
         _allowTools = BuildToolSet(_config.AllowTools);
         _denyTools = BuildToolSet(_config.DenyTools);
         _requireApprovalTools = BuildToolSet(_config.RequireApprovalTools);
+        _schemaHiddenTools = new HashSet<string>(
+            _config.SchemaHiddenTools ?? [],
+            StringComparer.OrdinalIgnoreCase);
 
         // Listen for permission decisions
         _eventBus.OnControl<PermissionDecidedEvent>(OnPermissionDecided);
@@ -259,6 +263,32 @@ public sealed class PermissionManager
 
         tcs?.TrySetResult(string.Equals(evt.Decision, "allow", StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Grants additional tools at runtime (e.g. from activated skills).
+    /// No-op when no allowlist is configured (all tools already permitted).
+    /// Thread-safe.
+    /// </summary>
+    public void GrantTools(IEnumerable<string> toolNames)
+    {
+        lock (_lock)
+        {
+            foreach (var tool in toolNames)
+            {
+                if (string.IsNullOrWhiteSpace(tool)) continue;
+                var name = tool.Trim();
+                _allowTools?.Add(name);
+                _schemaHiddenTools.Remove(name);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the tool's schema should be included in the model request.
+    /// Tools hidden via SchemaHiddenTools are excluded until revealed by GrantTools().
+    /// </summary>
+    public bool IsSchemaVisible(string toolName) =>
+        !_schemaHiddenTools.Contains(toolName);
 
     /// <summary>
     /// Gets current pending approval call IDs.

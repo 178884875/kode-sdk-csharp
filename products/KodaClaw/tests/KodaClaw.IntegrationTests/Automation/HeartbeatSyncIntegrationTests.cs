@@ -62,8 +62,8 @@ public sealed class HeartbeatSyncIntegrationTests : IDisposable
             new AutomationDefinitionQuery(Source: AutomationDefinitionSource.Heartbeat, Limit: 50));
 
         stored.Should().HaveCount(2);
-        stored.Should().Contain(d => d.Schedule.Kind == AutomationScheduleKind.Daily && d.Schedule.LocalTime == "09:00");
-        stored.Should().Contain(d => d.Schedule.Kind == AutomationScheduleKind.Hourly && d.Schedule.Interval == 2);
+        stored.Should().Contain(d => d.CronExpression == "0 9 * * *");
+        stored.Should().Contain(d => d.CronExpression == "0 */2 * * *");
     }
 
     [Fact]

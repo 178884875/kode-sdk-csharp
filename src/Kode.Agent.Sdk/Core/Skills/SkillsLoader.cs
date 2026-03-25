@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 
@@ -153,6 +154,16 @@ public partial class SkillsLoader
         };
     }
 
+    /// <summary>
+    /// Parses SKILL.md frontmatter from raw content string.
+    /// Exposed for host-layer parsers to reuse without requiring ISandbox.
+    /// </summary>
+    public static SkillMetadata ParseFrontmatter(string content)
+    {
+        var (metadata, _) = ParseSkillFile(content);
+        return metadata;
+    }
+
     private static (SkillMetadata Metadata, string Body) ParseSkillFile(string content)
     {
         var name = "";
@@ -160,6 +171,7 @@ public partial class SkillsLoader
         string? license = null;
         string? compatibility = null;
         List<string>? allowedTools = null;
+        Dictionary<string, JsonElement>? metadataDict = null;
         string body;
 
         // Parse YAML frontmatter
@@ -168,16 +180,42 @@ public partial class SkillsLoader
         {
             var frontmatter = frontmatterMatch.Groups[1].Value;
             body = content[(frontmatterMatch.Index + frontmatterMatch.Length)..].Trim();
-            
+
+            var inMetadataBlock = false;
+
             // Simple YAML parsing
             foreach (var line in frontmatter.Split('\n'))
             {
+                // Metadata sub-lines (indented)
+                if (inMetadataBlock)
+                {
+                    if (line.Length > 0 && (line[0] == ' ' || line[0] == '\t'))
+                    {
+                        var subColonIndex = line.IndexOf(':');
+                        if (subColonIndex > 0)
+                        {
+                            var subKey = line[..subColonIndex].Trim();
+                            var subValue = line[(subColonIndex + 1)..].Trim().Trim('"', '\'');
+                            if (!string.IsNullOrEmpty(subKey))
+                            {
+                                metadataDict ??= new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+                                metadataDict[subKey] = JsonSerializer.SerializeToElement(subValue);
+                            }
+                        }
+                        continue;
+                    }
+                    else
+                    {
+                        inMetadataBlock = false;
+                    }
+                }
+
                 var colonIndex = line.IndexOf(':');
                 if (colonIndex <= 0) continue;
-                
+
                 var key = line[..colonIndex].Trim().ToLowerInvariant();
                 var value = line[(colonIndex + 1)..].Trim().Trim('"', '\'');
-                
+
                 switch (key)
                 {
                     case "name":
@@ -192,9 +230,14 @@ public partial class SkillsLoader
                     case "compatibility":
                         compatibility = value;
                         break;
+                    case "allowed-tools":
                     case "allowedtools":
                     case "allowed_tools":
-                        allowedTools = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                        allowedTools = value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                        break;
+                    case "metadata":
+                        if (string.IsNullOrEmpty(value))
+                            inMetadataBlock = true;
                         break;
                 }
             }
@@ -202,7 +245,7 @@ public partial class SkillsLoader
         else
         {
             body = content;
-            
+
             // Try to extract name from first heading
             var headingMatch = HeadingRegex().Match(content);
             if (headingMatch.Success)
@@ -230,7 +273,8 @@ public partial class SkillsLoader
             Description = description,
             License = license,
             Compatibility = compatibility,
-            AllowedTools = allowedTools
+            AllowedTools = allowedTools,
+            Metadata = metadataDict
         }, body);
     }
 
