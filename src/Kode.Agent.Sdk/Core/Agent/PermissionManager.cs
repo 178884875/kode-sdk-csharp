@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Kode.Agent.Sdk.Core.Agent;
 
@@ -8,6 +9,9 @@ namespace Kode.Agent.Sdk.Core.Agent;
 public sealed class PermissionManager
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    // Shell metacharacters that always require approval regardless of command whitelist.
+    private static readonly string[] ShellMetachars = [";", "&&", "||", "`", "$(", " | ", ">", ">>", "<"];
 
     private readonly IEventBus _eventBus;
     private readonly PermissionConfig _config;
@@ -20,6 +24,8 @@ public sealed class PermissionManager
     private readonly HashSet<string>? _denyTools;
     private readonly HashSet<string>? _requireApprovalTools;
     private readonly HashSet<string> _schemaHiddenTools;
+    // Per-tool command prefix constraints granted by skills. null list = no constraint (all allowed).
+    private readonly Dictionary<string, HashSet<string>> _commandConstraints = new(StringComparer.OrdinalIgnoreCase);
 
     public PermissionManager(
         IEventBus eventBus,
@@ -114,13 +120,51 @@ public sealed class PermissionManager
 
     /// <summary>
     /// Checks if a tool call requires approval.
+    /// Optionally accepts tool input to evaluate command-level constraints (e.g. bash_run whitelist).
     /// </summary>
-    public bool RequiresApproval(string toolName)
+    public bool RequiresApproval(string toolName, object? input = null)
     {
         // Denied tools should be handled separately (do not pause for approval).
         if (IsDenied(toolName, out _)) return false;
 
+        // Command-level check for bash_run: if command matches skill-granted prefix whitelist
+        // AND contains no shell metacharacters → bypass approval.
+        if (input != null && string.Equals(toolName, "bash_run", StringComparison.OrdinalIgnoreCase))
+        {
+            var command = ExtractBashCommand(input);
+            if (command != null && IsCommandWhitelisted(toolName, command))
+                return false;
+        }
+
         return string.Equals(Evaluate(toolName), PermissionModes.DecisionAsk, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Returns true if the given shell command matches the skill-granted prefix whitelist
+    /// for this tool AND contains no shell metacharacters.
+    /// </summary>
+    public bool IsCommandWhitelisted(string toolName, string command)
+    {
+        if (ContainsShellMetachar(command)) return false;
+
+        lock (_lock)
+        {
+            if (!_commandConstraints.TryGetValue(toolName, out var prefixes)) return false;
+            var firstToken = Path.GetFileName(command.Split(' ', 2)[0].Trim());
+            return prefixes.Contains(firstToken);
+        }
+    }
+
+    /// <summary>
+    /// Returns true if the command contains shell metacharacters that could allow injection.
+    /// </summary>
+    public static bool ContainsShellMetachar(string command)
+    {
+        foreach (var meta in ShellMetachars)
+        {
+            if (command.Contains(meta, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -266,7 +310,8 @@ public sealed class PermissionManager
 
     /// <summary>
     /// Grants additional tools at runtime (e.g. from activated skills).
-    /// No-op when no allowlist is configured (all tools already permitted).
+    /// Supports plain tool names ("fs_read") and command-constraint specs ("bash_run[kc]").
+    /// No-op on allowlist when no allowlist is configured (all tools already permitted).
     /// Thread-safe.
     /// </summary>
     public void GrantTools(IEnumerable<string> toolNames)
@@ -276,9 +321,31 @@ public sealed class PermissionManager
             foreach (var tool in toolNames)
             {
                 if (string.IsNullOrWhiteSpace(tool)) continue;
-                var name = tool.Trim();
-                _allowTools?.Add(name);
-                _schemaHiddenTools.Remove(name);
+                var spec = tool.Trim();
+
+                // Parse constraint spec: "bash_run[kc]" → toolName="bash_run", prefix="kc"
+                var bracketOpen = spec.IndexOf('[');
+                if (bracketOpen > 0 && spec.EndsWith(']'))
+                {
+                    var toolName = spec[..bracketOpen];
+                    var prefix = spec[(bracketOpen + 1)..^1];
+                    _allowTools?.Add(toolName);
+                    _schemaHiddenTools.Remove(toolName);
+                    if (!string.IsNullOrEmpty(prefix))
+                    {
+                        if (!_commandConstraints.TryGetValue(toolName, out var set))
+                        {
+                            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            _commandConstraints[toolName] = set;
+                        }
+                        set.Add(prefix);
+                    }
+                }
+                else
+                {
+                    _allowTools?.Add(spec);
+                    _schemaHiddenTools.Remove(spec);
+                }
             }
         }
     }
@@ -299,6 +366,26 @@ public sealed class PermissionManager
         {
             return _pendingApprovals.Keys.ToList();
         }
+    }
+
+    private static string? ExtractBashCommand(object input)
+    {
+        try
+        {
+            if (input is JsonElement element)
+            {
+                if (element.TryGetProperty("command", out var cmd))
+                    return cmd.GetString();
+                if (element.TryGetProperty("Command", out cmd))
+                    return cmd.GetString();
+            }
+            // Fallback: serialize and extract
+            var json = JsonSerializer.SerializeToElement(input, JsonOptions);
+            if (json.TryGetProperty("command", out var c) || json.TryGetProperty("Command", out c))
+                return c.GetString();
+        }
+        catch { }
+        return null;
     }
 
     private static HashSet<string>? BuildToolSet(IReadOnlyList<string>? tools)

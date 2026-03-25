@@ -5,10 +5,30 @@ SOLUTION := $(ROOT)/KodaClaw.sln
 WEB_DIR := $(ROOT)/apps/kodaclaw-web
 DESKTOP_DIR := $(ROOT)/apps/kodaclaw-desktop
 GATEWAY_PROJECT := $(ROOT)/src/KodaClaw.Gateway/KodaClaw.Gateway.csproj
+CLI_PROJECT := $(ROOT)/tools/KodaClaw.Cli/KodaClaw.Cli.csproj
 PUBLISH_DIR := $(ROOT)/publish
 
 GATEWAY_URL ?= http://127.0.0.1:5076
 WORKSPACE_ROOT ?= $(HOME)/.kodaclaw
+
+# Auto-detect current platform RID
+UNAME_S := $(shell uname -s 2>/dev/null || echo Windows)
+UNAME_M := $(shell uname -m 2>/dev/null || echo x64)
+ifeq ($(UNAME_S),Darwin)
+  ifeq ($(UNAME_M),arm64)
+    CURRENT_RID := osx-arm64
+  else
+    CURRENT_RID := osx-x64
+  endif
+else ifeq ($(UNAME_S),Linux)
+  ifeq ($(UNAME_M),aarch64)
+    CURRENT_RID := linux-arm64
+  else
+    CURRENT_RID := linux-x64
+  endif
+else
+  CURRENT_RID := win-x64
+endif
 
 .PHONY: help \
 	test-solution test-contract test-integration test-unit \
@@ -17,6 +37,7 @@ WORKSPACE_ROOT ?= $(HOME)/.kodaclaw
 	verify-backend verify-web verify-desktop verify-all \
 	run-gateway dev-web dev-desktop-attach dev-desktop-managed \
 	package-gateway-mac package-gateway-mac-x64 package-gateway-win package-gateway-linux \
+	install-kc package-kc-mac package-kc-mac-x64 package-kc-win package-kc-linux \
 	build-web-prod \
 	package-mac package-mac-x64 package-win package-linux package
 
@@ -41,6 +62,13 @@ help:
 	@echo "  dev-web                Start Vite dev server"
 	@echo "  dev-desktop-attach     Start desktop shell in AttachOnly mode"
 	@echo "  dev-desktop-managed    Start desktop shell in ManagedChild mode"
+	@echo ""
+	@echo "kc CLI targets:"
+	@echo "  install-kc             Install kc CLI to ~/.kc-cli/bin/ (auto-detects platform: $(CURRENT_RID))"
+	@echo "  package-kc-mac         Package kc CLI self-contained (osx-arm64)"
+	@echo "  package-kc-mac-x64     Package kc CLI self-contained (osx-x64)"
+	@echo "  package-kc-win         Package kc CLI self-contained (win-x64)"
+	@echo "  package-kc-linux       Package kc CLI self-contained (linux-x64)"
 	@echo ""
 	@echo "Packaging targets:"
 	@echo "  package-gateway-mac    Publish Gateway self-contained (osx-arm64)"
@@ -122,6 +150,41 @@ dev-desktop-managed:
 	npm run dev
 
 # ── Packaging ──────────────────────────────────────────────────────────────
+
+install-kc:
+	dotnet publish "$(CLI_PROJECT)" \
+	  -r $(CURRENT_RID) --no-self-contained \
+	  -p:PublishSingleFile=true \
+	  -c Release \
+	  -o "$(HOME)/.kc-cli/bin"
+
+package-kc-mac:
+	dotnet publish "$(CLI_PROJECT)" \
+	  -r osx-arm64 --self-contained \
+	  -p:PublishSingleFile=true \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/kc-mac"
+
+package-kc-mac-x64:
+	dotnet publish "$(CLI_PROJECT)" \
+	  -r osx-x64 --self-contained \
+	  -p:PublishSingleFile=true \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/kc-mac-x64"
+
+package-kc-win:
+	dotnet publish "$(CLI_PROJECT)" \
+	  -r win-x64 --self-contained \
+	  -p:PublishSingleFile=true \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/kc-win"
+
+package-kc-linux:
+	dotnet publish "$(CLI_PROJECT)" \
+	  -r linux-x64 --self-contained \
+	  -p:PublishSingleFile=true \
+	  -c Release \
+	  -o "$(PUBLISH_DIR)/kc-linux"
 
 package-gateway-mac:
 	dotnet publish "$(GATEWAY_PROJECT)" \

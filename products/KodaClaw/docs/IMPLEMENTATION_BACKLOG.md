@@ -2,6 +2,17 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 57 — CLI+Skills 生态基础层（2026-03-25）
+
+> FREEZE doc: `docs/ITERATION_57_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5701 | Kode.Agent.Sdk | `SkillsLoader` 解析 `Bash(kc:*)` → `bash_run[kc]` 内部表示，`Bash` 别名映射为 `bash_run`；`PermissionManager` 存储命令前缀约束，`CheckCommandPermission` 执行首 token 匹配 + shell 元字符强制审批；`BashRunTool` 执行前调用检查 | `dotnet test --filter PermissionManagerCommandConstraintTests,SkillsLoaderBashAliasTests,ShellMetacharDetectionTests` | Completed |
+| KC-5702 | tools/KodaClaw.Cli（新） | 新建 `kc` .NET CLI 项目；子命令：`auth status/login`、`workspace status`、`automation list/run <id>`；全部支持 `--json` 输出；exit code 语义完整；通过 Gateway HTTP API 操作 | `dotnet run --project tools/KodaClaw.Cli -- automation list --json` | Completed |
+| KC-5703 | Gateway/skills | 新建 `koda-cli/SKILL.md`（agentskills.io 标准）：frontmatter 含 `allowed-tools: Bash(kc:*)`、`compatibility`、`metadata`；body 覆盖认证检测流程、子命令参考、`--json` 解析指引、错误处理策略 | `dotnet test --filter KodaCliSkillContractTests` | Completed |
+| KC-5704 | Tests | `PermissionManagerCommandConstraintTests`（L1, 8）+ `ShellMetacharDetectionTests`（L1, 10）+ `SkillsLoaderBashAliasTests`（L1, 6）+ `KcCliIntegrationTests`（L2, 5）+ `KodaCliSkillContractTests`（L3, 4）；全量回归通过 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 56 — TTS 语音合成（2026-03-25）
 
 > FREEZE doc: `docs/ITERATION_56_FREEZE.md`

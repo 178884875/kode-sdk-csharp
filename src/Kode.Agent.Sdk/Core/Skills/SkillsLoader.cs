@@ -233,7 +233,10 @@ public partial class SkillsLoader
                     case "allowed-tools":
                     case "allowedtools":
                     case "allowed_tools":
-                        allowedTools = value.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                        allowedTools = value
+                            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Select(NormalizeToolSpec)
+                            .ToList();
                         break;
                     case "metadata":
                         if (string.IsNullOrEmpty(value))
@@ -385,6 +388,38 @@ public partial class SkillsLoader
         _logger?.LogWarning("Resource not found: {ResourcePath} in skill {SkillPath}", resourcePath, skillPath);
         return null;
     }
+
+    /// <summary>
+    /// Normalizes a tool spec token from SKILL.md allowed-tools.
+    /// Maps agentskills.io standard names (e.g. "Bash") to internal names (e.g. "bash_run").
+    /// Converts constraint syntax "Bash(kc:*)" to internal format "bash_run[kc]".
+    /// </summary>
+    internal static string NormalizeToolSpec(string token)
+    {
+        // Check for constraint syntax: ToolName(prefix:*)
+        var parenOpen = token.IndexOf('(');
+        if (parenOpen > 0 && token.EndsWith(":*)"))
+        {
+            var toolName = token[..parenOpen];
+            var prefix = token[(parenOpen + 1)..^3]; // strip '(' prefix ':*)'
+            var internalName = MapToolAlias(toolName);
+            return $"{internalName}[{prefix}]";
+        }
+
+        return MapToolAlias(token);
+    }
+
+    /// <summary>
+    /// Maps agentskills.io standard tool names to KodaClaw internal names.
+    /// </summary>
+    private static string MapToolAlias(string toolName) => toolName switch
+    {
+        "Bash" => "bash_run",
+        "Read" => "fs_read",
+        "Write" => "fs_write",
+        "Edit" => "fs_edit",
+        _ => toolName
+    };
 
     [GeneratedRegex(@"^---\s*\n([\s\S]*?)\n---", RegexOptions.Multiline)]
     private static partial Regex FrontmatterRegex();

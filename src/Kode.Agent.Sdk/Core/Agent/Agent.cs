@@ -1807,7 +1807,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
             // Check if approval is required
             var forceApproval = preDecision is RequireApprovalDecision;
-            if (forceApproval || _permissionManager.RequiresApproval(toolUse.Name))
+            if (forceApproval || _permissionManager.RequiresApproval(toolUse.Name, toolUse.Input))
             {
                 _breakpointManager.TransitionTo(BreakpointState.AwaitingApproval);
                 TransitionState(AgentRuntimeState.Paused);
