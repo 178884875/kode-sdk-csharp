@@ -25,9 +25,9 @@ public sealed class ChatSessionService : IChatSessionService
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (string.IsNullOrWhiteSpace(request.Message))
+        if (string.IsNullOrWhiteSpace(request.Message) && request.MediaIds is not { Count: > 0 })
         {
-            throw new ArgumentException("Message is required.", nameof(request));
+            throw new ArgumentException("Message or media attachment is required.", nameof(request));
         }
 
         MainSessionHandle? handle;
@@ -59,6 +59,16 @@ public sealed class ChatSessionService : IChatSessionService
         }
 
         var sessionId = handle!.SessionId;
+
+        // Notify the frontend that a workspace-triggered rotation occurred so it can show a
+        // visual boundary between the old and new conversation context.
+        if (handle.WasRotatedForWorkspace)
+        {
+            yield return new ChatStreamEvent(
+                Type: "session_rotated",
+                SessionId: sessionId,
+                Reason: "workspace_updated");
+        }
 
         var workspaceUpdated = false;
 

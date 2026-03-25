@@ -76,6 +76,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     {
         await _workspaceService.EnsureInitializedAsync(cancellationToken);
 
+        var rotatedForWorkspace = _pendingWorkspaceRotation;
         if (_pendingWorkspaceRotation)
         {
             _pendingWorkspaceRotation = false;
@@ -99,6 +100,11 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             await _workspaceService.SaveAppConfigAsync(
                 appConfig with { ActiveMainSessionId = handle.SessionId },
                 cancellationToken);
+        }
+
+        if (rotatedForWorkspace)
+        {
+            handle = handle with { WasRotatedForWorkspace = true };
         }
 
         return handle;

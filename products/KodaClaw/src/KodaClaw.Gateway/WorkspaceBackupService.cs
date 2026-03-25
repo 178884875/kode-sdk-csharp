@@ -217,7 +217,12 @@ internal sealed class WorkspaceBackupService
                 snapshot.RootPath,
                 KodaClawWorkspaceLayout.ConfigDirectory,
                 KodaClawWorkspaceLayout.ImportRepairReportFile);
-            await WriteJsonAsync(repairReportPath, evaluation.Checklist, cancellationToken);
+            var importRepairReport = new ImportRepairReportResponse(
+                GeneratedAt: importTimestamp,
+                WorkspaceRootPath: snapshot.RootPath,
+                ReportPath: repairReportPath,
+                Checklist: evaluation.Checklist);
+            await WriteJsonAsync(repairReportPath, importRepairReport, cancellationToken);
             restoredPaths.Add(ToDisplayPath(snapshot.RootPath, Path.Combine(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ImportRepairReportFile)));
 
             return new BackupImportResponse(
@@ -1587,6 +1592,12 @@ internal sealed class WorkspaceBackupService
             => Task.FromResult(new WorkspaceMcpConfig());
 
         public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<GatewayConfig> ReadGatewayConfigAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new GatewayConfig());
+
+        public Task SaveGatewayConfigAsync(GatewayConfig config, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
 
         // Backup/restore paths don't participate in git versioning.

@@ -32,7 +32,8 @@ public static partial class GatewayApp
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(request.Message))
+            var hasMedia = request.MediaIds is { Count: > 0 };
+            if (string.IsNullOrWhiteSpace(request.Message) && !hasMedia)
             {
                 RecordDiagnosticEvent(
                     diagnosticsService,
@@ -40,12 +41,12 @@ public static partial class GatewayApp
                     source: "gateway.chat",
                     eventType: "gateway.chat.invalid_request",
                     level: "warning",
-                    message: "Chat stream request is missing a message.");
+                    message: "Chat stream request is missing both a message and media.");
                 context.Response.StatusCode = StatusCodes.Status400BadRequest;
                 await context.Response.WriteAsJsonAsync(
                     new ErrorResponse(
                         Code: "validation.message_required",
-                        Message: "Message is required."),
+                        Message: "Message or media attachment is required."),
                     cancellationToken);
                 return;
             }
@@ -101,7 +102,7 @@ public static partial class GatewayApp
 
                     var eventName = chatEvent.Type switch
                     {
-                        "text_chunk" or "done" or "error" => chatEvent.Type,
+                        "text_chunk" or "done" or "error" or "session_rotated" => chatEvent.Type,
                         _ => "text_chunk"
                     };
 

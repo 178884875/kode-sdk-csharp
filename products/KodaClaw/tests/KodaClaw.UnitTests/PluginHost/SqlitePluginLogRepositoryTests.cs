@@ -223,6 +223,13 @@ public sealed class SqlitePluginLogRepositoryTests
 
         public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<GatewayConfig> ReadGatewayConfigAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new GatewayConfig());
+
+        public Task SaveGatewayConfigAsync(GatewayConfig config, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default) => Task.FromResult(false);
 
 

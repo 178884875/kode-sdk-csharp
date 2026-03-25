@@ -50,4 +50,5 @@ public sealed record MainSessionHandle(
     string SessionDirectory,
     bool ResumedFromStore,
     string? ResumeFailureMessage,
-    IAgent Agent);
+    IAgent Agent,
+    bool WasRotatedForWorkspace = false);

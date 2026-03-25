@@ -354,7 +354,7 @@ export interface MediaMeta {
 }
 
 export interface ChatStreamEvent {
-  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working";
+  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated";
   sessionId: string;
   step?: number | null;
   sequence?: number | null;

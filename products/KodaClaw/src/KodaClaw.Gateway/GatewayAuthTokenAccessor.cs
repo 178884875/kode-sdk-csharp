@@ -7,14 +7,16 @@ internal sealed class GatewayAuthTokenAccessor
 {
     private readonly IConfiguration _configuration;
     private readonly ISecretStore _secretStore;
+    private readonly IWorkspaceService _workspaceService;
     private readonly object _sync = new();
     private string? _cachedToken;
     private bool _loaded;
 
-    public GatewayAuthTokenAccessor(IConfiguration configuration, ISecretStore secretStore)
+    public GatewayAuthTokenAccessor(IConfiguration configuration, ISecretStore secretStore, IWorkspaceService workspaceService)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
+        _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
     }
 
     public string? GetConfiguredToken()
@@ -39,6 +41,7 @@ internal sealed class GatewayAuthTokenAccessor
 
     private string? LoadConfiguredToken()
     {
+        // Priority 1: OS Keychain via secret ref
         var secretRefValue = _configuration["KODACLAW_GATEWAY_TOKEN_SECRET_REF"]
             ?? _configuration["Gateway:TokenSecretRef"];
         if (SecretRef.TryParse(secretRefValue, out var secretRef))
@@ -50,9 +53,17 @@ internal sealed class GatewayAuthTokenAccessor
             }
         }
 
+        // Priority 2: Environment variable / appsettings
         var configuredToken = _configuration["KODACLAW_GATEWAY_TOKEN"] ?? _configuration["Gateway:Token"];
-        return string.IsNullOrWhiteSpace(configuredToken)
+        if (!string.IsNullOrWhiteSpace(configuredToken))
+        {
+            return configuredToken.Trim();
+        }
+
+        // Priority 3: gateway.json in workspace (lowest precedence, useful for local dev / Electron pairing)
+        var gatewayConfig = _workspaceService.ReadGatewayConfigAsync().GetAwaiter().GetResult();
+        return string.IsNullOrWhiteSpace(gatewayConfig.AccessToken)
             ? null
-            : configuredToken.Trim();
+            : gatewayConfig.AccessToken.Trim();
     }
 }

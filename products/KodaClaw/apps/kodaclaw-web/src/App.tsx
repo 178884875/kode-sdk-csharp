@@ -54,8 +54,18 @@ export default function App() {
   useTheme();
   const text = useAppStrings();
   const { health, snapshot, isLoading, error, refresh } = useGatewaySnapshot();
+  const prevActiveSessionIdRef = useRef<string | null | undefined>(undefined);
+
+  // Called by useChatConsole when a workspace rotation happened during a turn.
+  // We pre-update prevActiveSessionIdRef so the loadHistory effect doesn't fire when
+  // the snapshot refreshes — the current turn's messages are already visible.
+  const handleSessionRotated = useCallback((newSessionId: string) => {
+    prevActiveSessionIdRef.current = newSessionId;
+    refresh();
+  }, [refresh]);
+
   const { draft, setDraft, isStreaming, activeToolName, messages, placeholder, sendMessage, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory } =
-    useChatConsole(text.chat);
+    useChatConsole(text.chat, handleSessionRotated);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
   const [sessionsFocusRequest, setSessionsFocusRequest] = useState<{ sessionId: string; requestId: number } | null>(null);
@@ -150,7 +160,8 @@ export default function App() {
 
   // When activeMainSessionId changes from one non-null value to another, load history.
   // Covers both resume (has history) and rotate (new session = 0 items, silent no-op).
-  const prevActiveSessionIdRef = useRef<string | null | undefined>(undefined);
+  // Note: handleSessionRotated pre-updates prevActiveSessionIdRef to prevent loadHistory from
+  // firing after a workspace-triggered rotation (those messages are already visible in the stream).
   useEffect(() => {
     const current = snapshot?.activeMainSessionId ?? null;
     const prev = prevActiveSessionIdRef.current;

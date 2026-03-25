@@ -143,9 +143,9 @@ public sealed class BackupApiIntegrationTests
 
         File.Exists(Path.Combine(targetWorkspace.Path, KodaClawWorkspaceLayout.SessionsDirectory, "main-001", "meta.json")).Should().BeTrue();
         var repairReportJson = await File.ReadAllTextAsync(importPayload.RepairReportPath);
-        var repairReport = JsonSerializer.Deserialize<RepairChecklist>(repairReportJson, JsonOptions);
-        repairReport.Should().NotBeNull();
-        repairReport!.Summary.ActionRequiredCount.Should().BeGreaterThan(0);
+        var repairReportResponse = JsonSerializer.Deserialize<ImportRepairReportResponse>(repairReportJson, JsonOptions);
+        repairReportResponse.Should().NotBeNull();
+        repairReportResponse!.Checklist.Summary.ActionRequiredCount.Should().BeGreaterThan(0);
     }
 
     [Fact]

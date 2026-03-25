@@ -105,6 +105,45 @@ public sealed class ChatSessionServiceIntegrationTests
         appConfig.ActiveMainSessionId.Should().Be(recoveredSessionId);
     }
 
+    [Fact]
+    public async Task Stream_main_session_should_emit_session_rotated_when_workspace_rotation_pending()
+    {
+        using var fixture = new RuntimeFixture(new StubModelProvider());
+        await using var mainSessionService = fixture.CreateMainSessionService();
+        var chatService = new ChatSessionService(mainSessionService);
+
+        // First normal turn establishes a session
+        var firstEvents = await CollectAsync(chatService.StreamMainSessionAsync(new ChatStreamRequest("hello")));
+        firstEvents.Select(e => e.Type).Should().ContainInOrder("text_chunk", "done");
+        var firstSessionId = firstEvents.Last(e => e.SessionId != null).SessionId;
+
+        // Simulate workspace_protocol_update triggering a rotation request
+        mainSessionService.RequestWorkspaceRotation();
+
+        // Next turn must start with session_rotated event
+        var secondEvents = await CollectAsync(chatService.StreamMainSessionAsync(new ChatStreamRequest("after rotation")));
+        secondEvents[0].Type.Should().Be("session_rotated");
+        secondEvents[0].Reason.Should().Be("workspace_updated");
+        secondEvents.Select(e => e.Type).Should().ContainInOrder("session_rotated", "text_chunk", "done");
+
+        // Session ID must have changed
+        var secondSessionId = secondEvents.Last(e => e.SessionId != null).SessionId;
+        secondSessionId.Should().NotBe(firstSessionId);
+    }
+
+    [Fact]
+    public async Task Stream_main_session_should_not_emit_session_rotated_on_normal_turn()
+    {
+        using var fixture = new RuntimeFixture(new StubModelProvider());
+        await using var mainSessionService = fixture.CreateMainSessionService();
+        var chatService = new ChatSessionService(mainSessionService);
+
+        var events = await CollectAsync(chatService.StreamMainSessionAsync(new ChatStreamRequest("hello")));
+
+        events.Should().NotContain(e => e.Type == "session_rotated");
+        events.Select(e => e.Type).Should().ContainInOrder("text_chunk", "done");
+    }
+
     private static async Task<List<ChatStreamEvent>> CollectAsync(IAsyncEnumerable<ChatStreamEvent> source)
     {
         var events = new List<ChatStreamEvent>();
@@ -244,6 +283,13 @@ public sealed class ChatSessionServiceIntegrationTests
 
         public Task SaveMcpConfigAsync(WorkspaceMcpConfig config, CancellationToken cancellationToken = default)
             => Task.CompletedTask;
+
+        public Task<GatewayConfig> ReadGatewayConfigAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(new GatewayConfig());
+
+        public Task SaveGatewayConfigAsync(GatewayConfig config, CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
         public Task<bool> TryCommitWorkspaceAsync(string message, CancellationToken cancellationToken = default) => Task.FromResult(false);
 
     }

@@ -36,7 +36,7 @@ function createMessage(
   };
 }
 
-export function useChatConsole(copy: ChatConsoleCopy) {
+export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSessionId: string) => void) {
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeToolName, setActiveToolName] = useState<string | null>(null);
@@ -75,7 +75,21 @@ export function useChatConsole(copy: ChatConsoleCopy) {
 
     try {
       let lastStep: number | null = null;
+      let rotatedSessionId: string | null = null;
       for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null }, ctrl.signal)) {
+        if (event.type === "session_rotated") {
+          rotatedSessionId = event.sessionId ?? null;
+          // Insert a visual separator just before the in-progress assistant message so the user can
+          // see that workspace files were updated and a new conversation context has started.
+          setMessages((current) => {
+            const idx = current.findIndex((m) => m.id === assistantMessage.id);
+            const sep = createMessage("system", "✨ workspace 已更新 · 进入新对话", "done", event.sessionId);
+            if (idx < 0) return [...current, sep];
+            return [...current.slice(0, idx), sep, ...current.slice(idx)];
+          });
+          continue;
+        }
+
         if (event.type === "text_chunk") {
           const stepChanged =
             lastStep !== null && event.step != null && event.step !== lastStep;
@@ -166,6 +180,11 @@ export function useChatConsole(copy: ChatConsoleCopy) {
             ),
           );
           setIsStreaming(false);
+          // Notify App to refresh the gateway snapshot so activeMainSessionId stays in sync.
+          // We fire this after done (stream completed) to avoid triggering loadHistory mid-stream.
+          if (rotatedSessionId) {
+            onSessionRotated?.(rotatedSessionId);
+          }
           return;
         }
 

@@ -83,9 +83,9 @@ public sealed class WorkspaceService : IWorkspaceService
             new WorkspaceAppConfig(),
             cancellationToken);
         var appConfig = await LoadAppConfigAsync(cancellationToken);
-        await WriteTextIfMissingAsync(
+        await WriteJsonIfMissingAsync(
             GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.GatewayConfigFile),
-            DefaultWorkspaceTemplates.EmptyObjectJson(),
+            new GatewayConfig(),
             cancellationToken);
         await WriteTextIfMissingAsync(
             GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ModelsConfigFile),
@@ -234,6 +234,36 @@ public sealed class WorkspaceService : IWorkspaceService
         ArgumentNullException.ThrowIfNull(config);
         await WriteJsonAsync(
             GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.McpConfigFile),
+            config,
+            cancellationToken);
+    }
+
+    public async Task<GatewayConfig> ReadGatewayConfigAsync(CancellationToken cancellationToken = default)
+    {
+        var path = GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.GatewayConfigFile);
+        if (!File.Exists(path))
+            return new GatewayConfig();
+
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            if (stream.Length == 0)
+                return new GatewayConfig();
+            var config = await JsonSerializer.DeserializeAsync<GatewayConfig>(stream, WorkspaceJson.Default, cancellationToken);
+            return config ?? new GatewayConfig();
+        }
+        catch (JsonException)
+        {
+            return new GatewayConfig();
+        }
+    }
+
+    public async Task SaveGatewayConfigAsync(GatewayConfig config, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        Directory.CreateDirectory(GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory));
+        await WriteJsonAsync(
+            GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.GatewayConfigFile),
             config,
             cancellationToken);
     }
