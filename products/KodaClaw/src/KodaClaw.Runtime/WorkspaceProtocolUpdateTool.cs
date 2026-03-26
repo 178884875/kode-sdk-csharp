@@ -24,7 +24,8 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
 
     private readonly IWorkspaceService _workspaceService;
 
-    public WorkspaceProtocolUpdateTool(IWorkspaceService workspaceService)
+    public WorkspaceProtocolUpdateTool(
+        IWorkspaceService workspaceService)
     {
         ArgumentNullException.ThrowIfNull(workspaceService);
         _workspaceService = workspaceService;

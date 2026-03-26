@@ -25,6 +25,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IMediaStore, LocalMediaStore>();
         services.TryAddSingleton<IWorkspaceReadinessService, WorkspaceReadinessService>();
         services.TryAddSingleton<IBootstrapService, BootstrapService>();
+        services.TryAddSingleton<IMemoryFileService, MemoryFileService>();
         services.TryAddSingleton<IHeartbeatAutomationCompiler, HeartbeatAutomationCompiler>();
         services.TryAddSingleton<IHeartbeatSyncService>(provider => new HeartbeatSyncService(
             provider.GetRequiredService<IWorkspaceService>(),

@@ -41,7 +41,7 @@ public sealed class WorkspaceServiceContractTests
             "workspace/BOOTSTRAP.md",
             "workspace/MEMORY.md",
             "workspace/canvas/index.html",
-            "workspace/memory/facts",
+            "workspace/memory/sessions",
             "workspace/plugins"
         ]);
     }

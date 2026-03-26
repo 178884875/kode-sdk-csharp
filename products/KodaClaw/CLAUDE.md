@@ -238,6 +238,36 @@ ACCEPTANCE_PACK 验收矩阵
 
 无进行中条目。
 
+**近期完成**（记忆系统优化，2026-03-26）：
+- 移除 SQLite 元数据层，纯文件方案（KC-W3-001~007）
+  - 删除 `IMemoryMetadataRepository`、`MemoryEntry`、`MemoryEntryQuery`、`SqliteMemoryMetadataRepository`、`MemoryMigrationService`、`memory_entries` DDL
+  - 新增 `IMemoryFileService`/`MemoryFileService`（文件扫描替代 SQLite 查询）、`MemoryFrontmatterParser`（frontmatter 解析）、`MemoryMarkdownParser`（共享 helper）
+  - 重写 `MemoryConsolidationService`（仅 git commit）；简化 `WorkspaceReadTool`（移除 memory_search）和 `WorkspaceProtocolUpdateTool`（移除 SQLite 追踪）
+  - Gateway MemoryEndpoints 改用 `IMemoryFileService`
+  - HEARTBEAT 模板新增 Stage 5（Agent 语义降级审查）
+  - `koda-memory/SKILL.md` v3.0：`fs_grep` 搜索、Agent 语义降级、五阶段 Auto Dream
+  - 前端 MemoryEntryItem 字段更新（lastAccessed→created, topic→tags）
+
+**近期完成**（Iter 59，2026-03-26）：
+- 记忆系统 Phase 2（KC-5901~5907）— **注意：SQLite 同步部分已被上述优化移除**
+  - HEARTBEAT Nightly Consolidation 重写为五阶段管道（采集 → 整合 MEMORY.md → topics 维护 → 清理 → 记忆时效审查）；`koda-memory/SKILL.md` v3.0（KC-5901）
+  - `AutomationScheduler` 后处理钩子：Memory Consolidation 成功后自动触发 `PostConsolidationAsync`（标题匹配，失败不阻塞）；DI 注入 `IMemoryConsolidationService?`（KC-5902）
+  - `workspace_read(target=topics)` 列出/读取 topics/（KC-5903）
+  - `SessionRetentionService` 扩展：main-*/channel-* 有摘要+>30天可删；活跃 session 永远跳过；`session_retention.cleaned` 诊断事件（KC-5904）
+  - `SessionSummaryService` 隐私脱敏：LLM prompt 隐私规则 + `DetectPrivacyLevel` 7 关键词检测 + private 会话最小摘要（KC-5905）
+  - Gateway 端点 `/api/memory/{stats,entries,promote}`（改用 IMemoryFileService 文件扫描）；Settings Desk MemorySection 升级（KC-5906）
+  - 测试全绿（KC-5907）
+
+**近期完成**（Iter 58，2026-03-26）：
+- 记忆系统 Phase 1（KC-5801~5808）— **注意：SQLite 表和迁移服务已被上述优化移除，保留的是会话摘要、隐私、目录常量**
+  - `KodaClawWorkspaceLayout` 4 个目录常量（sessions/topics/dormant/archive）（KC-5802 部分保留）
+  - `IMemorySessionSummaryService` + `MemorySessionSummaryService`：LLM 生成结构化摘要（topics/keywords/decisions/follow_ups），写入 `workspace/memory/sessions/`；低价值 session 过滤（KC-5803）
+  - `MainSessionService` + `ChannelSessionService` 轮转前触发摘要生成（通过 `JsonAgentStore` 从磁盘加载 messages，失败不阻塞），DI 注册完整（KC-5804）
+  - `workspace_read(target=memory_search)` 关键词搜索 + `Query` 参数；读写 memory 时自动追踪 `LastAccessed`（引用计数）（KC-5805）
+  - `IMemoryConsolidationService.PostConsolidationAsync`：MEMORY.md 同步 → P0-P3 降级 → 文件迁移 dormant/archive → git commit（KC-5806）
+  - `koda-memory/SKILL.md` v2.0（三层架构 + memory_search + 降级机制）；HEARTBEAT Nightly Consolidation prompt 更新（KC-5807）
+  - 18 个新测试全绿；全量回归 337 单元 + 252 集成 + 144 契约通过（KC-5808）
+
 **近期完成**（Iter 56，2026-03-25）：
 - TTS 语音合成（KC-5601~5605）
   - `ISpeechService` 接口 + `GenerateSpeechResult` record；`OpenAICompatibleTtsService`：调用 `/v1/audio/speech`，voice 自动 fallback（xiaomimimo → `mimo_default`，否则 `alloy`），响应流写入 `IMediaStore`；DI `TryAddSingleton`；model-presets.json 新增 `openai-tts-1` 预置（KC-5601）

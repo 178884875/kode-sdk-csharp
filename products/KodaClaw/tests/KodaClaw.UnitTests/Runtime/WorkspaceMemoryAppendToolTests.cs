@@ -118,6 +118,42 @@ public sealed class WorkspaceMemoryAppendToolTests : IDisposable
         json.Should().Contain("memory");
     }
 
+    [Fact]
+    public async Task Writes_default_standard_priority_when_omitted()
+    {
+        var today = DateTimeOffset.Now.ToString("yyyy-MM-dd");
+        var filePath = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", $"{today}.md");
+
+        await ExecuteAsync(new WorkspaceMemoryAppendArgs { Content = "- Fact: no priority" });
+
+        var contents = await File.ReadAllTextAsync(filePath);
+        contents.Should().MatchRegex(@"<!-- \d{2}:\d{2} \| standard -->");
+    }
+
+    [Fact]
+    public async Task Writes_specified_priority_in_entry()
+    {
+        var today = DateTimeOffset.Now.ToString("yyyy-MM-dd");
+        var filePath = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", $"{today}.md");
+
+        await ExecuteAsync(new WorkspaceMemoryAppendArgs { Content = "- Fact: lasting entry", Priority = "lasting" });
+
+        var contents = await File.ReadAllTextAsync(filePath);
+        contents.Should().MatchRegex(@"<!-- \d{2}:\d{2} \| lasting -->");
+    }
+
+    [Fact]
+    public async Task Invalid_priority_falls_back_to_standard()
+    {
+        var today = DateTimeOffset.Now.ToString("yyyy-MM-dd");
+        var filePath = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", $"{today}.md");
+
+        await ExecuteAsync(new WorkspaceMemoryAppendArgs { Content = "- Fact: bad priority", Priority = "invalid-value" });
+
+        var contents = await File.ReadAllTextAsync(filePath);
+        contents.Should().MatchRegex(@"<!-- \d{2}:\d{2} \| standard -->");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_rootPath))

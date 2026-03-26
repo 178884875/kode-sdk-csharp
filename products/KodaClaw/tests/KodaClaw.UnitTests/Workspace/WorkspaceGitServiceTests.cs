@@ -264,4 +264,110 @@ public sealed class WorkspaceGitServiceTests : IDisposable
         // At least one commit should succeed
         results.Should().Contain(true);
     }
+
+    // ── .gitignore version & upgrade tests ──────────────────────────────
+
+    [Fact]
+    public void ParseGitIgnoreVersion_returns_version_from_marker()
+    {
+        var content = "# kodaclaw-gitignore-version:2\n\nsessions/\n";
+        WorkspaceGitService.ParseGitIgnoreVersion(content).Should().Be(2);
+    }
+
+    [Fact]
+    public void ParseGitIgnoreVersion_returns_1_when_no_marker()
+    {
+        var content = "# Runtime directories\nsessions/\nlogs/\n";
+        WorkspaceGitService.ParseGitIgnoreVersion(content).Should().Be(1);
+    }
+
+    [Fact]
+    public void ParseGitIgnoreVersion_handles_whitespace_around_number()
+    {
+        var content = "# kodaclaw-gitignore-version:  3  \nsessions/\n";
+        WorkspaceGitService.ParseGitIgnoreVersion(content).Should().Be(3);
+    }
+
+    [Fact]
+    public async Task EnsureGitRepoAsync_upgrades_stale_gitignore_on_existing_repo()
+    {
+        var svc = CreateService();
+        await svc.EnsureGitRepoAsync();
+
+        // Simulate a v1 .gitignore (no version marker, no memory rules)
+        var gitignorePath = Path.Combine(_root, ".gitignore");
+        File.WriteAllText(gitignorePath, "# Runtime directories\nsessions/\nlogs/\n");
+
+        // Second call should detect stale version and upgrade
+        await svc.EnsureGitRepoAsync();
+
+        var upgraded = File.ReadAllText(gitignorePath);
+        upgraded.Should().Contain("workspace/memory/sessions/",
+            because: "v2 .gitignore must ignore transient session summaries");
+        upgraded.Should().Contain("kodaclaw-gitignore-version:",
+            because: "upgraded .gitignore must have version marker");
+    }
+
+    [Fact]
+    public async Task EnsureGitRepoAsync_does_not_rewrite_current_version_gitignore()
+    {
+        var svc = CreateService();
+        await svc.EnsureGitRepoAsync();
+
+        // Record the current .gitignore write time
+        var gitignorePath = Path.Combine(_root, ".gitignore");
+        var writeTimeBefore = File.GetLastWriteTimeUtc(gitignorePath);
+
+        // Small delay so timestamp would differ if rewritten
+        await Task.Delay(50);
+        await svc.EnsureGitRepoAsync();
+
+        File.GetLastWriteTimeUtc(gitignorePath).Should().Be(writeTimeBefore,
+            because: "current-version .gitignore should not be rewritten");
+    }
+
+    [Fact]
+    public async Task Memory_sessions_directory_is_ignored_by_git()
+    {
+        var svc = CreateService();
+        await svc.EnsureGitRepoAsync();
+
+        // Write a file under workspace/memory/sessions/ — should be ignored
+        WriteFile(_root, "workspace/memory/sessions/session-001.md", "# Summary");
+
+        var committed = await svc.TryCommitAsync("workspace(memory)[agent]: should not include sessions");
+
+        committed.Should().BeFalse(
+            because: "workspace/memory/sessions/ is in .gitignore");
+    }
+
+    [Fact]
+    public async Task Memory_daily_log_is_ignored_by_git()
+    {
+        var svc = CreateService();
+        await svc.EnsureGitRepoAsync();
+
+        // Write a daily log file — should be ignored
+        WriteFile(_root, "workspace/memory/2026-03-26.md", "# Daily log");
+
+        var committed = await svc.TryCommitAsync("workspace(memory)[agent]: should not include daily log");
+
+        committed.Should().BeFalse(
+            because: "workspace/memory/YYYY-MM-DD.md is in .gitignore");
+    }
+
+    [Fact]
+    public async Task Memory_topics_directory_is_tracked_by_git()
+    {
+        var svc = CreateService();
+        await svc.EnsureGitRepoAsync();
+
+        // Write a topic file — should be tracked (not ignored)
+        WriteFile(_root, "workspace/memory/topics/coding-patterns.md", "# Coding Patterns");
+
+        var committed = await svc.TryCommitAsync("workspace(memory)[agent]: add topic");
+
+        committed.Should().BeTrue(
+            because: "workspace/memory/topics/ must be version-tracked");
+    }
 }

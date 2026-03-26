@@ -133,6 +133,8 @@ public static class ServiceCollectionExtensions
                 LoggerFactory = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>(),
             });
         });
+        services.TryAddSingleton<IMemorySessionSummaryService, MemorySessionSummaryService>();
+        services.TryAddSingleton<IMemoryConsolidationService, MemoryConsolidationService>();
         services.TryAddSingleton<IMainSessionService, MainSessionService>();
         services.TryAddSingleton<IBootstrapDraftService, BootstrapDraftService>();
         services.TryAddSingleton<IAutomationSessionService, AutomationSessionService>();

@@ -2,6 +2,53 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## 记忆系统优化 — 移除 SQLite 元数据层，纯文件方案（2026-03-26）
+
+> 类型：优化/重构（大改）
+> 关联：Iter 58 + 59 记忆系统
+> 设计决策：`docs/记忆系统设计方案.md` 附录 A
+
+| 条目 | 模块 | 变更内容 | 验证命令 | 状态 |
+|------|------|---------|---------|------|
+| KC-W3-001 | Contracts + Storage | 删除 `IMemoryMetadataRepository`、`MemoryEntry`、`MemoryEntryQuery`、`SqliteMemoryMetadataRepository`；删除 `memory_entries` DDL；删除 `MemorySchemaVersion`；新增 `IMemoryFileService`、`MemoryFileEntry`、`MemoryFileStats` | `dotnet build products/KodaClaw/KodaClaw.sln` | Completed |
+| KC-W3-002 | Workspace | 新建 `MemoryMarkdownParser`（提取自 MemoryMigrationService）、`MemoryFrontmatterParser`、`MemoryFileService`；删除 `MemoryMigrationService` | `dotnet test --filter MemoryMarkdownParser,MemoryFrontmatter,MemoryFileService` | Completed |
+| KC-W3-003 | Runtime | 重写 `MemoryConsolidationService`（仅 git commit）；简化 `WorkspaceReadTool`（移除 memory_search）；简化 `WorkspaceProtocolUpdateTool`（移除 SQLite 追踪）；修复 DI 注册 | `dotnet test --filter MemoryConsolidation` | Completed |
+| KC-W3-004 | Gateway | 重写 `GatewayApp.MemoryEndpoints.cs`（`IMemoryFileService` 文件扫描替代 SQLite 查询） | `dotnet test --filter MemoryStatsEndpoint` | Completed |
+| KC-W3-005 | Workspace | HEARTBEAT 模板新增 Stage 5（Agent 语义降级审查）；移除 SQLite 引用 | `dotnet build` | Completed |
+| KC-W3-006 | kodaclaw-web | `api.ts` MemoryEntryItem 字段更新（lastAccessed→created, topic→tags）；MemorySection.tsx 显示适配 | `npm run typecheck` | Completed |
+| KC-W3-007 | Tests + Docs | 重写 MemoryConsolidationServiceTests、MemoryStatsContractTests、MemoryStatsEndpointTests；新增 MemoryFrontmatterParserTests、MemoryFileServiceTests；更新 SKILL.md v3.0、设计方案 v2.0、FREEZE 修订说明 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 59 — 记忆系统 Phase 2：Auto Dream 管道 + Topics 索引 + 清理与隐私（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_59_FREEZE.md`
+> 前置: Iter 58 完成
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5901 | Workspace + skills | HEARTBEAT Nightly Consolidation prompt 重写为四阶段指令（采集 → 整合 MEMORY.md → topics 维护 → 清理）；`koda-memory/SKILL.md` v2.1 新增 topics/ 说明 + Auto Dream 整合段落 | `npm run typecheck` | Completed |
+| KC-5902 | Automation + Runtime | `AutomationScheduler` Memory Consolidation 完成后触发 `PostConsolidationAsync` 后处理钩子（标题匹配"Memory Consolidation"/"记忆整合"，失败不阻塞）；DI 注入 `IMemoryConsolidationService?` | `dotnet test --filter AutoDreamPostProcessingTests` | Completed |
+| KC-5903 | KodaClaw.Runtime | `workspace_read(target=topics)` 列出 topics/ 文件 + `path` 参数读取指定 topic；`PostConsolidationAsync.SyncTopicsToSqliteAsync` 扫描 topics/ → 写入 `memory_entries`（key=`topic-{slug}`, priority=P1, topic 字段填充）；`WorkspaceReadArgs` 新增 `Path` 参数 | `dotnet test --filter TopicsWorkspaceReadTests` | Completed |
+| KC-5904 | KodaClaw.Gateway | `SessionRetentionService` 扩展：main-* 有 memory summary + 创建>30天→可删；channel-* 有 SUMMARY.md + 创建>30天→可删；活跃 session 永远跳过；`session_retention.cleaned` 诊断事件 | `dotnet test --filter SessionRetentionExtensionTests` | Completed |
+| KC-5905 | KodaClaw.Runtime | `SessionSummaryService` LLM prompt 追加隐私规则（不含密码/API Key/token）；`DetectPrivacyLevel` 显式关键词检测（"不要记录"/"别记这个"/"private session" 等 7 个 marker）；private 会话只生成基本元数据摘要 | `dotnet test --filter SummaryPrivacyTests` | Completed |
+| KC-5906 | kodaclaw-web + Gateway | `GET /api/memory/stats`（active/dormant/archived/topics/sessions 计数）；`GET /api/memory/entries?status=`（分页列表）；`POST /api/memory/entries/{key}/promote`（手动升级 dormant/archived → active）；Settings Desk MemorySection 升级（统计卡片 + 状态过滤 tab + 条目列表 + 激活按钮） | `dotnet test --filter MemoryStatsEndpointTests,MemoryStatsContractTests && npm run typecheck` | Completed |
+| KC-5907 | Tests | `AutoDreamPostProcessingTests`(L1,8) + `TopicsWorkspaceReadTests`(L1,4) + `SessionRetentionExtensionTests`(L1,6) + `SummaryPrivacyTests`(L1,4) + `MemoryStatsEndpointTests`(L2,3) + `MemoryStatsContractTests`(L3,3)；全量回归 359 单元 + 256 集成 + 147 契约通过（预存在失败不计） | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 58 — 记忆系统 Phase 1：会话摘要 + 元数据基座 + 冷热分离（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_58_FREEZE.md`
+> 设计方案: `docs/记忆系统设计方案.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-5801 | KodaClaw.Storage | `memory_entries` SQLite 表（id/key/title/priority/status/last_accessed/source_path 等）+ `IMemoryMetadataRepository` 接口 + `SqliteMemoryMetadataRepository` 实现（CRUD + 降级查询） | `dotnet test --filter SqliteMemoryMetadataRepositoryTests` | Completed |
+| KC-5802 | Workspace + Contracts | 存量 MEMORY.md 迁移：`WorkspaceAppConfig.MemorySchemaVersion` 字段；`KodaClawWorkspaceLayout` 新增 4 个目录常量；`MemoryMigrationService` 解析 MEMORY.md sections → 批量写入 memory_entries；幂等目录创建 | `dotnet test --filter MemoryMigrationServiceTests,MemoryMigrationContractTests` | Completed |
+| KC-5803 | KodaClaw.Runtime | `IMemorySessionSummaryService` + `MemorySessionSummaryService`：LLM 生成结构化会话摘要（topics/keywords/decisions/follow_ups），写入 `workspace/memory/sessions/{date}-{type}-{id}.md`；低价值会话过滤（<5 条消息/automation/无用户消息） | `dotnet test --filter SessionSummaryServiceTests` | Completed |
+| KC-5804 | KodaClaw.Runtime | `MainSessionService.RotateMainSessionAsync` + `ChannelSessionService.RotateSessionAsync` 轮转前触发摘要生成（通过 JsonAgentStore 从磁盘加载 messages，失败不阻塞）；DI 注册 `IMemorySessionSummaryService` | `dotnet build` | Completed |
+| KC-5805 | KodaClaw.Runtime | `workspace_read(target=memory_search)` 关键词搜索 memory_entries；`workspace_read(target=memory)` 触发 last_accessed 更新；`workspace_protocol_update(target=memory)` 触发对应 section upsert/更新 last_accessed；`WorkspaceReadArgs` 新增 `Query` 参数 | `dotnet build` | Completed |
+| KC-5806 | KodaClaw.Runtime | `IMemoryConsolidationService.PostConsolidationAsync`：MEMORY.md section 同步到 SQLite → P0-P3 降级规则执行（P0 永不/P1 90d/P2 30d/P3 7d）→ 降级文件移入 dormant/ 或 archive/ → git commit | `dotnet test --filter MemoryConsolidationServiceTests` | Completed |
+| KC-5807 | Gateway/skills + Workspace | `koda-memory/SKILL.md` v2.0（三层架构 + memory_search 用法 + 降级机制 + session 摘要说明）；`DefaultWorkspaceTemplates.Heartbeat()` Nightly Consolidation prompt 更新（读 memory_search + P0-P3 降级说明） | `dotnet build` | Completed |
+| KC-5808 | Tests | `SessionSummaryServiceTests`(L1,6) + `MemoryMigrationServiceTests`(L1,6) + `MemoryConsolidationServiceTests`(L1,6)；全量回归 337 单元 + 252 集成 + 144 契约通过（预存在失败不计） | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 57 — CLI+Skills 生态基础层（2026-03-25）
 
 > FREEZE doc: `docs/ITERATION_57_FREEZE.md`

@@ -68,8 +68,8 @@ public sealed class WorkspaceTemplateContractTests
     public void Heartbeat_nightly_consolidation_specifies_retention_rule()
     {
         var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
-        consolidationSection.Should().Contain("90 days",
-            because: "nightly consolidation must enforce a retention window to bound MEMORY.md growth");
+        consolidationSection.Should().Contain("200 lines",
+            because: "nightly consolidation must enforce a size limit to bound MEMORY.md growth");
     }
 
     // ── Heartbeat: Weekday Memory Hygiene ────────────────────────────────────

@@ -39,4 +39,10 @@ public static class KodaClawWorkspaceLayout
 
     public const string WorkspaceSkillsDirectory = "workspace/skills";
     public const string MediaDirectory = "media";
+
+    public const string MemorySessionsDirectory = "workspace/memory/sessions";
+    public const string MemorySessionsPendingDirectory = "workspace/memory/sessions/.pending";
+    public const string MemoryTopicsDirectory = "workspace/memory/topics";
+    public const string MemoryDormantDirectory = "workspace/memory/dormant";
+    public const string MemoryArchiveDirectory = "workspace/memory/archive";
 }

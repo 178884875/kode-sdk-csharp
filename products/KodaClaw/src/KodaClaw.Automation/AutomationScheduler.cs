@@ -21,6 +21,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly AutomationSchedulerOptions _options;
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IAutomationNotificationService? _notificationService;
+    private readonly IMemoryConsolidationService? _memoryConsolidationService;
     private readonly ILogger<AutomationScheduler>? _logger;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
 
@@ -33,6 +34,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         AutomationSchedulerOptions options,
         ISettingsRepository? settingsRepository = null,
         IAutomationNotificationService? notificationService = null,
+        IMemoryConsolidationService? memoryConsolidationService = null,
         ILogger<AutomationScheduler>? logger = null,
         IHostApplicationLifetime? hostApplicationLifetime = null)
     {
@@ -44,6 +46,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _settingsRepository = settingsRepository;
         _notificationService = notificationService;
+        _memoryConsolidationService = memoryConsolidationService;
         _logger = logger;
         _hostApplicationLifetime = hostApplicationLifetime;
     }
@@ -262,6 +265,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 await _runRepository.UpdateAsync(successfulRun, cancellationToken);
                 await PersistDefinitionSuccessAsync(definition, successfulRun.CompletedAt!.Value, cancellationToken);
                 var pushResults = await PushToChannelsIfAutoAsync(definition, successfulRun.Summary!, cancellationToken);
+                await RunPostConsolidationIfApplicableAsync(definition, cancellationToken);
                 await UpsertResultInboxItemAsync(successfulRun, definition, pushResults, cancellationToken);
                 return;
             }
@@ -445,6 +449,39 @@ public sealed class AutomationScheduler : IAutomationScheduler
             ResolvedAt: null);
 
         await _inboxRepository.UpsertAsync(item, cancellationToken);
+    }
+
+    private async Task RunPostConsolidationIfApplicableAsync(
+        AutomationDefinition definition,
+        CancellationToken cancellationToken)
+    {
+        if (_memoryConsolidationService is null || !IsMemoryConsolidation(definition))
+        {
+            return;
+        }
+
+        try
+        {
+            await _memoryConsolidationService.PostConsolidationAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex,
+                "Post-consolidation hook failed for automation {AutomationId}; run status is not affected.",
+                definition.Id);
+        }
+    }
+
+    internal static bool IsMemoryConsolidation(AutomationDefinition definition)
+    {
+        var title = definition.Title;
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return false;
+        }
+
+        return title.Contains("Memory Consolidation", StringComparison.OrdinalIgnoreCase)
+               || title.Contains("记忆整合", StringComparison.Ordinal);
     }
 
     private static bool IsDue(AutomationDefinition definition, DateTimeOffset now)

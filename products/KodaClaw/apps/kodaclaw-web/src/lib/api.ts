@@ -1297,3 +1297,57 @@ export async function fetchSkills(signal?: AbortSignal): Promise<SkillDescriptor
   }
   return readJson<SkillDescriptor[]>(response);
 }
+
+// --- Memory API ---
+
+export interface MemoryStats {
+  activeCount: number;
+  dormantCount: number;
+  archivedCount: number;
+  topicsCount: number;
+  sessionsCount: number;
+}
+
+export interface MemoryEntryItem {
+  key: string;
+  title: string;
+  priority: string;
+  status: string;
+  created: string | null;
+  sourcePath: string;
+  tags: string[] | null;
+}
+
+export interface MemoryEntriesResponse {
+  count: number;
+  entries: MemoryEntryItem[];
+}
+
+export async function fetchMemoryStats(signal?: AbortSignal): Promise<MemoryStats> {
+  return requestJson<MemoryStats>("/api/memory/stats", {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function fetchMemoryEntries(
+  status?: string,
+  limit?: number,
+  signal?: AbortSignal,
+): Promise<MemoryEntriesResponse> {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  return requestJson<MemoryEntriesResponse>(`/api/memory/entries${qs ? `?${qs}` : ""}`, {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function promoteMemoryEntry(key: string): Promise<{ key: string; status: string; message: string }> {
+  return requestJson(`/api/memory/entries/${encodeURIComponent(key)}/promote`, {
+    method: "POST",
+    headers: buildHeaders(),
+  });
+}

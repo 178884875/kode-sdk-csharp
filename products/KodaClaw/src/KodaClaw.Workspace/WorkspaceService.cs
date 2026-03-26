@@ -17,8 +17,6 @@ public sealed class WorkspaceService : IWorkspaceService
         KodaClawWorkspaceLayout.LogsDirectory,
         KodaClawWorkspaceLayout.CacheDirectory,
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "memory"),
-        Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", "facts"),
-        Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", "conversations"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "knowledge"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "tasks"),
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "inbox"),
@@ -28,6 +26,11 @@ public sealed class WorkspaceService : IWorkspaceService
         Path.Combine(KodaClawWorkspaceLayout.WorkspaceDirectory, "plugins"),
         KodaClawWorkspaceLayout.WorkspaceSkillsDirectory,
         KodaClawWorkspaceLayout.MediaDirectory,
+        KodaClawWorkspaceLayout.MemorySessionsDirectory,
+        KodaClawWorkspaceLayout.MemorySessionsPendingDirectory,
+        KodaClawWorkspaceLayout.MemoryTopicsDirectory,
+        KodaClawWorkspaceLayout.MemoryDormantDirectory,
+        KodaClawWorkspaceLayout.MemoryArchiveDirectory,
     ];
 
     private readonly IWorkspaceGitService? _git;

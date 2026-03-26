@@ -7,6 +7,7 @@ using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
+using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace KodaClaw.Runtime;
@@ -27,6 +28,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SessionControlSubscriptions> _sessionSubscriptions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LiveApprovalContext> _liveApprovals = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _resumedSessionIds = new(StringComparer.Ordinal);
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
     private readonly IApprovalRepository? _approvalRepository;
@@ -38,6 +40,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly KodaClaw.Contracts.IModelRegistryRepository? _modelRegistryRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly ISettingsRepository? _settingsRepository;
+    private readonly IMemorySessionSummaryService? _sessionSummaryService;
     private volatile bool _pendingWorkspaceRotation;
 
     public MainSessionService(
@@ -54,7 +57,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IWorkspaceReadinessService? workspaceReadinessService = null,
         KodaClaw.Contracts.IModelRegistryRepository? modelRegistryRepository = null,
         IMcpHubService? mcpHubService = null,
-        ISettingsRepository? settingsRepository = null)
+        ISettingsRepository? settingsRepository = null,
+        IMemorySessionSummaryService? sessionSummaryService = null)
     {
         _workspaceService = workspaceService;
         _dependenciesFactory = dependenciesFactory;
@@ -70,6 +74,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         _modelRegistryRepository = modelRegistryRepository;
         _mcpHubService = mcpHubService;
         _settingsRepository = settingsRepository;
+        _sessionSummaryService = sessionSummaryService;
     }
 
     public async Task<MainSessionHandle> EnsureMainSessionAsync(CancellationToken cancellationToken = default)
@@ -127,6 +132,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
             if (_agents.TryGetValue(previousSessionId, out var agent))
             {
+                var isResumed = _resumedSessionIds.Remove(previousSessionId);
+                await TryGenerateSessionSummaryAsync(previousSessionId, "main", cancellationToken, isResumed);
                 _agents.Remove(previousSessionId);
                 await agent.DisposeAsync();
             }
@@ -166,6 +173,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                 await agent.DisposeAsync();
             }
         }
+
+        _resumedSessionIds.Add(sessionId);
 
         await _workspaceService.SaveAppConfigAsync(
             appConfig with { ActiveMainSessionId = sessionId },
@@ -827,6 +836,60 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             }
         }
 
+        // Memory health checks
+        var appConfigForHealth = await _workspaceService.LoadAppConfigAsync(cancellationToken);
+        if (appConfigForHealth.LastConsolidationAt is null ||
+            appConfigForHealth.LastConsolidationAt.Value.AddHours(48) < DateTimeOffset.UtcNow)
+        {
+            builder.AddBody("""
+                ## Memory Notice
+
+                最近 48 小时内未执行记忆整合。回答涉及历史信息的问题时，
+                请同时使用 fs_grep 搜索 workspace/memory/ 目录下的日志文件，以确保信息完整。
+                """);
+
+            RecordDiagnosticEvent(
+                eventType: "memory.consolidation_stale",
+                level: "warning",
+                message: $"Last consolidation: {appConfigForHealth.LastConsolidationAt?.ToString("o") ?? "never"}",
+                sessionId: string.Empty);
+        }
+
+        // MEMORY.md size monitoring
+        var memoryFilePath = Path.Combine(workspaceDirectory, KodaClawWorkspaceLayout.MemoryFile);
+        if (File.Exists(memoryFilePath))
+        {
+            var memoryLines = await File.ReadAllLinesAsync(memoryFilePath, cancellationToken);
+            if (memoryLines.Length > 200)
+            {
+                RecordDiagnosticEvent(
+                    eventType: "memory.index_oversized",
+                    level: "warning",
+                    message: $"MEMORY.md has {memoryLines.Length} lines (recommended ≤200)",
+                    sessionId: string.Empty);
+            }
+        }
+
+        // Fire-and-forget: retry pending summaries from previous failed attempts
+        if (_sessionSummaryService is MemorySessionSummaryService summaryService)
+        {
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await summaryService.TryRetryPendingSummariesAsync(CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    RecordDiagnosticEvent(
+                        eventType: "memory.pending_retry_background_failed",
+                        level: "warning",
+                        message: ex.GetBaseException().Message,
+                        sessionId: string.Empty);
+                }
+            }, CancellationToken.None);
+        }
+
         return builder
             .AddContextDocuments(documents)
             .Build();
@@ -1276,6 +1339,52 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             message: resumeFailureMessage,
             sessionId: sessionId,
             attributes: attributes);
+    }
+
+    private async Task TryGenerateSessionSummaryAsync(
+        string sessionId,
+        string sessionType,
+        CancellationToken cancellationToken,
+        bool isResumed = false)
+    {
+        if (_sessionSummaryService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
+            var sessionsRoot = Directory.GetParent(sessionDirectory)?.FullName ?? sessionDirectory;
+            var store = new JsonAgentStore(sessionsRoot);
+
+            var messages = await store.LoadMessagesAsync(sessionId, cancellationToken);
+            if (messages.Count == 0)
+            {
+                return;
+            }
+
+            var context = new MemorySessionSummaryContext(
+                SessionId: sessionId,
+                SessionType: sessionType,
+                BindingId: null,
+                Messages: messages,
+                IsResumed: isResumed);
+
+            await _sessionSummaryService.GenerateSummaryAsync(context, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Let cancellation propagate
+        }
+        catch (Exception ex)
+        {
+            RecordDiagnosticEvent(
+                eventType: "main_session.summary_generation_failed",
+                level: "warning",
+                message: ex.GetBaseException().Message,
+                sessionId: sessionId);
+        }
     }
 
     private void RecordDiagnosticEvent(

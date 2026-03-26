@@ -11,4 +11,6 @@ public sealed record WorkspaceAppConfig
     public int AutoSessionRetentionDays { get; init; } = 30;
 
     public int AutoSessionRetentionMaxPerTask { get; init; } = 20;
+
+    public DateTimeOffset? LastConsolidationAt { get; init; }
 }

@@ -5,6 +5,7 @@ using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
+using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
 
 namespace KodaClaw.Runtime;
@@ -20,6 +21,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly IMcpHubService? _mcpHubService;
     private readonly IThreadBindingRepository? _threadBindingRepository;
+    private readonly IMemorySessionSummaryService? _sessionSummaryService;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
@@ -29,7 +31,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IModelRegistryRepository? modelRegistryRepository = null,
         IMcpHubService? mcpHubService = null,
-        IThreadBindingRepository? threadBindingRepository = null)
+        IThreadBindingRepository? threadBindingRepository = null,
+        IMemorySessionSummaryService? sessionSummaryService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -38,6 +41,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _modelRegistryRepository = modelRegistryRepository;
         _mcpHubService = mcpHubService;
         _threadBindingRepository = threadBindingRepository;
+        _sessionSummaryService = sessionSummaryService;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -324,6 +328,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         if (_agents.TryGetValue(binding.SessionId, out var agent))
         {
+            await TryGenerateChannelSessionSummaryAsync(binding, cancellationToken);
             _agents.Remove(binding.SessionId);
             await agent.DisposeAsync();
         }
@@ -338,6 +343,45 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         return newSessionId;
+    }
+
+    private async Task TryGenerateChannelSessionSummaryAsync(
+        ThreadBinding binding,
+        CancellationToken cancellationToken)
+    {
+        if (_sessionSummaryService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var sessionDirectory = _workspaceService.GetSessionDirectory(binding.SessionId);
+            var sessionsRoot = Directory.GetParent(sessionDirectory)?.FullName ?? sessionDirectory;
+            var store = new JsonAgentStore(sessionsRoot);
+
+            var messages = await store.LoadMessagesAsync(binding.SessionId, cancellationToken);
+            if (messages.Count == 0)
+            {
+                return;
+            }
+
+            var context = new MemorySessionSummaryContext(
+                SessionId: binding.SessionId,
+                SessionType: "channel",
+                BindingId: binding.Id,
+                Messages: messages);
+
+            await _sessionSummaryService.GenerateSummaryAsync(context, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Let cancellation propagate
+        }
+        catch
+        {
+            // Summary generation failure must not block session rotation
+        }
     }
 
     private static string GenerateChannelSessionId(ChannelConnectorKind connectorKind, ChannelThreadType threadType)

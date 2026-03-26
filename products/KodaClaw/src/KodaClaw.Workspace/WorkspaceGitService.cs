@@ -17,8 +17,17 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         "config/app.json",
     ];
 
+    /// <summary>
+    /// Bump this constant whenever GitIgnoreContent changes.
+    /// EnsureGitRepoAsync uses it to detect stale .gitignore files on existing repos.
+    /// </summary>
+    private const int GitIgnoreVersion = 2;
+    private const string GitIgnoreVersionMarker = "# kodaclaw-gitignore-version:";
+
     private static readonly string GitIgnoreContent =
-        """
+        $"""
+        {GitIgnoreVersionMarker}{GitIgnoreVersion}
+
         # Runtime directories
         sessions/
         logs/
@@ -42,6 +51,10 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         workspace/canvas/artifacts/
         workspace/knowledge/*
         !workspace/knowledge/**/*.md
+
+        # Memory: transient session summaries and daily logs (topics/dormant/archive ARE tracked)
+        workspace/memory/sessions/
+        workspace/memory/????-??-??.md
         """;
 
     private static readonly string GitAttributesContent =
@@ -75,6 +88,7 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
 
             if (Repository.IsValid(_rootPath))
             {
+                await UpgradeGitIgnoreIfNeededAsync(cancellationToken);
                 return;
             }
 
@@ -279,6 +293,66 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         var gitattributesPath = Path.Combine(_rootPath, ".gitattributes");
         if (!File.Exists(gitattributesPath))
             await File.WriteAllTextAsync(gitattributesPath, GitAttributesContent, cancellationToken);
+    }
+
+    /// <summary>
+    /// Detects stale .gitignore via version marker and overwrites if needed.
+    /// Commits the upgrade so the change is tracked in workspace history.
+    /// </summary>
+    private async Task UpgradeGitIgnoreIfNeededAsync(CancellationToken cancellationToken)
+    {
+        var gitignorePath = Path.Combine(_rootPath, ".gitignore");
+        if (!File.Exists(gitignorePath))
+        {
+            // No .gitignore at all — write it fresh and commit.
+            await File.WriteAllTextAsync(gitignorePath, GitIgnoreContent, cancellationToken);
+            CommitGitIgnoreUpgrade();
+            return;
+        }
+
+        var existingVersion = ParseGitIgnoreVersion(
+            await File.ReadAllTextAsync(gitignorePath, cancellationToken));
+
+        if (existingVersion >= GitIgnoreVersion)
+            return;
+
+        await File.WriteAllTextAsync(gitignorePath, GitIgnoreContent, cancellationToken);
+        CommitGitIgnoreUpgrade();
+    }
+
+    private void CommitGitIgnoreUpgrade()
+    {
+        try
+        {
+            using var repo = new Repository(_rootPath);
+            Commands.Stage(repo, ".gitignore");
+            if (!repo.RetrieveStatus().IsDirty)
+                return;
+            var sig = BuildSignature();
+            repo.Commit(
+                $"workspace(gitignore)[system/upgrade]: upgrade .gitignore to v{GitIgnoreVersion}",
+                sig, sig);
+        }
+        catch
+        {
+            // Best-effort: if commit fails, the file is still updated on disk.
+        }
+    }
+
+    internal static int ParseGitIgnoreVersion(string content)
+    {
+        foreach (var line in content.AsSpan().EnumerateLines())
+        {
+            var trimmed = line.Trim();
+            if (trimmed.StartsWith(GitIgnoreVersionMarker.AsSpan(), StringComparison.Ordinal))
+            {
+                var versionPart = trimmed[GitIgnoreVersionMarker.Length..].Trim();
+                if (int.TryParse(versionPart, out var v))
+                    return v;
+            }
+        }
+        // No marker found — treat as version 1 (original format).
+        return 1;
     }
 
     private static Signature BuildSignature() =>

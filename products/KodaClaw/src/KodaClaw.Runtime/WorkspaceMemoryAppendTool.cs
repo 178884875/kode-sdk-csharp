@@ -9,6 +9,11 @@ namespace KodaClaw.Runtime;
 /// </summary>
 public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendArgs>
 {
+    private static readonly HashSet<string> ValidPriorities = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "permanent", "lasting", "standard", "ephemeral"
+    };
+
     private readonly IWorkspaceService _workspaceService;
 
     public WorkspaceMemoryAppendTool(IWorkspaceService workspaceService)
@@ -22,6 +27,8 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
     public override string Description =>
         "Append a memory entry to today's daily memory log in the workspace. " +
         "Use this to record important facts, decisions, or insights worth remembering across sessions. " +
+        "Specify priority: permanent (core identity), lasting (important decisions), " +
+        "standard (general, default), ephemeral (transient info). " +
         "Entries are stored in workspace/memory/YYYY-MM-DD.md and consolidated into MEMORY.md by nightly automation.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<WorkspaceMemoryAppendArgs>();
@@ -41,6 +48,8 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
             ? DateTimeOffset.Now.ToString("yyyy-MM-dd")
             : args.Date;
 
+        var priority = NormalizePriority(args.Priority);
+
         var memoryDirectory = Path.Combine(
             _workspaceService.RootPath,
             KodaClawWorkspaceLayout.WorkspaceDirectory,
@@ -50,17 +59,26 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
 
         var filePath = Path.Combine(memoryDirectory, $"{date}.md");
         var timestamp = DateTimeOffset.Now.ToString("HH:mm");
-        var entry = $"\n<!-- {timestamp} -->\n{args.Content.TrimEnd()}\n";
+        var entry = $"\n<!-- {timestamp} | {priority} -->\n{args.Content.TrimEnd()}\n";
 
         await File.AppendAllTextAsync(filePath, entry, cancellationToken);
 
-        Emit(context, "workspace_memory_appended", new { date, path = filePath });
+        Emit(context, "workspace_memory_appended", new { date, priority, path = filePath });
 
         await _workspaceService.TryCommitWorkspaceAsync(
             $"workspace(memory)[agent]: append daily {date}",
             cancellationToken);
 
-        return ToolResult.Ok(new { ok = true, date, path = filePath });
+        return ToolResult.Ok(new { ok = true, date, priority, path = filePath });
+    }
+
+    private static string NormalizePriority(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "standard";
+
+        var trimmed = value.Trim().ToLowerInvariant();
+        return ValidPriorities.Contains(trimmed) ? trimmed : "standard";
     }
 }
 
@@ -74,4 +92,7 @@ public sealed class WorkspaceMemoryAppendArgs
 
     [ToolParameter(Description = "The date to write the memory for, in yyyy-MM-dd format. Defaults to today if omitted.", Required = false)]
     public string? Date { get; init; }
+
+    [ToolParameter(Description = "Memory priority: permanent (core identity), lasting (important decisions), standard (general, default), ephemeral (transient). Defaults to standard.", Required = false)]
+    public string? Priority { get; init; }
 }

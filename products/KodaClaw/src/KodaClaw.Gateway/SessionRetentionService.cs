@@ -5,19 +5,26 @@ using Microsoft.Extensions.Logging;
 namespace KodaClaw.Gateway;
 
 /// <summary>
-/// 清理 auto-* session 文件夹，按任务分组保留最近 N 次且不超过 D 天。
-/// main-* 和 channel-* 不自动清理。
+/// Cleans up session folders:
+/// - auto-* sessions: by task grouping, retaining the most recent N runs within D days.
+/// - main-* sessions: if a memory summary exists and session is older than 30 days (active session always skipped).
+/// - channel-* sessions: if SUMMARY.md exists and session is older than 30 days.
 /// </summary>
 internal sealed class SessionRetentionService
 {
+    private const int SummarizedSessionRetentionDays = 30;
+
     private readonly IWorkspaceService _workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ILogger<SessionRetentionService>? _logger;
 
     public SessionRetentionService(
         IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null,
         ILogger<SessionRetentionService>? logger = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+        _diagnosticsService = diagnosticsService;
         _logger = logger;
     }
 
@@ -33,13 +40,36 @@ internal sealed class SessionRetentionService
             return;
         }
 
+        var deleted = 0;
+        deleted += await CleanAutoSessionsAsync(sessionsRoot, retentionDays, maxPerTask, cancellationToken);
+        deleted += await CleanSummarizedSessionsAsync(sessionsRoot, appConfig.ActiveMainSessionId, cancellationToken);
+
+        if (deleted > 0)
+        {
+            _diagnosticsService?.Record(new DiagnosticEvent(
+                Id: Guid.NewGuid().ToString("N"),
+                Source: "koda.gateway.session_retention",
+                EventType: "session_retention.cleaned",
+                Level: "info",
+                Message: $"Session retention cleaned {deleted} expired session folders",
+                Timestamp: DateTimeOffset.UtcNow,
+                SessionId: null));
+        }
+    }
+
+    private async Task<int> CleanAutoSessionsAsync(
+        string sessionsRoot,
+        int retentionDays,
+        int maxPerTask,
+        CancellationToken cancellationToken)
+    {
         var autoFolders = Directory.GetDirectories(sessionsRoot)
             .Where(d => Path.GetFileName(d).StartsWith("auto-", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         if (autoFolders.Count == 0)
         {
-            return;
+            return 0;
         }
 
         // 只处理已完成的（有 meta.json 的），跳过正在执行中的
@@ -83,20 +113,124 @@ internal sealed class SessionRetentionService
                     continue;
                 }
 
-                try
-                {
-                    Directory.Delete(dir, recursive: true);
-                    deleted++;
-                    _logger?.LogDebug("SessionRetention: deleted {Folder}", folderName);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "SessionRetention: failed to delete {Folder}", folderName);
-                }
+                deleted += TryDeleteSessionFolder(dir);
             }
         }
 
         _logger?.LogInformation("SessionRetention: deleted {Deleted} expired auto- session folders", deleted);
+        return deleted;
+    }
+
+    private Task<int> CleanSummarizedSessionsAsync(
+        string sessionsRoot,
+        string? activeMainSessionId,
+        CancellationToken cancellationToken)
+    {
+        var summariesDir = Path.Combine(
+            _workspaceService.RootPath,
+            KodaClawWorkspaceLayout.MemorySessionsDirectory);
+
+        // Build a set of session IDs that have memory summaries
+        var summarizedSessionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (Directory.Exists(summariesDir))
+        {
+            foreach (var file in Directory.GetFiles(summariesDir, "*.md"))
+            {
+                var sessionId = ExtractSessionIdFromSummaryFile(Path.GetFileNameWithoutExtension(file));
+                if (sessionId is not null)
+                {
+                    summarizedSessionIds.Add(sessionId);
+                }
+            }
+        }
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-SummarizedSessionRetentionDays);
+        var deleted = 0;
+
+        var allFolders = Directory.GetDirectories(sessionsRoot);
+        foreach (var dir in allFolders)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var folderName = Path.GetFileName(dir);
+
+            var isMain = folderName.StartsWith("main-", StringComparison.OrdinalIgnoreCase);
+            var isChannel = folderName.StartsWith("channel-", StringComparison.OrdinalIgnoreCase);
+            if (!isMain && !isChannel)
+            {
+                continue;
+            }
+
+            // Active main session is always skipped
+            if (isMain && string.Equals(folderName, activeMainSessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Must have a memory summary or a SUMMARY.md inside the session folder
+            var hasSummary = summarizedSessionIds.Contains(folderName)
+                || File.Exists(Path.Combine(dir, "SUMMARY.md"));
+            if (!hasSummary)
+            {
+                continue;
+            }
+
+            // Must be older than threshold
+            var createdAt = ParseCreatedAt(dir) ?? ExtractTimestampFromName(folderName);
+            if (createdAt > cutoff)
+            {
+                continue;
+            }
+
+            deleted += TryDeleteSessionFolder(dir);
+        }
+
+        if (deleted > 0)
+        {
+            _logger?.LogInformation("SessionRetention: deleted {Deleted} expired main/channel session folders with summaries", deleted);
+        }
+
+        return Task.FromResult(deleted);
+    }
+
+    /// <summary>
+    /// Extract session ID from summary filename.
+    /// Summary files are named like: 2026-03-25-main-20260325173802-abc123.md
+    /// The session ID part is: main-20260325173802-abc123
+    /// </summary>
+    internal static string? ExtractSessionIdFromSummaryFile(string fileNameWithoutExtension)
+    {
+        // Format: {date}-{session-type}-{rest}
+        // e.g. "2026-03-25-main-20260325173802-abc123" → "main-20260325173802-abc123"
+        // Find the first occurrence of "main-" or "channel-" to extract the session ID portion
+        var mainIdx = fileNameWithoutExtension.IndexOf("main-", StringComparison.OrdinalIgnoreCase);
+        if (mainIdx >= 0)
+        {
+            return fileNameWithoutExtension[mainIdx..];
+        }
+
+        var channelIdx = fileNameWithoutExtension.IndexOf("channel-", StringComparison.OrdinalIgnoreCase);
+        if (channelIdx >= 0)
+        {
+            return fileNameWithoutExtension[channelIdx..];
+        }
+
+        return null;
+    }
+
+    private int TryDeleteSessionFolder(string dir)
+    {
+        var folderName = Path.GetFileName(dir);
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+            _logger?.LogDebug("SessionRetention: deleted {Folder}", folderName);
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "SessionRetention: failed to delete {Folder}", folderName);
+            return 0;
+        }
     }
 
     /// <summary>

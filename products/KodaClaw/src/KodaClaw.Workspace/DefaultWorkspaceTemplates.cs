@@ -517,21 +517,51 @@ public static class DefaultWorkspaceTemplates
 ## Nightly Memory Consolidation
 - cron: "45 23 * * *"
 - prompt: >
-    Review today's memory captures in the daily file and consolidate them into MEMORY.md.
-    Merge new facts with existing ones, remove duplicates, generalize recurring patterns,
-    and discard transient details. Use workspace_protocol_update with target=memory
-    to overwrite MEMORY.md with the updated consolidated content.
+    Execute a multi-stage memory consolidation process:
 
-    Retention rule: keep high-signal facts from the past 90 days. Remove entries that are
-    superseded by newer facts, transient (task-specific, no longer relevant), or exact
-    duplicates. Target size: under 200 lines.
+    **Stage 1 — Gather sources** (read only, do not write yet):
+    1. Read today's daily log: memory/YYYY-MM-DD.md (use workspace_read target=daily_memory).
+    2. Read recent unprocessed session summaries from workspace/memory/sessions/ (up to 10 newest).
+    3. Read current MEMORY.md (use workspace_read target=memory).
 
-    After successfully writing MEMORY.md, use fs_rm to delete today's daily log file
-    (memory/YYYY-MM-DD.md). Also delete any daily log files older than 7 days.
+    **Stage 2 — Consolidate MEMORY.md**:
+    - Merge new facts from daily log and session summaries into existing MEMORY.md sections.
+    - Resolve contradictions by keeping the most recent fact and noting the timeline evolution.
+    - Remove entries that are superseded, transient, or exact duplicates.
+    - Each new entry should include a source link: → sessions/{filename} or → daily/{date}.
+    - Keep MEMORY.md under 200 lines. Prioritize high-signal, actionable information.
+    - Use workspace_protocol_update with target=memory to write the consolidated MEMORY.md.
+
+    **Stage 3 — Maintain topics index**:
+    - Identify themes that recur across multiple sessions or span several days.
+    - For each recurring theme, create or update a topic file at workspace/memory/topics/{topic-slug}.md.
+    - Topic file format: # Title, ## Overview (one sentence), ## Related Sessions (date + summary + source link), ## Current Status.
+    - Merge closely related topics. Target: no more than 20 topic files total.
+    - Use fs_write to create/update topic files.
+
+    **Stage 4 — Clean up**:
+    - Delete today's daily log file (memory/YYYY-MM-DD.md) using fs_rm.
+    - Delete any daily log files older than 7 days.
+    - Mark processed session summary files by appending "<!-- consolidated -->" at the end.
+
+    **Stage 5 — Memory freshness review**:
+    - Scan MEMORY.md sections and topics/ files. For each entry, judge whether it is still relevant.
+    - `permanent` entries (core identity, user fundamentals) are never demoted.
+    - `lasting` entries (important but not core) demote only if clearly obsolete or contradicted.
+    - `standard` entries (general knowledge) demote if not referenced or relevant for 30+ days.
+    - `ephemeral` entries (transient, low signal) demote aggressively — if not useful within 7 days.
+    - To demote: move the file to workspace/memory/dormant/ (or workspace/memory/archive/ for ephemeral).
+      Add or update frontmatter with `status: dormant` (or `archived`). Remove the corresponding
+      section from MEMORY.md if it was an active entry.
+    - This is a semantic judgment — use your understanding of the user's current goals and context.
+
+    The system will automatically run post-consolidation: git commit all workspace changes.
 - enabled: true
 - inputs:
   - MEMORY.md
   - memory/YYYY-MM-DD.md
+  - memory/sessions/
+  - memory/topics/
 """;
 
     public static string Bootstrap() => """

@@ -55,8 +55,8 @@ public sealed class WorkspaceMemoryAppendIntegrationTests : IDisposable
         var filePath = Path.Combine(_rootPath, KodaClawWorkspaceLayout.WorkspaceDirectory, "memory", $"{today}.md");
         var contents = await File.ReadAllTextAsync(filePath);
 
-        // Entry has HTML comment timestamp prefix: <!-- HH:mm -->
-        contents.Should().MatchRegex(@"<!-- \d{2}:\d{2} -->");
+        // Entry has HTML comment timestamp + priority prefix: <!-- HH:mm | priority -->
+        contents.Should().MatchRegex(@"<!-- \d{2}:\d{2} \| \w+ -->");
     }
 
     [Fact]

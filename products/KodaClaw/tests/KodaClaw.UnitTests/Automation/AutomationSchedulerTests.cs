@@ -170,7 +170,8 @@ public sealed class AutomationSchedulerTests
             options,
             resolvedSettings,
             notificationService: null,
-            NullLogger<AutomationScheduler>.Instance);
+            memoryConsolidationService: null,
+            logger: NullLogger<AutomationScheduler>.Instance);
 
         return (scheduler, sessionService, definitionRepo, runRepo, inboxRepo);
     }
