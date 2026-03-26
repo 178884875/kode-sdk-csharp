@@ -15,11 +15,15 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
     private readonly IGenerationService _generationService;
     private readonly IWorkspaceService _workspaceService;
     private readonly ICanvasArtifactRepository _canvasRepository;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public GenerateImageTool(
         IGenerationService generationService,
         IWorkspaceService workspaceService,
-        ICanvasArtifactRepository canvasRepository)
+        ICanvasArtifactRepository canvasRepository,
+        ICorrelationContextAccessor? correlationContextAccessor = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(generationService);
         ArgumentNullException.ThrowIfNull(workspaceService);
@@ -27,6 +31,8 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
         _generationService = generationService;
         _workspaceService = workspaceService;
         _canvasRepository = canvasRepository;
+        _correlationContextAccessor = correlationContextAccessor;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "generate_image";
@@ -59,6 +65,14 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
         }
         catch (InvalidOperationException ex)
         {
+            _diagnosticsService?.Record(new DiagnosticEvent(
+                Id: Guid.NewGuid().ToString("N"),
+                Source: "runtime",
+                EventType: "image.generation_failed",
+                Level: "warning",
+                Message: $"Image generation failed: {ex.Message}",
+                Timestamp: DateTimeOffset.UtcNow,
+                CorrelationId: _correlationContextAccessor?.CorrelationId));
             return ToolResult.Fail($"Image generation failed: {ex.Message}");
         }
 
@@ -80,7 +94,7 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
             UpdatedAt: now,
             Route: $"/canvas/{artifactId}",
             SessionId: args.SessionId,
-            CorrelationId: null,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
             MetadataJson: JsonSerializer.Serialize(new { mediaId = result.MediaId }));
 
         await _canvasRepository.UpsertAsync(artifact, cancellationToken);
@@ -91,6 +105,15 @@ public sealed class GenerateImageTool : ToolBase<GenerateImageArgs>
             mediaId = result.MediaId,
             revisedPrompt = result.RevisedPrompt,
         });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "runtime",
+            EventType: "image.generated",
+            Level: "info",
+            Message: $"Image generated: artifactId={artifactId} mediaId={result.MediaId}",
+            Timestamp: DateTimeOffset.UtcNow,
+            CorrelationId: _correlationContextAccessor?.CorrelationId));
 
         return ToolResult.Ok(new
         {

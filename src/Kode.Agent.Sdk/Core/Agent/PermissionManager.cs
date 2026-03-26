@@ -150,8 +150,23 @@ public sealed class PermissionManager
         lock (_lock)
         {
             if (!_commandConstraints.TryGetValue(toolName, out var prefixes)) return false;
-            var firstToken = Path.GetFileName(command.Split(' ', 2)[0].Trim());
-            return prefixes.Contains(firstToken);
+            var trimmed = command.TrimStart();
+            var firstToken = Path.GetFileName(trimmed.Split(' ', 2)[0]);
+            foreach (var prefix in prefixes)
+            {
+                if (prefix.Contains(' '))
+                {
+                    // Multi-word prefix (e.g. "npx agent-browser"): command must start with the full phrase.
+                    if (trimmed.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+                        || trimmed.StartsWith(prefix + " ", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                else if (firstToken.Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

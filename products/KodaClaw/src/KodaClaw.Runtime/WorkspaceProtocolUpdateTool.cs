@@ -23,12 +23,15 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
         };
 
     private readonly IWorkspaceService _workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public WorkspaceProtocolUpdateTool(
-        IWorkspaceService workspaceService)
+        IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(workspaceService);
         _workspaceService = workspaceService;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "workspace_protocol_update";
@@ -101,6 +104,14 @@ public sealed class WorkspaceProtocolUpdateTool : ToolBase<WorkspaceProtocolUpda
             path = filePath,
             bytes = patched.Length,
         });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "workspace",
+            EventType: "workspace.protocol_updated",
+            Level: "info",
+            Message: $"Workspace protocol file updated: target={args.Target} section={args.Section ?? "(root)"} bytes={patched.Length}",
+            Timestamp: DateTimeOffset.UtcNow));
 
         var sectionTag = string.IsNullOrWhiteSpace(args.Section) ? args.Target : $"{args.Target}/{args.Section}";
         await _workspaceService.TryCommitWorkspaceAsync(

@@ -51,11 +51,39 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
   const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
+  const stopStreaming = useCallback(() => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    setActiveToolName(null);
+    setIsStreaming(false);
+    setMessages((current) =>
+      current.map((m) =>
+        m.status === "streaming"
+          ? { ...m, status: "done" as const, text: m.text || "（已中断）" }
+          : m,
+      ),
+    );
+  }, []);
+
   const sendMessage = useCallback(async (mediaIds?: string[], mediaUrls?: string[]) => {
     const content = draft.trim();
     const hasMedia = mediaIds != null && mediaIds.length > 0;
-    if ((!content && !hasMedia) || isStreaming) {
+    if (!content && !hasMedia) {
       return;
+    }
+
+    // If currently streaming, abort and mark the in-progress message as stopped
+    if (isStreaming) {
+      streamAbortRef.current?.abort();
+      streamAbortRef.current = null;
+      setActiveToolName(null);
+      setMessages((current) =>
+        current.map((m) =>
+          m.status === "streaming"
+            ? { ...m, status: "done" as const, text: m.text || "（已中断）" }
+            : m,
+        ),
+      );
     }
 
     const userMessage: ChatMessage = {
@@ -68,8 +96,6 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     setIsStreaming(true);
     approvalCallIds.current = new Set();
     setMessages((current) => [...current, userMessage, assistantMessage]);
-
-    streamAbortRef.current?.abort();
     const ctrl = new AbortController();
     streamAbortRef.current = ctrl;
 
@@ -272,6 +298,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       status: "done" as const,
       timestamp: item.timestamp ?? Date.now(),
       isHistory: true,
+      toolName: item.toolName ?? null,
+      inputPreview: item.inputPreview ?? null,
     }));
     const separator = createMessage("history_separator", "", "done");
     setMessages((current) => [...historyMessages, separator, ...current]);
@@ -295,6 +323,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           status: "done" as const,
           timestamp: item.timestamp ?? Date.now(),
           isHistory: true,
+          toolName: item.toolName ?? null,
+          inputPreview: item.inputPreview ?? null,
         }));
         setMessages((current) => [...historyMessages, ...current]);
         historySkipRef.current = skip;
@@ -351,6 +381,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     messages,
     placeholder,
     sendMessage,
+    stopStreaming,
     appendSystemNote,
     clearMessages,
     submitApproval,

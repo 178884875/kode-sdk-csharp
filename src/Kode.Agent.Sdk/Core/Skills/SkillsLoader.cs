@@ -233,8 +233,11 @@ public partial class SkillsLoader
                     case "allowed-tools":
                     case "allowedtools":
                     case "allowed_tools":
+                        // Support both comma-separated (Claude Code native, e.g. "Bash(npx foo:*), Read")
+                        // and space-separated (legacy, e.g. "Bash(kc:*) fs_read") formats.
+                        var separator = value.Contains(',') ? ',' : ' ';
                         allowedTools = value
-                            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                            .Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                             .Select(NormalizeToolSpec)
                             .ToList();
                         break;

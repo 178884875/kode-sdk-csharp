@@ -6,12 +6,23 @@ namespace KodaClaw.ControlPlane;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddKodaClawControlPlane(this IServiceCollection services)
+    public static IServiceCollection AddKodaClawControlPlane(
+        this IServiceCollection services,
+        string? workspaceRoot = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ICorrelationContextAccessor, AsyncLocalCorrelationContextAccessor>();
-        services.TryAddSingleton<IDiagnosticsService, InMemoryDiagnosticsService>();
+
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            services.TryAddSingleton<IDiagnosticsService>(_ => new FileDiagnosticsService(workspaceRoot));
+        }
+        else
+        {
+            services.TryAddSingleton<IDiagnosticsService, InMemoryDiagnosticsService>();
+        }
+
         services.TryAddSingleton<IInboxRepository, SqliteInboxRepository>();
         services.TryAddSingleton<IApprovalRepository, SqliteApprovalRepository>();
         services.TryAddSingleton<ISettingsRepository, SqliteSettingsRepository>();

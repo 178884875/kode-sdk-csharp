@@ -4,7 +4,8 @@ import {
   Cpu, Puzzle, Search, Lightbulb, Settings, PenSquare, Activity, Network,
 } from 'lucide-react';
 import type { MainDesk } from '../shell-shared/types';
-import { useInboxUnreadCount } from '../hooks/useInboxUnreadCount';
+import { useSystemEvents } from '../hooks/useSystemEvents';
+import { useDiagnosticsHealth } from '../hooks/useDiagnosticsHealth';
 import { ThemeToggle } from '../components/ThemeToggle';
 
 type HealthTone = 'healthy' | 'warning' | 'error' | 'unknown';
@@ -37,13 +38,14 @@ const DESK_ICONS: Record<MainDesk, ReactNode> = {
   skills:      <Lightbulb size={ICON_SIZE} strokeWidth={STROKE} />,
   settings:    <Settings size={ICON_SIZE} strokeWidth={STROKE} />,
   mcpServers:  <Network size={ICON_SIZE} strokeWidth={STROKE} />,
+  diagnostics: <Activity size={ICON_SIZE} strokeWidth={STROKE} />,
 };
 
 const NAV_GROUPS: NavGroup[] = [
   { items: ['chat', 'inbox', 'canvas'] },
   { label: '渠道与自动化', items: ['channels', 'automations'] },
   { label: '能力层', items: ['models', 'plugins', 'skills', 'mcpServers'] },
-  { label: '工具', items: ['sessions'] },
+  { label: '工具', items: ['sessions', 'diagnostics'] },
   { label: '', items: ['settings'] },
 ];
 
@@ -66,8 +68,10 @@ export function Sidebar({
   onDeskChange,
   onRotateSession,
 }: SidebarProps) {
-  const inboxCount = useInboxUnreadCount(true);
-  const inboxBadge = formatBadge(inboxCount);
+  const { inboxUnreadCount } = useSystemEvents(true);
+  const { errorCount: diagErrorCount, warningCount: diagWarningCount } = useDiagnosticsHealth();
+  const inboxBadge = formatBadge(inboxUnreadCount);
+  const diagBadge = formatBadge(diagErrorCount);
   const deskMap = Object.fromEntries(desks.map(d => [d.id, d])) as Record<MainDesk, { id: MainDesk; label: string }>;
 
   return (
@@ -97,7 +101,13 @@ export function Sidebar({
               const desk = deskMap[deskId];
               if (!desk) return null;
               const isActive = deskId === activeDesk;
-              const badge = deskId === 'inbox' ? inboxBadge : '';
+              const badge = deskId === 'inbox' ? inboxBadge : deskId === 'diagnostics' ? diagBadge : '';
+              const badgeClass = deskId === 'diagnostics'
+                ? 'kc-sidebar__item-badge kc-sidebar__item-badge--error'
+                : 'kc-sidebar__item-badge';
+              const badgeLabel = deskId === 'inbox'
+                ? `${inboxUnreadCount} 条未读`
+                : `${diagErrorCount} 个近期错误`;
               return (
                 <button
                   key={deskId}
@@ -113,9 +123,9 @@ export function Sidebar({
                   <span className="kc-sidebar__item-label">{desk.label}</span>
                   {badge && (
                     <span
-                      className="kc-sidebar__item-badge"
-                      data-testid="inbox-badge"
-                      aria-label={`${inboxCount} 条未读`}
+                      className={badgeClass}
+                      data-testid={deskId === 'inbox' ? 'inbox-badge' : 'diag-badge'}
+                      aria-label={badgeLabel}
                     >
                       {badge}
                     </span>
@@ -129,7 +139,22 @@ export function Sidebar({
 
       <div className="kc-sidebar__footer">
         <Activity size={12} strokeWidth={STROKE} aria-hidden="true" className={`kc-sidebar__status-icon kc-sidebar__status-icon--${healthTone}`} />
-        <span className="kc-sidebar__status-text">{STATUS_LABELS[healthTone]}</span>
+        {diagErrorCount > 0 ? (
+          <button
+            type="button"
+            className="kc-sidebar__status-text kc-sidebar__status-text--error"
+            onClick={() => onDeskChange('diagnostics')}
+          >
+            {diagErrorCount} 个近期错误
+          </button>
+        ) : diagWarningCount > 0 ? (
+          <span className="kc-sidebar__status-text">
+            {STATUS_LABELS[healthTone]}
+            <span className="kc-sidebar__status-warn"> · {diagWarningCount} 警告</span>
+          </span>
+        ) : (
+          <span className="kc-sidebar__status-text">{STATUS_LABELS[healthTone]}</span>
+        )}
         <ThemeToggle />
       </div>
     </aside>

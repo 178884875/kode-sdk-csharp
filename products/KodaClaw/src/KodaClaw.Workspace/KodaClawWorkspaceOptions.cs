@@ -6,11 +6,13 @@ public sealed class KodaClawWorkspaceOptions
 {
     public string? RootPath { get; set; }
 
-    public string ResolveRootPath()
+    public string ResolveRootPath() => ResolveRootPathStatic(RootPath);
+
+    public static string ResolveRootPathStatic(string? rootPath)
     {
-        if (!string.IsNullOrWhiteSpace(RootPath))
+        if (!string.IsNullOrWhiteSpace(rootPath))
         {
-            return Path.GetFullPath(RootPath);
+            return Path.GetFullPath(rootPath);
         }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

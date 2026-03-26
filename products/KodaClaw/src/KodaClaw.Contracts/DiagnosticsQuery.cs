@@ -6,4 +6,6 @@ public sealed record DiagnosticsQuery(
     string? SessionId = null,
     string? Source = null,
     string? EventType = null,
-    string? Level = null);
+    string? Level = null,
+    DateTimeOffset? DateFrom = null,
+    DateTimeOffset? DateTo = null);

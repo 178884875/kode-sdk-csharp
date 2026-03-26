@@ -107,7 +107,10 @@ public static partial class GatewayApp
                     };
 
                     var serialized = JsonSerializer.Serialize(chatEvent, GatewayJson.Options);
-                    var payload = $"event: {eventName}\ndata: {serialized}\n\n";
+                    var eventId = chatEvent.Sequence?.ToString() ?? chatEvent.Timestamp?.ToString();
+                    var payload = eventId != null
+                        ? $"id: {eventId}\nevent: {eventName}\ndata: {serialized}\n\n"
+                        : $"event: {eventName}\ndata: {serialized}\n\n";
 
                     await context.Response.WriteAsync(payload, cancellationToken);
                     await context.Response.Body.FlushAsync(cancellationToken);
@@ -151,7 +154,9 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             [FromQuery] string? source,
             [FromQuery] string? eventType,
-            [FromQuery] string? level) =>
+            [FromQuery] string? level,
+            [FromQuery] DateTimeOffset? dateFrom,
+            [FromQuery] DateTimeOffset? dateTo) =>
         {
             return QueryDiagnosticsEndpoint(
                 context,
@@ -163,7 +168,9 @@ public static partial class GatewayApp
                 sessionId,
                 source,
                 eventType,
-                level);
+                level,
+                dateFrom,
+                dateTo);
         });
 
         diagnostics.MapGet("/timeline", (
@@ -175,7 +182,9 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             [FromQuery] string? source,
             [FromQuery] string? eventType,
-            [FromQuery] string? level) =>
+            [FromQuery] string? level,
+            [FromQuery] DateTimeOffset? dateFrom,
+            [FromQuery] DateTimeOffset? dateTo) =>
         {
             return QueryDiagnosticsEndpoint(
                 context,
@@ -187,7 +196,99 @@ public static partial class GatewayApp
                 sessionId,
                 source,
                 eventType,
-                level);
+                level,
+                dateFrom,
+                dateTo);
+        });
+
+        diagnostics.MapGet("/stats", (
+            HttpContext context,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] DateTimeOffset? since) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to diagnostics stats endpoint.");
+                return Results.Unauthorized();
+            }
+
+            return Results.Ok(diagnosticsService.GetStats(since));
+        });
+
+        diagnostics.MapDelete("/", async (
+            HttpContext context,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            [FromQuery] DateTimeOffset? before,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                RecordDiagnosticEvent(
+                    diagnosticsService,
+                    context,
+                    source: "gateway.auth",
+                    eventType: "gateway.auth.failed",
+                    level: "warning",
+                    message: "Unauthorized access to diagnostics clear endpoint.");
+                return Results.Unauthorized();
+            }
+
+            await diagnosticsService.ClearAsync(before, cancellationToken);
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.diagnostics",
+                eventType: "gateway.diagnostics.cleared",
+                level: "info",
+                message: before.HasValue
+                    ? $"Cleared diagnostics events before {before.Value:O}."
+                    : "Cleared all diagnostics events.",
+                attributes: before.HasValue
+                    ? new Dictionary<string, string?> { ["before"] = before.Value.ToString("O") }
+                    : null);
+            return Results.NoContent();
+        });
+
+        diagnostics.MapGet("/stream", async (
+            HttpContext context,
+            IConfiguration configuration,
+            IDiagnosticsService diagnosticsService,
+            CancellationToken cancellationToken) =>
+        {
+            if (!TryAuthorize(context, configuration))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            context.Response.StatusCode = StatusCodes.Status200OK;
+            context.Response.ContentType = "text/event-stream";
+            context.Response.Headers["Cache-Control"] = "no-cache";
+            context.Response.Headers["X-Accel-Buffering"] = "no";
+            context.Response.Headers["Connection"] = "keep-alive";
+
+            try
+            {
+                await foreach (var evt in diagnosticsService.SubscribeAsync(cancellationToken))
+                {
+                    var serialized = System.Text.Json.JsonSerializer.Serialize(evt, GatewayJson.Options);
+                    var diagId = evt.Timestamp.ToUnixTimeMilliseconds().ToString();
+                    await context.Response.WriteAsync($"id: {diagId}\ndata: {serialized}\n\n", cancellationToken);
+                    await context.Response.Body.FlushAsync(cancellationToken);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // 客户端断开，正常退出
+            }
         });
 
         diagnostics.MapPost("/bundle-export", async (

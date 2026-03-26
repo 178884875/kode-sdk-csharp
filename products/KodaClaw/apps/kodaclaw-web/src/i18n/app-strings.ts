@@ -25,6 +25,7 @@ export function useAppStrings() {
         { id: 'sessions',    label: '会话诊断',    eyebrow: '审计追踪',   summary: '检查会话生命周期、关键事件与诊断证据。' },
         { id: 'skills',      label: '技能',        eyebrow: '能力层',     summary: '浏览已发现的技能，在会话中激活。' },
         { id: 'mcpServers',  label: 'MCP 工具',    eyebrow: '能力层',     summary: '管理 workspace/mcp.json 中的 MCP 服务器：启用/禁用、测试连接。' },
+        { id: 'diagnostics', label: '诊断',        eyebrow: '工具',       summary: '实时事件流——可观测、可过滤、可清理。' },
         { id: 'settings',    label: '设置',        eyebrow: '工作区配置', summary: '编辑身份文件、绑定渠道账号、调整偏好与系统操作。' },
       ] as DeskMeta[],
       chat: {
@@ -71,6 +72,7 @@ export function useAppStrings() {
         { id: 'sessions',    label: 'Sessions',       eyebrow: 'Audit trail',     summary: 'Inspect lifecycle traces and diagnostic evidence.' },
         { id: 'skills',      label: 'Skills',         eyebrow: 'Capability layer',summary: 'Browse discovered skills and activate them in chat.' },
         { id: 'mcpServers',  label: 'MCP Tools',      eyebrow: 'Capability layer',summary: 'Manage MCP servers from workspace/mcp.json: enable, disable, test connections.' },
+        { id: 'diagnostics', label: 'Diagnostics',    eyebrow: 'Tools',           summary: 'Live event stream — observable, filterable, cleanable.' },
         { id: 'settings',    label: 'Settings',       eyebrow: 'Workspace config', summary: 'Edit identity files, connect channels, set preferences, and system actions.' },
       ] as DeskMeta[],
       chat: {

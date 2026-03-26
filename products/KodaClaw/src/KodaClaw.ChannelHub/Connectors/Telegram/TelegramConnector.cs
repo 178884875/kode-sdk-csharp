@@ -7,22 +7,27 @@ namespace KodaClaw.ChannelHub.Connectors.Telegram;
 
 public sealed class TelegramConnector : IChannelConnector
 {
+    private const string DiagnosticSource = "telegram";
+
     private readonly ConcurrentDictionary<string, StartedAccount> _startedAccounts = new(StringComparer.Ordinal);
     private readonly ITelegramApiClient _apiClient;
     private readonly TelegramConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
     private readonly IMediaStore? _mediaStore;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public TelegramConnector(
         ITelegramApiClient? apiClient = null,
         TelegramConnectorOptions? options = null,
         ISecretStore? secretStore = null,
-        IMediaStore? mediaStore = null)
+        IMediaStore? mediaStore = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _apiClient = apiClient ?? new HttpTelegramApiClient();
         _options = options ?? new TelegramConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
         _mediaStore = mediaStore;
+        _diagnosticsService = diagnosticsService;
     }
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Telegram;
@@ -62,6 +67,8 @@ public sealed class TelegramConnector : IChannelConnector
         startedAccount.PollingTask = Task.Run(
             () => RunPollingLoopAsync(startedAccount),
             CancellationToken.None);
+
+        RecordDiagnosticEvent("telegram.account_started", "info", $"Telegram account started: accountId={accountId}");
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -85,6 +92,8 @@ public sealed class TelegramConnector : IChannelConnector
         {
             startedAccount.CancellationTokenSource.Dispose();
         }
+
+        RecordDiagnosticEvent("telegram.account_stopped", "info", $"Telegram account stopped: accountId={accountId}");
     }
 
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
@@ -216,8 +225,12 @@ public sealed class TelegramConnector : IChannelConnector
             {
                 break;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                RecordDiagnosticEvent(
+                    "telegram.polling_error",
+                    "warning",
+                    $"Telegram polling error (retrying): accountId={startedAccount.Account.Id} error={ex.GetBaseException().Message}");
                 try
                 {
                     await Task.Delay(_options.ErrorRetryDelay, token).ConfigureAwait(false);
@@ -336,6 +349,17 @@ public sealed class TelegramConnector : IChannelConnector
         }
 
         return $"{normalizedFirst} {normalizedLast}";
+    }
+
+    private void RecordDiagnosticEvent(string eventType, string level, string message)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow));
     }
 
     private static string ValidateAndNormalizeAccountId(string accountId)

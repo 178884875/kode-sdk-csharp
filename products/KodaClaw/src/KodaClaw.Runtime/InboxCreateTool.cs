@@ -10,11 +10,18 @@ namespace KodaClaw.Runtime;
 public sealed class InboxCreateTool : ToolBase<InboxCreateArgs>
 {
     private readonly IInboxRepository _inboxRepository;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
-    public InboxCreateTool(IInboxRepository inboxRepository)
+    public InboxCreateTool(
+        IInboxRepository inboxRepository,
+        ICorrelationContextAccessor? correlationContextAccessor = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(inboxRepository);
         _inboxRepository = inboxRepository;
+        _correlationContextAccessor = correlationContextAccessor;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "inbox_create";
@@ -52,7 +59,7 @@ public sealed class InboxCreateTool : ToolBase<InboxCreateArgs>
             RequiresAction: args.RequiresAction,
             Route: args.Route,
             SessionId: context.AgentId,
-            CorrelationId: null,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
             ApprovalId: null,
             PayloadJson: null,
             ResolvedAt: null);
@@ -65,6 +72,15 @@ public sealed class InboxCreateTool : ToolBase<InboxCreateArgs>
             title = args.Title,
             requiresAction = args.RequiresAction,
         });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "runtime",
+            EventType: "inbox.item_created",
+            Level: "info",
+            Message: $"Inbox item created by agent: id={id} title=\"{args.Title}\" requiresAction={args.RequiresAction}",
+            Timestamp: DateTimeOffset.UtcNow,
+            CorrelationId: _correlationContextAccessor?.CorrelationId));
 
         return ToolResult.Ok(new { ok = true, id });
     }

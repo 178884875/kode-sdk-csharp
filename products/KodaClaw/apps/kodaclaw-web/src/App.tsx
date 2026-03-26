@@ -35,7 +35,7 @@ function isMainDesk(value: DesktopDeskId | string | null | undefined): value is 
   return value === 'chat' || value === 'inbox' || value === 'sessions' ||
     value === 'models' || value === 'automations' || value === 'channels' ||
     value === 'plugins' || value === 'canvas' || value === 'skills' ||
-    value === 'settings' || value === 'mcpServers';
+    value === 'settings' || value === 'mcpServers' || value === 'diagnostics';
 }
 
 function resolveMainDeskFromLaunchTarget(target: DesktopLaunchTarget | null): MainDesk | null {
@@ -64,7 +64,7 @@ export default function App() {
     refresh();
   }, [refresh]);
 
-  const { draft, setDraft, isStreaming, activeToolName, messages, placeholder, sendMessage, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory } =
+  const { draft, setDraft, isStreaming, activeToolName, messages, placeholder, sendMessage, stopStreaming, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory } =
     useChatConsole(text.chat, handleSessionRotated);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
@@ -149,6 +149,7 @@ export default function App() {
     try { await rotateSession(); } catch { /* Gateway creates fresh session on next turn */ }
     clearMessages(text.chat.newSessionNote);
     refresh();
+    setMainDesk('chat');
   }, [clearMessages, text.chat.newSessionNote, refresh]);
 
   // KC-BUG-301: pass sessionId to load history directly, don't depend on snapshot polling
@@ -158,15 +159,18 @@ export default function App() {
     refresh();
   }, [clearMessages, text.chat.sessionResumedNote, loadHistory, refresh]);
 
-  // When activeMainSessionId changes from one non-null value to another, load history.
-  // Covers both resume (has history) and rotate (new session = 0 items, silent no-op).
+  // When activeMainSessionId becomes available or changes, load history.
+  // - Initial load (prev === undefined): fires when the first real session ID arrives.
+  //   prevActiveSessionIdRef stays undefined while snapshot is still loading (current === null),
+  //   so the initial-load trigger is not consumed prematurely.
+  // - Session switch (prev !== current): load history for the newly active session.
   // Note: handleSessionRotated pre-updates prevActiveSessionIdRef to prevent loadHistory from
   // firing after a workspace-triggered rotation (those messages are already visible in the stream).
   useEffect(() => {
     const current = snapshot?.activeMainSessionId ?? null;
+    if (current === null) return; // snapshot still loading — don't consume the undefined sentinel
     const prev = prevActiveSessionIdRef.current;
-    // undefined = initial render, skip to avoid loading on app start
-    if (prev !== undefined && prev !== null && current !== null && current !== prev) {
+    if (prev === undefined || current !== prev) {
       loadHistory(current);
     }
     prevActiveSessionIdRef.current = current;
@@ -314,6 +318,7 @@ export default function App() {
       activeToolName={activeToolName}
       onChange={setDraft}
       onSubmit={handleChatSubmit}
+      onStop={stopStreaming}
       modelName={modelName}
       modelCapabilities={modelCapabilities}
       selectedModelId={selectedModelId}
@@ -323,7 +328,7 @@ export default function App() {
       onAttachMedia={handleAttachMedia}
       onRemoveMedia={handleRemoveMedia}
     />
-  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, handleChatSubmit, modelName, modelCapabilities, selectedModelId, availableModels, handleModelChange, attachedMedia, handleAttachMedia, handleRemoveMedia]);
+  ), [draft, placeholder, isLoading, isStreaming, activeToolName, setDraft, handleChatSubmit, stopStreaming, modelName, modelCapabilities, selectedModelId, availableModels, handleModelChange, attachedMedia, handleAttachMedia, handleRemoveMedia]);
 
   // Onboarding gate
   if (onboardingState && !onboardingState.isCompleted) {

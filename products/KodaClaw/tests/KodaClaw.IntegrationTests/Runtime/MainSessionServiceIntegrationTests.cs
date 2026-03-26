@@ -384,6 +384,22 @@ public sealed class MainSessionServiceIntegrationTests
                     .ToArray();
             }
         }
+
+        public DiagnosticsStatsResponse GetStats(DateTimeOffset? since = null) =>
+            new(0, 0, 0, [], null, null);
+
+        public Task ClearAsync(DateTimeOffset? before = null, CancellationToken cancellationToken = default)
+        {
+            lock (_gate) { _events.Clear(); }
+            return Task.CompletedTask;
+        }
+
+        public async IAsyncEnumerable<DiagnosticEvent> SubscribeAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.CompletedTask;
+            yield break;
+        }
     }
 
     private sealed class TestCorrelationContextAccessor : ICorrelationContextAccessor

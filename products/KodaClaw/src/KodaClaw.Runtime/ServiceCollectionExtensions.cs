@@ -78,20 +78,24 @@ public static class ServiceCollectionExtensions
             toolRegistry.RegisterBuiltinTools();
 
             var workspaceService = sp.GetRequiredService<IWorkspaceService>();
-            toolRegistry.Register("workspace_memory_append",
-                _ => new WorkspaceMemoryAppendTool(workspaceService));
-            toolRegistry.Register("workspace_protocol_update",
-                _ => new WorkspaceProtocolUpdateTool(workspaceService));
             toolRegistry.Register("get_current_datetime",
                 _ => new GetCurrentDateTimeTool());
 
+            var correlationContextAccessor = sp.GetService<ICorrelationContextAccessor>();
+            var diagnosticsService = sp.GetService<IDiagnosticsService>();
+
+            toolRegistry.Register("workspace_memory_append",
+                _ => new WorkspaceMemoryAppendTool(workspaceService, diagnosticsService));
+            toolRegistry.Register("workspace_protocol_update",
+                _ => new WorkspaceProtocolUpdateTool(workspaceService, diagnosticsService));
+
             var canvasRepository = sp.GetRequiredService<ICanvasArtifactRepository>();
             toolRegistry.Register("canvas_upsert",
-                _ => new CanvasUpsertTool(workspaceService, canvasRepository));
+                _ => new CanvasUpsertTool(workspaceService, canvasRepository, correlationContextAccessor, diagnosticsService));
 
             var inboxRepository = sp.GetRequiredService<IInboxRepository>();
             toolRegistry.Register("inbox_create",
-                _ => new InboxCreateTool(inboxRepository));
+                _ => new InboxCreateTool(inboxRepository, correlationContextAccessor, diagnosticsService));
             toolRegistry.Register("inbox_read",
                 _ => new InboxReadTool(inboxRepository));
             var bindingRepository = sp.GetService<IThreadBindingRepository>();
@@ -115,14 +119,20 @@ public static class ServiceCollectionExtensions
             if (generationService is not null)
             {
                 toolRegistry.Register("generate_image",
-                    _ => new GenerateImageTool(generationService, workspaceService, canvasRepository));
+                    _ => new GenerateImageTool(generationService, workspaceService, canvasRepository, correlationContextAccessor, diagnosticsService));
             }
 
             var speechService = sp.GetService<KodaClaw.ModelHub.ISpeechService>();
             if (speechService is not null)
             {
                 toolRegistry.Register("generate_speech",
-                    _ => new GenerateSpeechTool(speechService));
+                    _ => new GenerateSpeechTool(speechService, diagnosticsService));
+            }
+
+            if (diagnosticsService is not null)
+            {
+                toolRegistry.Register("diagnostics_query",
+                    _ => new DiagnosticsQueryTool(diagnosticsService, correlationContextAccessor));
             }
 
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies

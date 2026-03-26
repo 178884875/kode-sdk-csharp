@@ -22,6 +22,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IAutomationNotificationService? _notificationService;
     private readonly IMemoryConsolidationService? _memoryConsolidationService;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+    private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ILogger<AutomationScheduler>? _logger;
     private readonly IHostApplicationLifetime? _hostApplicationLifetime;
 
@@ -35,6 +37,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
         ISettingsRepository? settingsRepository = null,
         IAutomationNotificationService? notificationService = null,
         IMemoryConsolidationService? memoryConsolidationService = null,
+        ICorrelationContextAccessor? correlationContextAccessor = null,
+        IDiagnosticsService? diagnosticsService = null,
         ILogger<AutomationScheduler>? logger = null,
         IHostApplicationLifetime? hostApplicationLifetime = null)
     {
@@ -47,6 +51,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _settingsRepository = settingsRepository;
         _notificationService = notificationService;
         _memoryConsolidationService = memoryConsolidationService;
+        _correlationContextAccessor = correlationContextAccessor;
+        _diagnosticsService = diagnosticsService;
         _logger = logger;
         _hostApplicationLifetime = hostApplicationLifetime;
     }
@@ -118,6 +124,8 @@ public sealed class AutomationScheduler : IAutomationScheduler
             catch (Exception ex)
             {
                 _logger?.LogWarning(ex, "Failed to read AutomationsEnabled from settings; skipping tick.");
+                RecordDiagnosticEvent("automation.settings_read_failed", "warning",
+                    $"Failed to read AutomationsEnabled from settings; skipping tick: {ex.GetBaseException().Message}");
                 return 0;
             }
         }
@@ -175,7 +183,10 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 continue;
             }
 
-            await UpsertResultInboxItemAsync(failedRun, definition: null, pushResults: null, cancellationToken);
+            RecordDiagnosticEvent("automation.stale_run_recovered", "warning",
+                $"Stale run recovered and marked failed: automationId={failedRun.AutomationId} runId={failedRun.RunId} startedAt={run.StartedAt:O}");
+
+            await UpsertResultInboxItemAsync(failedRun, definition: null, pushResults: null, correlationId: null, cancellationToken);
             await MarkDefinitionFailureForRecoveryAsync(failedRun.AutomationId, now, failedRun.ErrorMessage!, cancellationToken);
         }
     }
@@ -227,6 +238,12 @@ public sealed class AutomationScheduler : IAutomationScheduler
         AutomationRunRecord initialRun,
         CancellationToken cancellationToken)
     {
+        var runCorrelationId = Guid.NewGuid().ToString("N");
+        if (_correlationContextAccessor is not null)
+        {
+            _correlationContextAccessor.CorrelationId = runCorrelationId;
+        }
+
         AutomationSessionHandle? handle = null;
         var agentDisposed = false;
         var runState = initialRun;
@@ -266,7 +283,10 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 await PersistDefinitionSuccessAsync(definition, successfulRun.CompletedAt!.Value, cancellationToken);
                 var pushResults = await PushToChannelsIfAutoAsync(definition, successfulRun.Summary!, cancellationToken);
                 await RunPostConsolidationIfApplicableAsync(definition, cancellationToken);
-                await UpsertResultInboxItemAsync(successfulRun, definition, pushResults, cancellationToken);
+                await UpsertResultInboxItemAsync(successfulRun, definition, pushResults, runCorrelationId, cancellationToken);
+                RecordDiagnosticEvent("automation.run_succeeded", "info",
+                    $"Automation run succeeded: automationId={definition.Id} runId={successfulRun.RunId} attempt={successfulRun.Attempt}",
+                    correlationId: runCorrelationId);
                 return;
             }
 
@@ -280,7 +300,10 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
             await _runRepository.UpdateAsync(failedRun, cancellationToken);
             await PersistDefinitionFailureAsync(definition, failedRun.CompletedAt!.Value, failedRun.ErrorMessage!, cancellationToken);
-            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, cancellationToken);
+            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, runCorrelationId, cancellationToken);
+            RecordDiagnosticEvent("automation.run_failed", "warning",
+                $"Automation run did not complete: automationId={definition.Id} runId={failedRun.RunId} stopReason={runResult.StopReason}",
+                correlationId: runCorrelationId);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -301,11 +324,21 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
             await _runRepository.UpdateAsync(failedRun, cancellationToken);
             await PersistDefinitionFailureAsync(definition, failedAt, failedRun.ErrorMessage!, cancellationToken);
-            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, cancellationToken);
+            await UpsertResultInboxItemAsync(failedRun, definition, pushResults: null, runCorrelationId, cancellationToken);
+            RecordDiagnosticEvent("automation.run_crashed", "error",
+                $"Automation run crashed: automationId={definition.Id} runId={failedRun.RunId} error={ex.GetBaseException().Message}",
+                correlationId: runCorrelationId);
 
             if (!agentDisposed && handle is { } danglingHandle)
             {
                 await danglingHandle.Agent.DisposeAsync();
+            }
+        }
+        finally
+        {
+            if (_correlationContextAccessor is not null)
+            {
+                _correlationContextAccessor.CorrelationId = null;
             }
         }
     }
@@ -404,6 +437,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         AutomationRunRecord run,
         AutomationDefinition? definition,
         IReadOnlyList<ChannelPushResult>? pushResults,
+        string? correlationId,
         CancellationToken cancellationToken)
     {
         var now = _clock.UtcNow;
@@ -443,7 +477,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
             RequiresAction: run.Status != AutomationRunStatus.Succeeded,
             Route: $"/automations/{run.AutomationId}",
             SessionId: run.SessionId,
-            CorrelationId: null,
+            CorrelationId: correlationId,
             ApprovalId: null,
             PayloadJson: payload,
             ResolvedAt: null);
@@ -511,5 +545,17 @@ public sealed class AutomationScheduler : IAutomationScheduler
         }
 
         return value[..maxLength].TrimEnd() + "…";
+    }
+
+    private void RecordDiagnosticEvent(string eventType, string level, string message, string? correlationId = null)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: SchedulerSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            CorrelationId: correlationId));
     }
 }

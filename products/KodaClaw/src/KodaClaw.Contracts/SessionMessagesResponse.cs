@@ -4,7 +4,9 @@ public sealed record SessionMessageItem(
     string Id,
     string Role,
     string Text,
-    long? Timestamp);
+    long? Timestamp,
+    string? ToolName = null,
+    string? InputPreview = null);
 
 public sealed record SessionMessagesResponse(
     IReadOnlyList<SessionMessageItem> Items,

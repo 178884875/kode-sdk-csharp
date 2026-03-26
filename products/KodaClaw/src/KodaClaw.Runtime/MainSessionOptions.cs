@@ -34,6 +34,8 @@ public sealed class MainSessionOptions
         "channel_send",
         "channel_list",
         "generate_image",
+        "generate_speech",
+        "diagnostics_query",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =

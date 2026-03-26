@@ -15,11 +15,15 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
     };
 
     private readonly IWorkspaceService _workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
-    public WorkspaceMemoryAppendTool(IWorkspaceService workspaceService)
+    public WorkspaceMemoryAppendTool(
+        IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(workspaceService);
         _workspaceService = workspaceService;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "workspace_memory_append";
@@ -64,6 +68,14 @@ public sealed class WorkspaceMemoryAppendTool : ToolBase<WorkspaceMemoryAppendAr
         await File.AppendAllTextAsync(filePath, entry, cancellationToken);
 
         Emit(context, "workspace_memory_appended", new { date, priority, path = filePath });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "workspace",
+            EventType: "workspace.memory_appended",
+            Level: "info",
+            Message: $"Memory entry appended: date={date} priority={priority} path={filePath}",
+            Timestamp: DateTimeOffset.UtcNow));
 
         await _workspaceService.TryCommitWorkspaceAsync(
             $"workspace(memory)[agent]: append daily {date}",

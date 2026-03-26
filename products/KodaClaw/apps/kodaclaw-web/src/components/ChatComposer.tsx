@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, ClipboardEvent } from "react";
-import { ArrowUp, Check, ChevronDown, Paperclip, X } from "lucide-react";
+import { ArrowUp, Check, ChevronDown, Paperclip, Square, X } from "lucide-react";
 import { useLocaleText } from "../i18n/I18nProvider";
 
 const CAP_TEXT_CHAT = 1 << 0; // 1
@@ -23,6 +23,7 @@ type ChatComposerProps = {
   activeToolName?: string | null;
   onChange: (next: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   // KC-4403: model pill
   modelName?: string | null;
   modelCapabilities?: number;
@@ -43,6 +44,7 @@ export function ChatComposer({
   activeToolName,
   onChange,
   onSubmit,
+  onStop,
   modelName,
   modelCapabilities,
   selectedModelId,
@@ -118,6 +120,7 @@ export function ChatComposer({
       waiting: "正在等待 Gateway 同步，请稍候。",
       hint: "Shift+Enter 换行",
       submit: "发送",
+      stop: "停止",
       attach: "附加图片",
     },
     en: {
@@ -125,14 +128,13 @@ export function ChatComposer({
       waiting: "Waiting for gateway sync…",
       hint: "Shift+Enter for new line",
       submit: "Send",
+      stop: "Stop",
       attach: "Attach image",
     },
   });
 
-  const isSubmitDisabled =
-    disabled ||
-    isStreaming ||
-    (value.trim().length === 0 && (!attachedMedia || attachedMedia.length === 0));
+  const hasContent = value.trim().length > 0 || (attachedMedia != null && attachedMedia.length > 0);
+  const isSubmitDisabled = disabled || (!isStreaming && !hasContent);
 
   return (
     <form className="composer" data-testid="chat-composer" onSubmit={handleSubmit}>
@@ -168,7 +170,7 @@ export function ChatComposer({
         data-testid="chat-input"
         className="composer__input"
         value={value}
-        disabled={disabled || isStreaming}
+        disabled={disabled}
         placeholder={placeholder}
         rows={1}
         onKeyDown={handleKeyDown}
@@ -243,15 +245,28 @@ export function ChatComposer({
             {disabled ? text.waiting : text.live(activeToolName)}
           </p>
         )}
-        <button
-          data-testid="chat-submit"
-          className="composer__submit"
-          type="submit"
-          disabled={isSubmitDisabled}
-          aria-label={text.submit}
-        >
-          <ArrowUp size={16} strokeWidth={2.5} />
-        </button>
+        {isStreaming ? (
+          <button
+            data-testid="chat-stop"
+            className="composer__submit composer__submit--stop"
+            type="button"
+            disabled={disabled}
+            aria-label={text.stop}
+            onClick={onStop}
+          >
+            <Square size={14} strokeWidth={2.5} fill="currentColor" />
+          </button>
+        ) : (
+          <button
+            data-testid="chat-submit"
+            className="composer__submit"
+            type="submit"
+            disabled={isSubmitDisabled}
+            aria-label={text.submit}
+          >
+            <ArrowUp size={16} strokeWidth={2.5} />
+          </button>
+        )}
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import {
   MessageSquare, Inbox, LayoutDashboard, Radio, Zap,
-  Cpu, Puzzle, Search, Lightbulb, Settings, Network,
+  Cpu, Puzzle, Search, Lightbulb, Settings, Network, Activity,
 } from 'lucide-react';
 import type { MainDesk } from '../shell-shared/types';
 import { AutomationsDesk } from '../components/AutomationsDesk';
@@ -14,6 +14,7 @@ import { SessionsDiagnosticsDesk } from '../components/SessionsDiagnosticsDesk';
 import { SkillsDesk } from '../components/SkillsDesk';
 import { SettingsDesk } from '../components/SettingsDesk';
 import { McpServersDesk } from '../components/McpServersDesk';
+import { DiagnosticsDesk } from '../components/DiagnosticsDesk';
 import { DeskPageHeader } from './DeskPageHeader';
 import { useLocaleText } from '../i18n/I18nProvider';
 
@@ -51,13 +52,13 @@ export function MainContent({
       chat: '对话', inbox: '收件箱 / 审批', canvas: '画布',
       channels: '渠道', automations: '自动化', models: '模型设置',
       plugins: '插件', sessions: '会话诊断', skills: '技能', settings: '设置',
-      mcpServers: 'MCP 工具',
+      mcpServers: 'MCP 工具', diagnostics: '诊断',
     },
     en: {
       chat: 'Chat', inbox: 'Inbox / Approvals', canvas: 'Canvas',
       channels: 'Channels', automations: 'Automations', models: 'Model Settings',
       plugins: 'Plugins', sessions: 'Session Diagnostics', skills: 'Skills', settings: 'Settings',
-      mcpServers: 'MCP Tools',
+      mcpServers: 'MCP Tools', diagnostics: 'Diagnostics',
     },
   });
 
@@ -73,6 +74,7 @@ export function MainContent({
     skills:      { icon: <Lightbulb size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.skills },
     settings:    { icon: <Settings size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.settings },
     mcpServers:  { icon: <Network size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.mcpServers },
+    diagnostics: { icon: <Activity size={ICON_SIZE} strokeWidth={STROKE} />, label: labels.diagnostics },
   };
 
   if (mainDesk === 'chat') {
@@ -99,7 +101,7 @@ export function MainContent({
   return (
     <div className="kc-desk-view" data-testid="control-plane-view" data-kc-view={mainDesk}>
       <DeskPageHeader icon={config.icon} title={config.label} />
-      <div className={`kc-desk-content${mainDesk === 'settings' ? ' kc-desk-content--split' : ''}`}>
+      <div className={`kc-desk-content${mainDesk === 'settings' ? ' kc-desk-content--split' : ''}${mainDesk === 'diagnostics' ? ' kc-desk-content--fullbleed' : ''}`}>
         {mainDesk === 'inbox' && <InboxApprovalDesk />}
         {mainDesk === 'sessions' && (
           <SessionsDiagnosticsDesk
@@ -115,6 +117,7 @@ export function MainContent({
         {mainDesk === 'skills' && <SkillsDesk />}
         {mainDesk === 'settings' && <SettingsDesk />}
         {mainDesk === 'mcpServers' && <McpServersDesk />}
+        {mainDesk === 'diagnostics' && <DiagnosticsDesk />}
       </div>
     </div>
   );

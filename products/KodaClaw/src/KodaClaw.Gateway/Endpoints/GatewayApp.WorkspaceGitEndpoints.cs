@@ -14,6 +14,7 @@ public static partial class GatewayApp
         git.MapGet("/log", async (
             HttpContext context,
             int? limit,
+            int? skip,
             IConfiguration configuration,
             IWorkspaceGitService gitService,
             IDiagnosticsService diagnosticsService,
@@ -27,8 +28,14 @@ public static partial class GatewayApp
                 return Results.Unauthorized();
             }
 
-            var commits = await gitService.GetRecentCommitsAsync(limit ?? 50, cancellationToken);
-            return Results.Ok(new WorkspaceGitLogResponse(commits));
+            var pageLimit = limit ?? 10;
+            var pageSkip = skip ?? 0;
+            // Fetch one extra to determine hasMore without a separate count query
+            var commits = await gitService.GetRecentCommitsAsync(pageLimit + 1, pageSkip, cancellationToken);
+            var hasMore = commits.Count > pageLimit;
+            return Results.Ok(new WorkspaceGitLogResponse(
+                Commits: hasMore ? commits.Take(pageLimit).ToArray() : commits,
+                HasMore: hasMore));
         });
 
         git.MapGet("/diff/{hash}", async (

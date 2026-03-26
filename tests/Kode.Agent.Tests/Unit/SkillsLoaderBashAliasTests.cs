@@ -91,4 +91,31 @@ public class SkillsLoaderBashAliasTests
         Assert.Contains("bash_run[jq]", meta.AllowedTools);
         Assert.Contains("fs_read", meta.AllowedTools);
     }
+
+    // ── Comma-separated allowed-tools (Claude Code native format) ─────────────
+
+    [Fact]
+    public void ParseFrontmatter_comma_separated_tools_are_parsed()
+    {
+        var content = """
+            ---
+            name: agent-browser
+            description: Browser skill
+            allowed-tools: Bash(npx agent-browser:*), Bash(agent-browser:*)
+            ---
+            Body
+            """;
+
+        var meta = SkillsLoader.ParseFrontmatter(content);
+
+        Assert.NotNull(meta.AllowedTools);
+        Assert.Contains("bash_run[npx agent-browser]", meta.AllowedTools);
+        Assert.Contains("bash_run[agent-browser]", meta.AllowedTools);
+    }
+
+    [Fact]
+    public void NormalizeToolSpec_multiword_bash_constraint_produces_internal_format()
+    {
+        Assert.Equal("bash_run[npx agent-browser]", SkillsLoader.NormalizeToolSpec("Bash(npx agent-browser:*)"));
+    }
 }

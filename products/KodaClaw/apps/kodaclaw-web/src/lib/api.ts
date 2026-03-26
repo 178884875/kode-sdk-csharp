@@ -31,6 +31,7 @@ import {
   type CreateModelEndpointRequest,
   type DiagnosticBundleExportRequest,
   type DiagnosticBundleExportResponse,
+  type DiagnosticEvent,
   type DiagnosticsQueryResponse,
   type GatewayHealthResponse,
   type InboxItem,
@@ -85,12 +86,14 @@ import {
   type WorkspaceGitRevertFileRequest,
   type WorkspaceGitRevertFileResponse,
   type SkillDescriptor,
+  type DiagnosticsStatsResponse,
 } from "../types/contracts";
 import { getGatewayToken, resolveGatewayPath } from "./config";
 
 export interface ParsedSseFrame {
   eventName: string;
   data: string;
+  id?: string;
 }
 
 type QueryValue = string | number | boolean | null | undefined;
@@ -745,6 +748,125 @@ export async function fetchDiagnosticsTimeline(
   );
 }
 
+export async function fetchDiagnosticsStats(
+  params?: { since?: string },
+  signal?: AbortSignal,
+): Promise<DiagnosticsStatsResponse> {
+  const qs = params?.since ? `?since=${encodeURIComponent(params.since)}` : '';
+  return requestJson<DiagnosticsStatsResponse>(`/api/diagnostics/stats${qs}`, {
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export async function clearDiagnostics(
+  before?: string | null,
+  signal?: AbortSignal,
+): Promise<void> {
+  const qs = before ? `?before=${encodeURIComponent(before)}` : "";
+  await requestJson<void>(`/api/diagnostics/${qs}`, {
+    method: "DELETE",
+    headers: buildHeaders(),
+    signal,
+  });
+}
+
+export function openDiagnosticsStream(
+  onEvent: (evt: DiagnosticEvent) => void,
+  signal?: AbortSignal,
+): void {
+  void openSseStreamWithRetry(
+    "/api/diagnostics/stream",
+    (frame) => {
+      if (frame.eventName === "message" || frame.eventName === "") {
+        try { onEvent(JSON.parse(frame.data) as DiagnosticEvent); } catch { /* ignore malformed */ }
+      }
+    },
+    signal,
+  );
+}
+
+export type SystemStatsEvent = {
+  errorCount: number;
+  warningCount: number;
+  inboxUnreadCount: number;
+};
+
+export function openSystemEventsStream(
+  onStats: (evt: SystemStatsEvent) => void,
+  signal?: AbortSignal,
+): void {
+  void openSseStreamWithRetry(
+    "/api/events/stream",
+    (frame) => {
+      if (frame.eventName === "system.stats") {
+        try { onStats(JSON.parse(frame.data) as SystemStatsEvent); } catch { /* ignore malformed */ }
+      }
+    },
+    signal,
+  );
+}
+
+async function openSseStreamWithRetry(
+  path: string,
+  onFrame: (frame: ParsedSseFrame) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  let lastEventId: string | undefined;
+  let delayMs = 1_000;
+  const maxDelayMs = 30_000;
+
+  while (!signal?.aborted) {
+    try {
+      const headers: Record<string, string> = { ...buildHeaders() as Record<string, string> };
+      if (lastEventId !== undefined) {
+        headers["Last-Event-ID"] = lastEventId;
+      }
+      const response = await fetch(resolveGatewayPath(path), { headers, signal });
+      if (!response.ok || !response.body) {
+        await delay(delayMs, signal);
+        delayMs = Math.min(delayMs * 2, maxDelayMs);
+        continue;
+      }
+
+      delayMs = 1_000; // reset backoff on successful connect
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parsed = parseSseFrames(buffer);
+          buffer = parsed.rest;
+          for (const frame of parsed.frames) {
+            if (frame.id !== undefined) lastEventId = frame.id;
+            onFrame(frame);
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (err) {
+      if (signal?.aborted || (err instanceof Error && err.name === "AbortError")) return;
+    }
+
+    // stream ended or errored — wait before reconnecting
+    await delay(delayMs, signal);
+    delayMs = Math.min(delayMs * 2, maxDelayMs);
+  }
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) { reject(new DOMException("Aborted", "AbortError")); return; }
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(id); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  });
+}
+
 export async function exportDiagnosticBundle(
   request?: DiagnosticBundleExportRequest,
   signal?: AbortSignal,
@@ -967,14 +1089,15 @@ function parseFrameText(frameText: string): ParsedSseFrame | null {
   }
 
   let eventName = "message";
+  let id: string | undefined;
   const dataParts: string[] = [];
 
   for (const line of trimmed.split("\n")) {
     if (line.startsWith("event:")) {
       eventName = line.slice("event:".length).trim() || eventName;
-    }
-
-    if (line.startsWith("data:")) {
+    } else if (line.startsWith("id:")) {
+      id = line.slice("id:".length).trim();
+    } else if (line.startsWith("data:")) {
       dataParts.push(line.slice("data:".length).trim());
     }
   }
@@ -986,6 +1109,7 @@ function parseFrameText(frameText: string): ParsedSseFrame | null {
   return {
     eventName,
     data: dataParts.join("\n"),
+    ...(id !== undefined ? { id } : {}),
   };
 }
 
@@ -1251,9 +1375,9 @@ export async function deleteMainSession(sessionId: string): Promise<void> {
   }
 }
 
-export async function fetchWorkspaceGitLog(limit = 50): Promise<WorkspaceGitLogResponse> {
+export async function fetchWorkspaceGitLog(limit = 10, skip = 0): Promise<WorkspaceGitLogResponse> {
   const response = await fetch(
-    resolveGatewayPath(`/api/workspace/git/log?limit=${limit}`),
+    resolveGatewayPath(`/api/workspace/git/log?limit=${limit}&skip=${skip}`),
     { headers: buildHeaders() },
   );
   if (!response.ok) throw new Error(`Git log failed: ${response.status}`);

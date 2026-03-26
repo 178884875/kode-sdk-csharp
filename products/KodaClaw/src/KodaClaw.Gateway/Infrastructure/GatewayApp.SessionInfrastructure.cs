@@ -78,10 +78,9 @@ public static partial class GatewayApp
         var assistantMessageCount = messages.Count(static message => message.Role == MessageRole.Assistant);
 
         var rawTitle = messages
-            .FirstOrDefault(static m => m.Role == MessageRole.User)
-            ?.Content.OfType<TextContent>()
-            .Select(static t => t.Text)
-            .FirstOrDefault(static t => !string.IsNullOrWhiteSpace(t));
+            .Where(static m => m.Role == MessageRole.User)
+            .SelectMany(static m => m.Content.OfType<TextContent>().Select(static t => t.Text))
+            .FirstOrDefault(static t => IsRealUserText(t));
         var title = rawTitle is { Length: > 60 } ? rawTitle[..60] + "\u2026" : rawTitle;
         var sessionDirectory = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.SessionsDirectory, sessionId);
         var promptReport = await SessionPromptReportStore.TryReadAsync(
@@ -123,23 +122,50 @@ public static partial class GatewayApp
         var store = CreateSessionStore(workspaceRoot);
         var messages = await store.LoadMessagesAsync(sessionId, cancellationToken);
 
-        // Only user/assistant messages with text content
-        var conversationMessages = messages
-            .Where(static m => m.Role == MessageRole.User || m.Role == MessageRole.Assistant)
-            .ToArray();
+        // Expand messages into display items:
+        //   - real user messages (skip system-injected content)
+        //   - assistant text messages
+        //   - tool_activity items from assistant tool-use calls (one item per ToolUseContent)
+        // Each assistant message may expand to: 0-1 text item + N tool_activity items.
+        var allItems = new List<SessionMessageItem>();
+        foreach (var m in messages)
+        {
+            if (m.Role == MessageRole.User)
+            {
+                var text = string.Concat(m.Content.OfType<TextContent>().Select(static t => t.Text));
+                if (IsRealUserText(text))
+                    allItems.Add(new SessionMessageItem(Id: "", Role: "user", Text: text, Timestamp: null));
+            }
+            else if (m.Role == MessageRole.Assistant)
+            {
+                var text = string.Concat(m.Content.OfType<TextContent>().Select(static t => t.Text));
+                if (!string.IsNullOrWhiteSpace(text))
+                    allItems.Add(new SessionMessageItem(Id: "", Role: "assistant", Text: text, Timestamp: null));
 
-        var totalCount = conversationMessages.Length;
+                foreach (var toolUse in m.Content.OfType<ToolUseContent>())
+                {
+                    var inputPreview = toolUse.Input is not null
+                        ? System.Text.Json.JsonSerializer.Serialize(toolUse.Input)
+                        : null;
+                    allItems.Add(new SessionMessageItem(
+                        Id: "",
+                        Role: "tool_activity",
+                        Text: "",
+                        Timestamp: null,
+                        ToolName: toolUse.Name,
+                        InputPreview: inputPreview));
+                }
+            }
+        }
 
-        // Return in reverse order so most-recent is first, then skip/limit
-        var items = conversationMessages
+        var totalCount = allItems.Count;
+
+        var items = allItems
+            .AsEnumerable()
             .Reverse()
             .Skip(skip)
             .Take(limit)
-            .Select(static (m, i) => new SessionMessageItem(
-                Id: $"history-{i}",
-                Role: m.Role == MessageRole.User ? "user" : "assistant",
-                Text: string.Concat(m.Content.OfType<TextContent>().Select(static t => t.Text)),
-                Timestamp: null))
+            .Select(static (item, i) => item with { Id = $"history-{i}" })
             .ToArray();
 
         var hasMore = skip + limit < totalCount;
@@ -232,6 +258,23 @@ public static partial class GatewayApp
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Returns true if the text is a genuine user message, not a system-injected block.
+    /// Filters out:
+    ///   - empty / whitespace
+    ///   - &lt;system-reminder&gt;  — SDK reminder wrapper (skill activation, todo, etc.)
+    ///   - &lt;skill_instructions  — skill body injected via RemindAsync
+    ///   - [tool_result orphaned] — SDK sanitization of orphaned tool results
+    /// </summary>
+    private static bool IsRealUserText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var trimmed = text.TrimStart();
+        return !trimmed.StartsWith("<system-reminder>", StringComparison.OrdinalIgnoreCase)
+            && !trimmed.StartsWith("<skill_instructions", StringComparison.OrdinalIgnoreCase)
+            && !trimmed.StartsWith("[tool_result orphaned]", StringComparison.OrdinalIgnoreCase);
     }
 
     private static SessionStorageUsage ComputeSessionTypeUsage(string sessionsRoot, string prefix)

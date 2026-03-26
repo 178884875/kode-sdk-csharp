@@ -1,3 +1,4 @@
+using KodaClaw.Contracts;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
@@ -13,11 +14,15 @@ namespace KodaClaw.Runtime;
 public sealed class GenerateSpeechTool : ToolBase<GenerateSpeechArgs>
 {
     private readonly ISpeechService _speechService;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
-    public GenerateSpeechTool(ISpeechService speechService)
+    public GenerateSpeechTool(
+        ISpeechService speechService,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(speechService);
         _speechService = speechService;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "generate_speech";
@@ -54,7 +59,7 @@ public sealed class GenerateSpeechTool : ToolBase<GenerateSpeechArgs>
             return ToolResult.Fail($"Speech generation failed: {ex.Message}");
         }
 
-        Emit(context, " ", new
+        Emit(context, "speech_generated", new
         {
             mediaId = result.MediaId,
             contentType = result.ContentType,
@@ -62,6 +67,14 @@ public sealed class GenerateSpeechTool : ToolBase<GenerateSpeechArgs>
             textLength = args.Text.Length,
             endpointId = args.EndpointId,
         });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "runtime",
+            EventType: "speech.generated",
+            Level: "info",
+            Message: $"Speech generated: mediaId={result.MediaId} voice={args.Voice ?? "default"} textLength={args.Text.Length}",
+            Timestamp: DateTimeOffset.UtcNow));
 
         return ToolResult.Ok(new
         {

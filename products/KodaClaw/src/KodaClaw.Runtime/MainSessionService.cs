@@ -308,6 +308,14 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var decidedApproval = await WaitForApprovalDecisionAsync(approvalId, cancellationToken);
         if (decidedApproval is null)
         {
+            RecordDiagnosticEvent(
+                eventType: "main_session.approval.wait_timeout",
+                level: "warning",
+                message: $"Timed out waiting for approval decision to persist: approvalId={approvalId}",
+                sessionId: liveTarget.Target.SessionId,
+                correlationId: approval.CorrelationId,
+                attributes: new Dictionary<string, string?> { ["approvalId"] = approvalId });
+
             return new ApprovalDecisionDispatchResult(
                 ApprovalDecisionDispatchStatus.DecisionTimedOut,
                 approval,

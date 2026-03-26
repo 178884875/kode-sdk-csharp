@@ -2,6 +2,45 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 62 — 全系统观测埋点覆盖（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_62_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6201 | Runtime | `MainSessionService` + `ChannelSessionService` 会话创建/加载/轮转/失败/超时/审批等关键生命周期事件；7 个 EventType | `dotnet test --filter SessionLifecycle` | Completed |
+| KC-6202 | ChannelHub | `TelegramConnector` / `FeishuConnector` / `WeChatConnector` 启动/停止/连接超时/发送失败事件 | `dotnet test --filter ConnectorLifecycle` | Completed |
+| KC-6203 | Runtime | `WorkspaceProtocolUpdateTool` / `WorkspaceMemoryAppendTool` / `CanvasUpsertTool` / `InboxCreateTool` 写操作成功/失败事件；`GenerateSpeechTool` Emit 事件名修复（`" "` → `speech_generated`）；`IDiagnosticsService` DI 统一 | `dotnet test --filter WriteOperationDiagnostics` | Completed |
+| KC-6204 | Automation | `AutomationScheduler` 运行成功/失败/崩溃/stale 恢复/settings 读失败 5 个 EventType；`IDiagnosticsService?` ctor + DI 注入 | `dotnet test --filter AutomationDiagnostics` | Completed |
+| KC-6205 | 跨模块 | `GenerateImageTool` + `GenerateSpeechTool` 各加 `IDiagnosticsService?` + `image.generation_failed`/`image.generated`/`speech.generated` 事件；`SessionRetentionService` / `McpHubService` / `MemoryConsolidationService` 已有覆盖确认 | `dotnet build` | Completed |
+| KC-6206 | Tests | `AutomationSchedulerDiagnosticsTests`(L1,5) + `WriteToolDiagnosticsTests`(L1,3)；全量回归 152 契约 + 259 集成 + 435 单元 = 846 全绿 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 61 — Diagnostics 可感知、可关联、可自诊（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_61_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6101 | Contracts + ControlPlane + Gateway | `IDiagnosticsService.GetStats(DateTimeOffset? since)` 新增 since 参数；`FileDiagnosticsService` / `InMemoryDiagnosticsService` 实现时间窗口统计；`GET /api/diagnostics/stats?since=ISO8601` 端点支持 | `dotnet test --filter DiagnosticsStats` | Completed |
+| KC-6102 | Runtime | 新建 `DiagnosticsQueryTool`（`diagnostics_query`）：level/source/correlationId/sinceMinutes/limit 参数，返回摘要字段（不含 attributes）；DI 注册；`koda-workspace/SKILL.md` allowed-tools 追加 | `dotnet test --filter DiagnosticsQueryTool` | Completed |
+| KC-6103 | Gateway + Automation + Runtime | `DiagnosticsLoggerProvider` 注入 `ICorrelationContextAccessor`；`AutomationScheduler` 每次运行生成 correlationId；`InboxCreateTool` / `GenerateImageTool` / `CanvasUpsertTool` 补 accessor 注入，替换硬编码 null | `dotnet test --filter CorrelationId` | Completed |
+| KC-6104 | kodaclaw-web | `useDiagnosticsHealth` hook（30s 轮询 since=1h）；Sidebar"诊断"错误 badge；状态栏近期错误提示；DiagnosticsDesk EventRow 展开显示 correlationId + 追踪按钮；toolbar correlationId chip；stats pills 过滤模式下前端实时计算 | `npm run typecheck` | Completed |
+| KC-6105 | Gateway | `DiagnosticBundleService.BuildReportHtml`：bundleData events 加 correlationId；表格新增 CorrelationId 列（截取前 8 位）；过滤栏加 correlation input | `dotnet build` | Completed |
+| KC-6106 | Tests | `DiagnosticsStatsSinceTests`(L1,6) + `DiagnosticsQueryToolTests`(L1,7) + `DiagnosticsLoggerProviderCorrelationTests`(L1,3) + `DiagnosticsStatsEndpointTests`(L2,3)；全量回归 427 单元 + 259 集成 + 152 契约全绿 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
+## Iter 60 — Diagnostics 可观测、可视化、可清理（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_60_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6001 | Contracts + ControlPlane | `IDiagnosticsService` 新增 `ClearAsync`/`SubscribeAsync`；`DiagnosticsQuery` 新增 `DateFrom`/`DateTo`；新增 `DiagnosticsStatsResponse`/`DiagnosticsSourceStats`/`DiagnosticsClearRequest` contracts；`FileDiagnosticsService` 替换 `InMemoryDiagnosticsService`（JSONL 持久化 + 内存热层 500 条 + 启动回填 + Channel 广播） | `dotnet build` | Completed |
+| KC-6002 | Gateway | `GET /api/diagnostics/stream`（SSE 实时推送）；`DELETE /api/diagnostics`（支持 `?before=ISO8601`）；`GET /api/diagnostics/stats`（统计摘要）；DI 替换注册 | `dotnet test --filter DiagnosticsEndpoint` | Completed |
+| KC-6003 | Gateway | `DiagnosticsLoggerProvider`（ILoggerProvider bridge）：Warning 级以上 ILogger 事件桥接到 `IDiagnosticsService.Record()`；Gateway 启动时注册 provider | `dotnet build` | Completed |
+| KC-6004 | Gateway | `DiagnosticBundleService` 追加 `report.html` 生成步骤：内嵌数据 + Chart.js（CDN）；三图（时间线面积图 / source 横柱 / level 饼图）+ 底部可过滤事件列表 | `dotnet test --filter DiagnosticBundleTests` | Completed |
+| KC-6005 | kodaclaw-web | `DiagnosticsDesk`（新页面）：实时事件列表 + 过滤栏（level/source/sessionId/搜索）+ SSE 接入 + 统计头部 pills + 清理下拉（7天前/1天前/全清）；Sidebar"工具"区新增"诊断"入口 | `npm run typecheck` | Completed |
+| KC-6006 | Tests | `FileDiagnosticsServiceTests`(L1,8) + `DiagnosticsLoggerProviderTests`(L1,4)；全量回归 411 单元 + 256 集成 + 152 契约通过（预存在 flaky 不计） | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## 记忆系统优化 — 移除 SQLite 元数据层，纯文件方案（2026-03-26）
 
 > 类型：优化/重构（大改）

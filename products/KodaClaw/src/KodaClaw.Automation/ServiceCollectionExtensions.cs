@@ -53,6 +53,8 @@ public static class ServiceCollectionExtensions
                 provider.GetService<ISettingsRepository>(),
                 provider.GetService<IAutomationNotificationService>(),
                 provider.GetService<IMemoryConsolidationService>(),
+                provider.GetService<ICorrelationContextAccessor>(),
+                provider.GetService<IDiagnosticsService>(),
                 provider.GetService<ILogger<AutomationScheduler>>(),
                 provider.GetService<IHostApplicationLifetime>());
         });

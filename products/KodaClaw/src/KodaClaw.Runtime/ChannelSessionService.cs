@@ -14,6 +14,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 {
     private const string ThreadSummaryFileName = "SUMMARY.md";
 
+    private const string DiagnosticSource = "channel_session";
+
     private readonly IWorkspaceService _workspaceService;
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly ChannelSessionOptions _options;
@@ -22,6 +24,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IMcpHubService? _mcpHubService;
     private readonly IThreadBindingRepository? _threadBindingRepository;
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
+    private readonly IDiagnosticsService? _diagnosticsService;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
@@ -32,7 +35,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IModelRegistryRepository? modelRegistryRepository = null,
         IMcpHubService? mcpHubService = null,
         IThreadBindingRepository? threadBindingRepository = null,
-        IMemorySessionSummaryService? sessionSummaryService = null)
+        IMemorySessionSummaryService? sessionSummaryService = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -42,6 +46,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _mcpHubService = mcpHubService;
         _threadBindingRepository = threadBindingRepository;
         _sessionSummaryService = sessionSummaryService;
+        _diagnosticsService = diagnosticsService;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -85,6 +90,15 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             && binding.LastInboundAt.HasValue
             && binding.LastInboundAt.Value < DateTimeOffset.UtcNow.AddDays(-_options.SessionTimeoutDays);
 
+        if (isSessionTimedOut)
+        {
+            RecordDiagnosticEvent(
+                eventType: "channel_session.timeout",
+                level: "warning",
+                message: $"Channel session timed out (inactive >{_options.SessionTimeoutDays}d), will create fresh: bindingId={binding.Id}",
+                sessionId: binding.SessionId);
+        }
+
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
             var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
@@ -126,6 +140,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     cancellationToken: cancellationToken);
 
                 _agents[binding.SessionId] = resumed;
+                RecordDiagnosticEvent(
+                    eventType: "channel_session.resumed",
+                    level: "info",
+                    message: $"Channel session resumed from store: bindingId={binding.Id}",
+                    sessionId: binding.SessionId);
                 return CreateHandle(
                     binding,
                     sessionDirectory,
@@ -142,6 +161,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     cancellationToken);
 
                 _agents[binding.SessionId] = createdAfterFallback;
+                RecordDiagnosticEvent(
+                    eventType: "channel_session.resume_fallback",
+                    level: "warning",
+                    message: $"Channel session resume failed, created fresh: bindingId={binding.Id} error={ex.GetBaseException().Message}",
+                    sessionId: binding.SessionId);
                 return CreateHandle(
                     binding,
                     sessionDirectory,
@@ -160,6 +184,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             cancellationToken);
 
         _agents[binding.SessionId] = created;
+        RecordDiagnosticEvent(
+            eventType: "channel_session.created",
+            level: "info",
+            message: $"Channel session created: bindingId={binding.Id}",
+            sessionId: binding.SessionId);
         return CreateHandle(
             binding,
             sessionDirectory,
@@ -179,7 +208,26 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
 
         var handle = await EnsureChannelSessionAsync(binding, policy, cancellationToken);
         var prompt = BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
-        var runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+        AgentRunResult runResult;
+        try
+        {
+            runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
+        {
+            RecordDiagnosticEvent(
+                eventType: "channel_session.turn_failed",
+                level: "error",
+                message: $"Channel turn failed: bindingId={binding.Id} error={ex.GetBaseException().Message}",
+                sessionId: binding.SessionId);
+            throw;
+        }
+
+        RecordDiagnosticEvent(
+            eventType: "channel_session.turn_completed",
+            level: "info",
+            message: $"Channel turn completed: bindingId={binding.Id} stopReason={runResult.StopReason}",
+            sessionId: binding.SessionId);
 
         return new ChannelTurnExecutionResult(
             Session: handle,
@@ -679,6 +727,19 @@ Inbound Event:
             ResumeFailureMessage: resumeFailureMessage,
             Agent: agent);
     }
+    private void RecordDiagnosticEvent(string eventType, string level, string message, string sessionId)
+    {
+        if (_diagnosticsService == null) return;
+        _diagnosticsService.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            SessionId: sessionId));
+    }
+
     internal sealed record EffectivePolicyScope(
         bool LoadAgents,
         bool LoadIdentity,

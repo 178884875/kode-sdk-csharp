@@ -16,23 +16,28 @@ public sealed class FeishuConnector : IChannelConnector
         RegexOptions.Compiled | RegexOptions.IgnoreCase,
         TimeSpan.FromMilliseconds(100));
 
+    private const string DiagnosticSource = "feishu";
+
     private readonly ConcurrentDictionary<string, StartedAccount> _startedAccounts =
         new(StringComparer.Ordinal);
     private readonly IFeishuApiClient _apiClient;
     private readonly FeishuConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
     private readonly IMediaStore? _mediaStore;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public FeishuConnector(
         IFeishuApiClient? apiClient = null,
         FeishuConnectorOptions? options = null,
         ISecretStore? secretStore = null,
-        IMediaStore? mediaStore = null)
+        IMediaStore? mediaStore = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _apiClient = apiClient ?? new HttpFeishuApiClient();
         _options = options ?? new FeishuConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
         _mediaStore = mediaStore;
+        _diagnosticsService = diagnosticsService;
     }
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Feishu;
@@ -90,12 +95,19 @@ public sealed class FeishuConnector : IChannelConnector
         catch (OperationCanceledException)
         {
             // 仅超时（WS 还在建立中）：继续返回，不设为 Degraded
+            RecordDiagnosticEvent("feishu.connection_timeout", "warning",
+                $"Feishu WebSocket connection timed out (retrying in background): accountId={accountId}");
         }
         catch (Exception ex)
         {
             // 首次连接明确失败（如凭证无效、网络拒绝）：向上抛，让调用方写入 Degraded
+            RecordDiagnosticEvent("feishu.connection_failed", "error",
+                $"Feishu WebSocket connection failed: accountId={accountId} error={ex.Message}");
             throw new InvalidOperationException($"Feishu WebSocket connection failed: {ex.Message}", ex);
         }
+
+        RecordDiagnosticEvent("feishu.account_started", "info",
+            $"Feishu account started: accountId={accountId}");
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -109,6 +121,9 @@ public sealed class FeishuConnector : IChannelConnector
 
         await startedAccount.WsClient.StopAsync().ConfigureAwait(false);
         await startedAccount.WsClient.DisposeAsync().ConfigureAwait(false);
+
+        RecordDiagnosticEvent("feishu.account_stopped", "info",
+            $"Feishu account stopped: accountId={accountId}");
     }
 
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
@@ -385,6 +400,17 @@ public sealed class FeishuConnector : IChannelConnector
 
         // 无前缀时默认 open_id
         return (externalThreadId, "open_id");
+    }
+
+    private void RecordDiagnosticEvent(string eventType, string level, string message)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow));
     }
 
     private static string ValidateAndNormalizeAccountId(string accountId)

@@ -153,7 +153,7 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
     }
 
     public Task<IReadOnlyList<WorkspaceGitCommit>> GetRecentCommitsAsync(
-        int limit = 50, CancellationToken cancellationToken = default)
+        int limit = 50, int skip = 0, CancellationToken cancellationToken = default)
     {
         if (!Repository.IsValid(_rootPath))
             return Task.FromResult<IReadOnlyList<WorkspaceGitCommit>>([]);
@@ -162,6 +162,7 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         {
             using var repo = new Repository(_rootPath);
             var commits = repo.Commits
+                .Skip(skip)
                 .Take(limit)
                 .Select(c => new WorkspaceGitCommit(
                     Hash: c.Sha,

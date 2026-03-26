@@ -34,7 +34,9 @@ public static partial class GatewayApp
         string? sessionId,
         string? source,
         string? eventType,
-        string? level)
+        string? level,
+        DateTimeOffset? dateFrom = null,
+        DateTimeOffset? dateTo = null)
     {
         if (!TryAuthorize(context, configuration))
         {
@@ -54,7 +56,9 @@ public static partial class GatewayApp
             SessionId: sessionId,
             Source: source,
             EventType: eventType,
-            Level: level);
+            Level: level,
+            DateFrom: dateFrom,
+            DateTo: dateTo);
 
         return Results.Ok(new DiagnosticsQueryResponse(
             diagnosticsService.Query(query)));

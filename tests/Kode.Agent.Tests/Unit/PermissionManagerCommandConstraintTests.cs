@@ -101,6 +101,36 @@ public class PermissionManagerCommandConstraintTests
         Assert.True(mgr.IsCommandWhitelisted("bash_run", "/usr/local/bin/kc automation list"));
     }
 
+    // ── Multi-word prefix constraints (e.g. "npx agent-browser") ─────────────
+
+    [Fact]
+    public void GrantTools_multiword_constraint_matches_command_starting_with_phrase()
+    {
+        var mgr = BuildManager();
+        mgr.GrantTools(["bash_run[npx agent-browser]"]);
+
+        Assert.True(mgr.IsCommandWhitelisted("bash_run", "npx agent-browser open https://example.com"));
+    }
+
+    [Fact]
+    public void GrantTools_multiword_constraint_does_not_match_first_word_alone()
+    {
+        var mgr = BuildManager();
+        mgr.GrantTools(["bash_run[npx agent-browser]"]);
+
+        Assert.False(mgr.IsCommandWhitelisted("bash_run", "npx something-else"));
+    }
+
+    [Fact]
+    public void GrantTools_multiword_and_singleword_constraints_coexist()
+    {
+        var mgr = BuildManager();
+        mgr.GrantTools(["bash_run[npx agent-browser]", "bash_run[agent-browser]"]);
+
+        Assert.True(mgr.IsCommandWhitelisted("bash_run", "npx agent-browser snapshot -i"));
+        Assert.True(mgr.IsCommandWhitelisted("bash_run", "agent-browser open https://example.com"));
+    }
+
     // ── GrantTools: plain names still work ────────────────────────────────────
 
     [Fact]

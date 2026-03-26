@@ -234,6 +234,36 @@ ACCEPTANCE_PACK 验收矩阵
 - **Dogfood 不等迭代末**，每完成一个高风险能力立即触发一次小 Dogfood
 - **FREEZE doc 必须在实现启动前确认**，不允许事后补写
 
+### 新增工具的完整 checklist
+
+新增一个 Agent 工具时，以下三处缺一不可，漏任意一处工具都不会出现在 Agent 可用列表里：
+
+1. **实现 + ToolRegistry 注册**（`KodaClaw.Runtime/ServiceCollectionExtensions.cs`）
+   ```csharp
+   toolRegistry.Register("my_tool", _ => new MyTool(...));
+   ```
+
+2. **加入 `MainSessionOptions.DefaultTools`**（`KodaClaw.Runtime/MainSessionOptions.cs`）
+   ```csharp
+   // DefaultTools 是传给 AgentConfig.Tools 的白名单
+   // 不在这里 → 工具注册了但 Agent 看不到，表现为"工具不存在"
+   "my_tool",
+   ```
+
+3. **（可选）加入 `BuiltinSkills.SkillGatedTools`**（`KodaClaw.Runtime/BuiltinSkills.cs`）
+   ```csharp
+   // 仅当该工具需要"激活对应 skill 才解锁"时才加这里
+   // 同时必须在步骤 2 里也加，否则 schema 隐藏无意义
+   "my_tool",
+   ```
+
+4. **更新对应 SKILL.md 的 `allowed-tools`**（如 `skills/koda-workspace/SKILL.md`）
+   ```
+   allowed-tools: ... my_tool
+   ```
+
+> 典型踩坑：只做了步骤 1，跳过步骤 2 → Agent 运行时说"没有这个工具"，但后端日志看不出异常。
+
 ## 当前进行中工作（WIP）
 
 无进行中条目。

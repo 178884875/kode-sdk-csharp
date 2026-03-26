@@ -3,7 +3,7 @@ name: koda-workspace
 description: KodaClaw workspace 协议指南——workspace 文件布局、工具使用模式、各类 session 上下文差异
 license: built-in
 compatibility: KodaClaw 1.x
-allowed-tools: workspace_protocol_update workspace_memory_append workspace_read
+allowed-tools: workspace_protocol_update workspace_memory_append workspace_read diagnostics_query
 metadata:
   kind: builtin-core
   version: "1.1"
@@ -48,6 +48,32 @@ workspace_protocol_update(target="user", section="偏好", content="- 偏好简�
 
 ```
 workspace_read(path="workspace/MEMORY.md")
+```
+
+### diagnostics_query
+查询系统近期诊断事件，用于 Agent **主动自诊断**。返回字段：`ts`、`level`、`source`、`eventType`、`message`、`correlationId`、`sessionId`（不含 attributes，避免敏感数据进入上下文）。
+
+**何时主动调用：**
+- 用户反映"刚才好像出错了"或"自动化没有按时执行"时
+- 自动化任务完成后发现结果异常，需要排查原因
+- 用户询问"最近有什么错误/警告"时
+
+**参数使用策略：**
+- 默认不传参数，查询最近 60 分钟内最多 20 条事件
+- 已知出错大致时间段时，用 `sinceMinutes` 缩小窗口（最大 1440 分钟）
+- 只关注严重问题时，传 `level="error"` 过滤
+- 追查某次自动化运行或特定请求时，传 `correlationId` 精确定位
+
+**与 correlationId 联动（全链路追踪）：**
+
+先从宽泛查询中找到可疑事件的 correlationId，再用它过滤出完整链路：
+
+```
+# Step 1：查询近期错误
+diagnostics_query(level="error", sinceMinutes=30)
+
+# Step 2：锁定某次运行的完整链路
+diagnostics_query(correlationId="abc123...", sinceMinutes=60, limit=50)
 ```
 
 ## 各类 Session 上下文差异

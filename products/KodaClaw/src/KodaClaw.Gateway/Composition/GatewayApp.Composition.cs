@@ -23,7 +23,10 @@ public static partial class GatewayApp
         IReadOnlySet<string> configuredCorsOrigins,
         Action<IServiceCollection>? configureServices)
     {
-        builder.Services.AddKodaClawControlPlane();
+        var workspaceRoot = KodaClawWorkspaceOptions.ResolveRootPathStatic(
+            builder.Configuration["KODACLAW_WORKSPACE_ROOT"]
+            ?? builder.Configuration["Workspace:RootPath"]);
+        builder.Services.AddKodaClawControlPlane(workspaceRoot);
         builder.Services.AddCors(options =>
         {
             options.AddPolicy(GatewayCorsPolicyName, policy =>
@@ -88,6 +91,11 @@ public static partial class GatewayApp
 
     private static void ConfigureGatewayMiddleware(WebApplication app)
     {
+        var diagnosticsService = app.Services.GetRequiredService<IDiagnosticsService>();
+        var correlationContextAccessor = app.Services.GetRequiredService<ICorrelationContextAccessor>();
+        var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+        loggerFactory.AddProvider(new DiagnosticsLoggerProvider(diagnosticsService, correlationContextAccessor));
+
         app.Use(async (context, next) =>
         {
             var correlationId = GetOrCreateCorrelationId(context);
@@ -130,6 +138,7 @@ public static partial class GatewayApp
         MapMediaEndpoints(app);
         MapAutomationNotificationEndpoints(app);
         MapWeChatAuthEndpoints(app);
+        MapSystemEventsEndpoints(app);
         MapRootEndpoint(app);
     }
 

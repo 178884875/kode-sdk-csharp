@@ -562,6 +562,22 @@ export interface DiagnosticsQueryResponse {
   events: DiagnosticEvent[];
 }
 
+export interface DiagnosticsSourceStats {
+  source: string;
+  count: number;
+  errorCount: number;
+  warningCount: number;
+}
+
+export interface DiagnosticsStatsResponse {
+  totalEvents: number;
+  errorCount: number;
+  warningCount: number;
+  bySource: DiagnosticsSourceStats[];
+  oldestEvent: string | null;
+  newestEvent: string | null;
+}
+
 export interface CanvasArtifact {
   id: string;
   title: string;
@@ -1183,9 +1199,11 @@ export interface McpConnectionTestResult {
 
 export interface SessionMessageItem {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool_activity";
   text: string;
   timestamp?: number | null;
+  toolName?: string | null;
+  inputPreview?: string | null;
 }
 
 export interface SessionMessagesResponse {
@@ -1217,6 +1235,7 @@ export interface WorkspaceGitCommit {
 
 export interface WorkspaceGitLogResponse {
   commits: WorkspaceGitCommit[];
+  hasMore: boolean;
 }
 
 export interface WorkspaceGitRevertFileRequest {

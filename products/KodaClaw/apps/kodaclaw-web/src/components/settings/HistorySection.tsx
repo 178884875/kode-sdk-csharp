@@ -181,19 +181,42 @@ export function HistorySection() {
 
   const [commits, setCommits] = useState<WorkspaceGitCommit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [skip, setSkip] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  const PAGE_SIZE = 10;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetchWorkspaceGitLog(50);
+      const res = await fetchWorkspaceGitLog(PAGE_SIZE, 0);
       setCommits(res.commits);
+      setHasMore(res.hasMore);
+      setSkip(res.commits.length);
     } catch {
       setCommits([]);
+      setHasMore(false);
+      setSkip(0);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetchWorkspaceGitLog(PAGE_SIZE, skip);
+      setCommits(prev => [...prev, ...res.commits]);
+      setHasMore(res.hasMore);
+      setSkip(prev => prev + res.commits.length);
+    } catch {
+      // silently fail
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, skip]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -250,6 +273,22 @@ export function HistorySection() {
       {!loading && commits.map(c => (
         <CommitRow key={c.hash} commit={c} onRevert={handleRevert} />
       ))}
+
+      {hasMore && (
+        <button
+          onClick={() => void loadMore()}
+          disabled={loadingMore}
+          style={{
+            width: '100%', padding: '6px 0', marginTop: 4,
+            background: 'transparent', border: '1px solid var(--color-border)',
+            borderRadius: 6, cursor: loadingMore ? 'default' : 'pointer',
+            fontSize: 13, color: 'var(--color-text-secondary)',
+            opacity: loadingMore ? 0.5 : 1,
+          }}
+        >
+          {loadingMore ? '加载中…' : '加载更多'}
+        </button>
+      )}
     </section>
   );
 }

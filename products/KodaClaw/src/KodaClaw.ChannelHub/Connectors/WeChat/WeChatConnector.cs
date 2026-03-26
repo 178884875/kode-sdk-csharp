@@ -27,6 +27,8 @@ public sealed class WeChatConnector : IChannelConnector
     private readonly ConcurrentDictionary<string, string> _contextTokenCache =
         new(StringComparer.Ordinal);
 
+    private const string DiagnosticSource = "wechat";
+
     private readonly IWeChatApiClient _apiClient;
     private readonly WeChatAuthManager _authManager;
     private readonly WeChatConnectorOptions _options;
@@ -34,6 +36,7 @@ public sealed class WeChatConnector : IChannelConnector
     private readonly IChannelAccountRepository? _accountRepository;
     private readonly ILogger<WeChatConnector> _logger;
     private readonly string _workspaceRootPath;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public WeChatConnector(
         IWeChatApiClient apiClient,
@@ -42,7 +45,8 @@ public sealed class WeChatConnector : IChannelConnector
         ILogger<WeChatConnector> logger,
         WeChatConnectorOptions? options = null,
         ISecretStore? secretStore = null,
-        IChannelAccountRepository? accountRepository = null)
+        IChannelAccountRepository? accountRepository = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _apiClient = apiClient;
         _authManager = authManager;
@@ -51,6 +55,7 @@ public sealed class WeChatConnector : IChannelConnector
         _options = options ?? new WeChatConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
         _accountRepository = accountRepository;
+        _diagnosticsService = diagnosticsService;
     }
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.WeChat;
@@ -100,6 +105,9 @@ public sealed class WeChatConnector : IChannelConnector
             () => PollLoopAsync(startedAccount, onEvent, cts.Token),
             CancellationToken.None);
 
+        RecordDiagnosticEvent("wechat.account_started", "info",
+            $"WeChat account started: accountId={accountId}");
+
         return Task.CompletedTask;
     }
 
@@ -112,6 +120,9 @@ public sealed class WeChatConnector : IChannelConnector
 
         await startedAccount.Cts.CancelAsync().ConfigureAwait(false);
         startedAccount.Cts.Dispose();
+
+        RecordDiagnosticEvent("wechat.account_stopped", "info",
+            $"WeChat account stopped: accountId={accountId}");
     }
 
     public Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
@@ -232,6 +243,8 @@ public sealed class WeChatConnector : IChannelConnector
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "WeChat poll error for account {AccountId}, retrying in {DelayMs}ms", ctx.Account.Id, _options.ErrorRetryDelayMs);
+                RecordDiagnosticEvent("wechat.polling_error", "warning",
+                    $"WeChat polling error (retrying): accountId={ctx.Account.Id} error={ex.GetBaseException().Message}");
                 try { await Task.Delay(_options.ErrorRetryDelayMs, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
@@ -382,6 +395,17 @@ public sealed class WeChatConnector : IChannelConnector
         });
 
         return result.Trim();
+    }
+
+    private void RecordDiagnosticEvent(string eventType, string level, string message)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow));
     }
 
     private static string ValidateAndNormalizeAccountId(string accountId)

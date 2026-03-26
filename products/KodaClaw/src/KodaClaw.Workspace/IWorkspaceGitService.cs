@@ -24,9 +24,9 @@ public interface IWorkspaceGitService
     /// </summary>
     Task<bool> TryCommitAsync(string message, CancellationToken cancellationToken = default);
 
-    /// <summary>Returns the most recent commits. Empty list when git is not initialised.</summary>
+    /// <summary>Returns a page of commits. Empty list when git is not initialised.</summary>
     Task<IReadOnlyList<WorkspaceGitCommit>> GetRecentCommitsAsync(
-        int limit = 50, CancellationToken cancellationToken = default);
+        int limit = 50, int skip = 0, CancellationToken cancellationToken = default);
 
     /// <summary>Returns the unified diff text for the given commit vs its parent.</summary>
     Task<string> GetCommitDiffAsync(string hash, CancellationToken cancellationToken = default);

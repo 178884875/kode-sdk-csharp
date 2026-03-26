@@ -191,6 +191,28 @@
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
   flex: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: default;
+}
+
+.kc-sidebar__status-text--error {
+  color: var(--error);
+  cursor: pointer;
+}
+
+.kc-sidebar__status-text--error:hover {
+  text-decoration: underline;
+}
+
+.kc-sidebar__status-warn {
+  color: var(--warning);
+}
+
+.kc-sidebar__item-badge--error {
+  background: var(--error);
 }
 
 /* ── ThemeToggle ── */
@@ -483,6 +505,14 @@
 
 /* Settings: two-panel independent scroll — no outer padding, overflow hidden */
 .kc-desk-content--split {
+  overflow: hidden;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Fullbleed: sticky toolbar pattern — toolbar + scrollable body, no outer padding */
+.kc-desk-content--fullbleed {
   overflow: hidden;
   padding: 0;
   display: flex;

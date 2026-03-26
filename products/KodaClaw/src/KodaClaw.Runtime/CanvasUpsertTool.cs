@@ -17,13 +17,21 @@ public sealed class CanvasUpsertTool : ToolBase<CanvasUpsertArgs>
 
     private readonly IWorkspaceService _workspaceService;
     private readonly ICanvasArtifactRepository _canvasRepository;
+    private readonly ICorrelationContextAccessor? _correlationContextAccessor;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
-    public CanvasUpsertTool(IWorkspaceService workspaceService, ICanvasArtifactRepository canvasRepository)
+    public CanvasUpsertTool(
+        IWorkspaceService workspaceService,
+        ICanvasArtifactRepository canvasRepository,
+        ICorrelationContextAccessor? correlationContextAccessor = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(workspaceService);
         ArgumentNullException.ThrowIfNull(canvasRepository);
         _workspaceService = workspaceService;
         _canvasRepository = canvasRepository;
+        _correlationContextAccessor = correlationContextAccessor;
+        _diagnosticsService = diagnosticsService;
     }
 
     public override string Name => "canvas_upsert";
@@ -94,7 +102,7 @@ public sealed class CanvasUpsertTool : ToolBase<CanvasUpsertArgs>
             UpdatedAt: now,
             Route: $"/canvas/{id}",
             SessionId: args.SessionId,
-            CorrelationId: null,
+            CorrelationId: _correlationContextAccessor?.CorrelationId,
             MetadataJson: null);
 
         await _canvasRepository.UpsertAsync(artifact, cancellationToken);
@@ -106,6 +114,15 @@ public sealed class CanvasUpsertTool : ToolBase<CanvasUpsertArgs>
             entryPath = relativeEntryPath,
             bytes = args.Content.Length,
         });
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "runtime",
+            EventType: "canvas.artifact_upserted",
+            Level: "info",
+            Message: $"Canvas artifact upserted: id={id} kind={args.Kind} bytes={args.Content.Length}",
+            Timestamp: DateTimeOffset.UtcNow,
+            CorrelationId: _correlationContextAccessor?.CorrelationId));
 
         return ToolResult.Ok(new { ok = true, id, kind = args.Kind, entryPath = relativeEntryPath });
     }

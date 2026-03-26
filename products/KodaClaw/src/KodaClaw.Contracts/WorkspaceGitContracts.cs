@@ -9,7 +9,8 @@ public sealed record WorkspaceGitCommit(
     IReadOnlyList<string> ChangedFiles);
 
 public sealed record WorkspaceGitLogResponse(
-    IReadOnlyList<WorkspaceGitCommit> Commits);
+    IReadOnlyList<WorkspaceGitCommit> Commits,
+    bool HasMore);
 
 public sealed record WorkspaceGitRevertFileRequest(
     string Hash,

@@ -1,12 +1,15 @@
+using System.Runtime.CompilerServices;
+using System.Threading.Channels;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ControlPlane;
 
-public sealed class InMemoryDiagnosticsService : IDiagnosticsService
+public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposable
 {
-    private const int MaxEvents = 200;
+    private const int MaxEvents = 500;
     private readonly object _gate = new();
     private readonly List<DiagnosticEvent> _events = [];
+    private readonly List<Channel<DiagnosticEvent>> _subscribers = [];
 
     public IReadOnlyList<DiagnosticEvent> GetRecent(int limit = 50, string? correlationId = null)
     {
@@ -72,6 +75,103 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService
             {
                 _events.RemoveRange(0, _events.Count - MaxEvents);
             }
+
+            foreach (var ch in _subscribers)
+            {
+                ch.Writer.TryWrite(diagnosticEvent);
+            }
+        }
+    }
+
+    public DiagnosticsStatsResponse GetStats(DateTimeOffset? since = null)
+    {
+        lock (_gate)
+        {
+            var source = since.HasValue
+                ? _events.Where(e => e.Timestamp >= since.Value).ToArray()
+                : (IReadOnlyList<DiagnosticEvent>)_events;
+
+            if (source.Count == 0)
+            {
+                return new DiagnosticsStatsResponse(0, 0, 0, [], null, null);
+            }
+
+            var bySource = source
+                .GroupBy(e => e.Source, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new DiagnosticsSourceStats(
+                    Source: g.Key,
+                    Count: g.Count(),
+                    ErrorCount: g.Count(e => string.Equals(e.Level, "error", StringComparison.OrdinalIgnoreCase)),
+                    WarningCount: g.Count(e => string.Equals(e.Level, "warning", StringComparison.OrdinalIgnoreCase))))
+                .OrderByDescending(s => s.Count)
+                .ToArray();
+
+            return new DiagnosticsStatsResponse(
+                TotalEvents: source.Count,
+                ErrorCount: source.Count(e => string.Equals(e.Level, "error", StringComparison.OrdinalIgnoreCase)),
+                WarningCount: source.Count(e => string.Equals(e.Level, "warning", StringComparison.OrdinalIgnoreCase)),
+                BySource: bySource,
+                OldestEvent: source.Min(e => e.Timestamp),
+                NewestEvent: source.Max(e => e.Timestamp));
+        }
+    }
+
+    public Task ClearAsync(DateTimeOffset? before = null, CancellationToken cancellationToken = default)
+    {
+        lock (_gate)
+        {
+            if (before.HasValue)
+            {
+                _events.RemoveAll(e => e.Timestamp < before.Value);
+            }
+            else
+            {
+                _events.Clear();
+            }
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async IAsyncEnumerable<DiagnosticEvent> SubscribeAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var channel = Channel.CreateUnbounded<DiagnosticEvent>(
+            new UnboundedChannelOptions { SingleReader = true });
+
+        lock (_gate)
+        {
+            _subscribers.Add(channel);
+        }
+
+        try
+        {
+            await foreach (var evt in channel.Reader.ReadAllAsync(cancellationToken))
+            {
+                yield return evt;
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _subscribers.Remove(channel);
+            }
+
+            channel.Writer.TryComplete();
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            foreach (var ch in _subscribers)
+            {
+                ch.Writer.TryComplete();
+            }
+
+            _subscribers.Clear();
         }
     }
 }
