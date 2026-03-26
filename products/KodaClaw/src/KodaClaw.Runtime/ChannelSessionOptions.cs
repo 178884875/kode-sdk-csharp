@@ -8,7 +8,7 @@ public sealed class ChannelSessionOptions
 
     public string? SystemPrompt { get; init; } = "You are KodaClaw channel assistant.";
 
-    public int MaxIterations { get; init; } = 8;
+    public int MaxIterations { get; init; } = 15;
 
     public int MaxPromptCharacters { get; init; } = 16000;
 

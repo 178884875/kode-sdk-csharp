@@ -23,7 +23,11 @@ public sealed class KodaClawRuntimeOptions
 
     public string? SystemPrompt { get; set; }
 
-    public int MaxIterations { get; set; } = 8;
+    public int MainMaxIterations { get; set; } = 30;
+
+    public int ChannelMaxIterations { get; set; } = 15;
+
+    public int AutomationMaxIterations { get; set; } = 50;
 }
 
 public static class ServiceCollectionExtensions
@@ -53,7 +57,7 @@ public static class ServiceCollectionExtensions
         {
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw main assistant.",
-            MaxIterations = options.MaxIterations,
+            MaxIterations = options.MainMaxIterations,
         });
         services.TryAddSingleton(new BootstrapDraftOptions
         {
@@ -64,13 +68,13 @@ public static class ServiceCollectionExtensions
         {
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw automation assistant.",
-            MaxIterations = options.MaxIterations,
+            MaxIterations = options.AutomationMaxIterations,
         });
         services.TryAddSingleton(new ChannelSessionOptions
         {
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw channel assistant.",
-            MaxIterations = options.MaxIterations,
+            MaxIterations = options.ChannelMaxIterations,
         });
         services.TryAddSingleton<IMainSessionAgentDependenciesFactory>(sp =>
         {

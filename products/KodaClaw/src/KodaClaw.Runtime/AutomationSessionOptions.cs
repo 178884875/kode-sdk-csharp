@@ -8,7 +8,7 @@ public sealed class AutomationSessionOptions
 
     public string? SystemPrompt { get; init; } = "You are KodaClaw automation assistant.";
 
-    public int MaxIterations { get; init; } = 8;
+    public int MaxIterations { get; init; } = 50;
 
     public int MaxPromptCharacters { get; init; } = 16000;
 

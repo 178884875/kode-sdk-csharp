@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import {
-  User, Brain, Zap, Radio, Globe, Shield, RefreshCw, AlertTriangle,
+  User, Brain, Zap, Radio, Globe, Shield,
   Palette, Bell, SlidersHorizontal, HardDrive, History,
 } from 'lucide-react';
 import { LocaleToggle } from './LocaleToggle';
@@ -8,22 +8,21 @@ import { WorkspaceIdentityEditor } from './settings/WorkspaceIdentityEditor';
 import { MemorySection } from './settings/MemorySection';
 import { HeartbeatSection } from './settings/HeartbeatSection';
 import { BehaviorSection } from './settings/BehaviorSection';
+import { SessionConfigSection } from './settings/SessionConfigSection';
 import { ConnectionsSection } from './settings/ConnectionsSection';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { SystemSection } from './settings/SystemSection';
-import { UpdatesSection } from './settings/UpdatesSection';
 import { StorageSection } from './settings/StorageSection';
 import { HistorySection } from './settings/HistorySection';
-import { RiskSummaryCard } from './settings/RiskSummaryCard';
 import { useLocaleText } from '../i18n/I18nProvider';
 
 type SectionId =
   | 'identity' | 'memory'
-  | 'heartbeat' | 'behavior'
+  | 'heartbeat' | 'behavior' | 'session-config'
   | 'connections'
   | 'appearance' | 'notifications' | 'preferences'
-  | 'system' | 'updates' | 'risk' | 'storage' | 'history';
+  | 'system' | 'storage' | 'history';
 
 const STROKE = 1.75;
 const ICON_SIZE = 16;
@@ -44,13 +43,12 @@ export function SettingsDesk() {
         memory: '记忆',
         heartbeat: '自动化规则',
         behavior: '行为控制',
+        sessionConfig: '会话参数',
         connections: '渠道连接',
         appearance: '外观',
         notifications: '通知',
         preferences: '语言',
         system: '系统',
-        updates: '更新',
-        risk: '风险简报',
         storage: '存储',
         history: '变更历史',
       },
@@ -69,13 +67,12 @@ export function SettingsDesk() {
         memory: 'Memory',
         heartbeat: 'Automation Rules',
         behavior: 'Behavior',
+        sessionConfig: 'Session Parameters',
         connections: 'Channels',
         appearance: 'Appearance',
         notifications: 'Notifications',
         preferences: 'Language',
         system: 'System',
-        updates: 'Updates',
-        risk: 'Risk',
         storage: 'Storage',
         history: 'Change History',
       },
@@ -85,38 +82,53 @@ export function SettingsDesk() {
   const [activeSection, setActiveSection] = useState<SectionId>('identity');
 
   const refs: Record<SectionId, React.MutableRefObject<HTMLDivElement | null>> = {
-    identity:      useRef<HTMLDivElement | null>(null),
-    memory:        useRef<HTMLDivElement | null>(null),
-    heartbeat:     useRef<HTMLDivElement | null>(null),
-    behavior:      useRef<HTMLDivElement | null>(null),
-    connections:   useRef<HTMLDivElement | null>(null),
+    identity:       useRef<HTMLDivElement | null>(null),
+    memory:         useRef<HTMLDivElement | null>(null),
+    heartbeat:      useRef<HTMLDivElement | null>(null),
+    behavior:       useRef<HTMLDivElement | null>(null),
+    'session-config': useRef<HTMLDivElement | null>(null),
+    connections:    useRef<HTMLDivElement | null>(null),
     appearance:    useRef<HTMLDivElement | null>(null),
     notifications: useRef<HTMLDivElement | null>(null),
     preferences:   useRef<HTMLDivElement | null>(null),
     system:        useRef<HTMLDivElement | null>(null),
-    updates:       useRef<HTMLDivElement | null>(null),
-    risk:          useRef<HTMLDivElement | null>(null),
     storage:       useRef<HTMLDivElement | null>(null),
     history:       useRef<HTMLDivElement | null>(null),
   };
 
   const contentRef = useRef<HTMLDivElement>(null);
+  // Suppresses observer updates during programmatic smooth-scroll triggered by nav clicks.
+  const suppressObserverRef = useRef(false);
+  const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Track active section via scroll position
+  // Track active section via scroll position.
+  // Strategy: narrow detection band at the top 30% of the container (rootMargin cuts off the bottom 70%).
+  // When multiple sections are simultaneously in the band, pick the topmost one by boundingClientRect.top.
   useEffect(() => {
     const container = contentRef.current;
     if (!container || typeof IntersectionObserver === 'undefined') return;
 
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const id = entry.target.getAttribute('data-section') as SectionId | null;
-            if (id) setActiveSection(id);
-          }
-        }
+        // Ignore observer callbacks fired during a programmatic scroll-to-section.
+        if (suppressObserverRef.current) return;
+
+        const visible = entries.filter(e => e.isIntersecting);
+        if (visible.length === 0) return;
+
+        // Pick the section whose top edge is closest to the top of the container.
+        const topEntry = visible.reduce((best, e) =>
+          e.boundingClientRect.top < best.boundingClientRect.top ? e : best
+        );
+
+        const id = topEntry.target.getAttribute('data-section') as SectionId | null;
+        if (id) setActiveSection(id);
       },
-      { root: container, threshold: 0.3 },
+      {
+        root: container,
+        rootMargin: '0px 0px -70% 0px',
+        threshold: 0,
+      },
     );
 
     for (const [, ref] of Object.entries(refs)) {
@@ -129,6 +141,12 @@ export function SettingsDesk() {
 
   function scrollTo(id: SectionId) {
     setActiveSection(id);
+    // Suppress observer during smooth scroll animation (~600 ms).
+    suppressObserverRef.current = true;
+    if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+    suppressTimerRef.current = setTimeout(() => {
+      suppressObserverRef.current = false;
+    }, 650);
     refs[id].current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -148,8 +166,9 @@ export function SettingsDesk() {
     {
       groupLabel: text.nav.groupAutomation,
       items: [
-        { id: 'heartbeat', icon: <Zap size={ICON_SIZE} strokeWidth={STROKE} />,              label: text.nav.heartbeat },
-        { id: 'behavior',  icon: <SlidersHorizontal size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.behavior },
+        { id: 'heartbeat',      icon: <Zap size={ICON_SIZE} strokeWidth={STROKE} />,              label: text.nav.heartbeat },
+        { id: 'behavior',       icon: <SlidersHorizontal size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.behavior },
+        { id: 'session-config', icon: <SlidersHorizontal size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.sessionConfig },
       ],
     },
     {
@@ -169,11 +188,9 @@ export function SettingsDesk() {
     {
       groupLabel: text.nav.groupAdmin,
       items: [
-        { id: 'storage', icon: <HardDrive size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.storage },
-        { id: 'history', icon: <History size={ICON_SIZE} strokeWidth={STROKE} />,       label: text.nav.history },
-        { id: 'system',  icon: <Shield size={ICON_SIZE} strokeWidth={STROKE} />,        label: text.nav.system },
-        { id: 'updates', icon: <RefreshCw size={ICON_SIZE} strokeWidth={STROKE} />,     label: text.nav.updates },
-        { id: 'risk',    icon: <AlertTriangle size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.risk },
+        { id: 'storage', icon: <HardDrive size={ICON_SIZE} strokeWidth={STROKE} />, label: text.nav.storage },
+        { id: 'history', icon: <History size={ICON_SIZE} strokeWidth={STROKE} />,  label: text.nav.history },
+        { id: 'system',  icon: <Shield size={ICON_SIZE} strokeWidth={STROKE} />,   label: text.nav.system },
       ],
     },
   ];
@@ -219,6 +236,10 @@ export function SettingsDesk() {
           <BehaviorSection />
         </div>
 
+        <div ref={refs['session-config']} data-section="session-config" className="settings-split__anchor">
+          <SessionConfigSection />
+        </div>
+
         <div ref={refs.connections} data-section="connections" className="settings-split__anchor">
           <ConnectionsSection />
         </div>
@@ -252,14 +273,6 @@ export function SettingsDesk() {
 
         <div ref={refs.system} data-section="system" className="settings-split__anchor">
           <SystemSection />
-        </div>
-
-        <div ref={refs.updates} data-section="updates" className="settings-split__anchor">
-          <UpdatesSection />
-        </div>
-
-        <div ref={refs.risk} data-section="risk" className="settings-split__anchor">
-          <RiskSummaryCard />
         </div>
       </div>
     </div>

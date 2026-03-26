@@ -53,7 +53,7 @@ public sealed class MainSessionOptions
 
     public string? SystemPrompt { get; init; } = "You are KodaClaw main assistant.";
 
-    public int MaxIterations { get; init; } = 8;
+    public int MaxIterations { get; init; } = 30;
 
     public int MaxPromptCharacters { get; init; } = 16000;
 

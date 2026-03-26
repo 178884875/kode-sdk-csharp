@@ -539,9 +539,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
         var permissions = await ResolvePermissionsAsync(cancellationToken);
+        var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt, permissions),
+            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt, permissions, maxIterations),
             dependencies,
             cancellationToken);
 
@@ -704,19 +705,27 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         return tools;
     }
 
+    private async Task<int> ResolveMaxIterationsAsync(CancellationToken cancellationToken)
+    {
+        if (_settingsRepository is null) return _options.MaxIterations;
+        var settings = await _settingsRepository.GetAsync(cancellationToken);
+        return settings.MainMaxIterations ?? _options.MaxIterations;
+    }
+
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         IReadOnlyList<string> tools,
         string model,
         string systemPrompt,
-        PermissionConfig? permissions = null)
+        PermissionConfig? permissions = null,
+        int? maxIterations = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
         {
             Model = model,
             SystemPrompt = systemPrompt,
-            MaxIterations = _options.MaxIterations,
+            MaxIterations = maxIterations ?? _options.MaxIterations,
             Tools = tools,
             Permissions = (permissions ?? _options.Permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
             SandboxOptions = new SandboxOptions

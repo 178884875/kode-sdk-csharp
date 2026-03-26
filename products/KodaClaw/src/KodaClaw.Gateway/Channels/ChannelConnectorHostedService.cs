@@ -1,5 +1,6 @@
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
+using Microsoft.Extensions.Hosting;
 
 namespace KodaClaw.Gateway.Channels;
 
@@ -7,23 +8,29 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
 {
     private readonly IChannelAccountRepository _channelAccountRepository;
     private readonly ChannelInboundGatewayService _channelInboundGatewayService;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<ChannelConnectorHostedService> _logger;
 
     public ChannelConnectorHostedService(
         IChannelAccountRepository channelAccountRepository,
         ChannelInboundGatewayService channelInboundGatewayService,
+        IHostApplicationLifetime lifetime,
         ILogger<ChannelConnectorHostedService> logger)
     {
         _channelAccountRepository = channelAccountRepository ?? throw new ArgumentNullException(nameof(channelAccountRepository));
         _channelInboundGatewayService = channelInboundGatewayService ?? throw new ArgumentNullException(nameof(channelInboundGatewayService));
+        _lifetime = lifetime ?? throw new ArgumentNullException(nameof(lifetime));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await StartAccountsByKindAsync(ChannelConnectorKind.Telegram, cancellationToken);
-        await StartAccountsByKindAsync(ChannelConnectorKind.Feishu, cancellationToken);
-        await StartAccountsByKindAsync(ChannelConnectorKind.WeChat, cancellationToken);
+        // Use ApplicationStopping so connectors' polling loops are cancelled immediately
+        // on Ctrl+C, rather than waiting for StopAsync to call Cancel() after a DB query.
+        var pollingToken = _lifetime.ApplicationStopping;
+        await StartAccountsByKindAsync(ChannelConnectorKind.Telegram, pollingToken);
+        await StartAccountsByKindAsync(ChannelConnectorKind.Feishu, pollingToken);
+        await StartAccountsByKindAsync(ChannelConnectorKind.WeChat, pollingToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -31,9 +38,12 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
         IReadOnlyList<ChannelAccount> allAccounts;
         try
         {
+            // Use CancellationToken.None: the shutdown token may already be cancelled
+            // (linked to ApplicationStopping in .NET 10), but a local SQLite list is
+            // fast and must complete regardless of token state.
             allAccounts = await _channelAccountRepository.ListAsync(
                 new ChannelAccountQuery(Limit: 200),
-                cancellationToken);
+                CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -96,9 +106,9 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
 
         try
         {
-            await StartAccountByKindAsync(account, cancellationToken);
+            await StartAccountByKindAsync(account, _lifetime.ApplicationStopping);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (_lifetime.ApplicationStopping.IsCancellationRequested)
         {
             throw;
         }

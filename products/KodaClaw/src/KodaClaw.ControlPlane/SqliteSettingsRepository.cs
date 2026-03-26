@@ -35,7 +35,10 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_end,
                 updated_at,
                 automations_enabled,
-                auto_approve_tool_calls
+                auto_approve_tool_calls,
+                main_max_iterations,
+                channel_max_iterations,
+                automation_max_iterations
             FROM app_settings
             WHERE id = $id
             LIMIT 1;
@@ -71,7 +74,10 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_end,
                 updated_at,
                 automations_enabled,
-                auto_approve_tool_calls
+                auto_approve_tool_calls,
+                main_max_iterations,
+                channel_max_iterations,
+                automation_max_iterations
             )
             VALUES (
                 $id,
@@ -84,7 +90,10 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 $quietHoursEnd,
                 $updatedAt,
                 $automationsEnabled,
-                $autoApproveToolCalls
+                $autoApproveToolCalls,
+                $mainMaxIterations,
+                $channelMaxIterations,
+                $automationMaxIterations
             )
             ON CONFLICT(id) DO UPDATE SET
                 default_landing_route = excluded.default_landing_route,
@@ -96,7 +105,10 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 quiet_hours_end = excluded.quiet_hours_end,
                 updated_at = excluded.updated_at,
                 automations_enabled = excluded.automations_enabled,
-                auto_approve_tool_calls = excluded.auto_approve_tool_calls;
+                auto_approve_tool_calls = excluded.auto_approve_tool_calls,
+                main_max_iterations = excluded.main_max_iterations,
+                channel_max_iterations = excluded.channel_max_iterations,
+                automation_max_iterations = excluded.automation_max_iterations;
             """;
 
         BindParameters(command, settings);
@@ -189,6 +201,26 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
                 // Column already exists — idempotent migration.
             }
 
+            // Migration: add per-session MaxIterations overrides (introduced in KC-6001).
+            foreach (var (colName, colDef) in new[]
+            {
+                ("main_max_iterations", "INTEGER NULL"),
+                ("channel_max_iterations", "INTEGER NULL"),
+                ("automation_max_iterations", "INTEGER NULL"),
+            })
+            {
+                await using var migrateIter = connection.CreateCommand();
+                migrateIter.CommandText = $"ALTER TABLE app_settings ADD COLUMN {colName} {colDef};";
+                try
+                {
+                    await migrateIter.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch (SqliteException ex) when (ex.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Column already exists — idempotent migration.
+                }
+            }
+
             _databasePath = databasePath;
             _initialized = true;
             return databasePath;
@@ -212,6 +244,9 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
         command.Parameters.AddWithValue("$updatedAt", FormatTimestamp(settings.UpdatedAt));
         command.Parameters.AddWithValue("$automationsEnabled", settings.AutomationsEnabled ? 1 : 0);
         command.Parameters.AddWithValue("$autoApproveToolCalls", settings.AutoApproveToolCalls ? 1 : 0);
+        command.Parameters.AddWithValue("$mainMaxIterations", (object?)settings.MainMaxIterations ?? DBNull.Value);
+        command.Parameters.AddWithValue("$channelMaxIterations", (object?)settings.ChannelMaxIterations ?? DBNull.Value);
+        command.Parameters.AddWithValue("$automationMaxIterations", (object?)settings.AutomationMaxIterations ?? DBNull.Value);
     }
 
     private static KodaClawSettings MapSettings(SqliteDataReader reader)
@@ -226,7 +261,10 @@ public sealed class SqliteSettingsRepository : ISettingsRepository
             QuietHoursEndLocalTime: reader.IsDBNull(6) ? null : reader.GetString(6),
             UpdatedAt: ParseTimestamp(reader.GetString(7)),
             AutomationsEnabled: reader.GetInt64(8) != 0,
-            AutoApproveToolCalls: reader.GetInt64(9) != 0);
+            AutoApproveToolCalls: reader.GetInt64(9) != 0,
+            MainMaxIterations: reader.IsDBNull(10) ? null : (int)reader.GetInt64(10),
+            ChannelMaxIterations: reader.IsDBNull(11) ? null : (int)reader.GetInt64(11),
+            AutomationMaxIterations: reader.IsDBNull(12) ? null : (int)reader.GetInt64(12));
     }
 
     private static void Validate(KodaClawSettings settings)

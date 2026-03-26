@@ -28,6 +28,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IModelRegistryRepository? _modelRegistryRepository;
     private readonly IMcpHubService? _mcpHubService;
+    private readonly ISettingsRepository? _settingsRepository;
 
     public AutomationSessionService(
         IWorkspaceService workspaceService,
@@ -35,7 +36,8 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         AutomationSessionOptions? options = null,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IModelRegistryRepository? modelRegistryRepository = null,
-        IMcpHubService? mcpHubService = null)
+        IMcpHubService? mcpHubService = null,
+        ISettingsRepository? settingsRepository = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -43,6 +45,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _modelRegistryRepository = modelRegistryRepository;
         _mcpHubService = mcpHubService;
+        _settingsRepository = settingsRepository;
     }
 
     public async Task<AutomationSessionHandle> StartAutomationSessionAsync(
@@ -66,9 +69,10 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         var dependencies = _dependenciesFactory.Create(sessionId, sessionDirectory);
         var configuredModel = await ResolveConfiguredModelAsync(definition, cancellationToken);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
+        var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
         var agent = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, sessionTools),
+            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, sessionTools, maxIterations),
             dependencies,
             cancellationToken);
 
@@ -225,18 +229,26 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         return tools;
     }
 
+    private async Task<int> ResolveMaxIterationsAsync(CancellationToken cancellationToken)
+    {
+        if (_settingsRepository is null) return _options.MaxIterations;
+        var settings = await _settingsRepository.GetAsync(cancellationToken);
+        return settings.AutomationMaxIterations ?? _options.MaxIterations;
+    }
+
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         string systemPrompt,
         string model,
-        IReadOnlyList<string>? tools = null)
+        IReadOnlyList<string>? tools = null,
+        int? maxIterations = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         return new AgentConfig
         {
             Model = model,
             SystemPrompt = systemPrompt,
-            MaxIterations = _options.MaxIterations,
+            MaxIterations = maxIterations ?? _options.MaxIterations,
             Tools = tools ?? _options.Tools,
             Permissions = (_options.Permissions ?? new PermissionConfig()) with { SchemaHiddenTools = BuiltinSkills.SkillGatedTools },
             SandboxOptions = new SandboxOptions

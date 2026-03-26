@@ -10,7 +10,10 @@ public sealed record KodaClawSettings(
     string? QuietHoursEndLocalTime,
     DateTimeOffset UpdatedAt,
     bool AutomationsEnabled = false,
-    bool AutoApproveToolCalls = false)
+    bool AutoApproveToolCalls = false,
+    int? MainMaxIterations = null,
+    int? ChannelMaxIterations = null,
+    int? AutomationMaxIterations = null)
 {
     public static KodaClawSettings Default { get; } = new(
         DefaultLandingRoute: "/chat",
@@ -22,5 +25,8 @@ public sealed record KodaClawSettings(
         QuietHoursEndLocalTime: null,
         UpdatedAt: DateTimeOffset.UnixEpoch,
         AutomationsEnabled: false,
-        AutoApproveToolCalls: false);
+        AutoApproveToolCalls: false,
+        MainMaxIterations: null,
+        ChannelMaxIterations: null,
+        AutomationMaxIterations: null);
 }

@@ -1034,6 +1034,9 @@ export interface KodaClawSettings {
   updatedAt: string;
   automationsEnabled: boolean;
   autoApproveToolCalls: boolean;
+  mainMaxIterations?: number | null;
+  channelMaxIterations?: number | null;
+  automationMaxIterations?: number | null;
 }
 
 export interface SandboxExecutionProfile {

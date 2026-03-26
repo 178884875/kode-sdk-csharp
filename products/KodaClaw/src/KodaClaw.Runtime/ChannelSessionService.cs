@@ -25,6 +25,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IThreadBindingRepository? _threadBindingRepository;
     private readonly IMemorySessionSummaryService? _sessionSummaryService;
     private readonly IDiagnosticsService? _diagnosticsService;
+    private readonly ISettingsRepository? _settingsRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
@@ -36,7 +37,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IMcpHubService? mcpHubService = null,
         IThreadBindingRepository? threadBindingRepository = null,
         IMemorySessionSummaryService? sessionSummaryService = null,
-        IDiagnosticsService? diagnosticsService = null)
+        IDiagnosticsService? diagnosticsService = null,
+        ISettingsRepository? settingsRepository = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
         _dependenciesFactory = dependenciesFactory ?? throw new ArgumentNullException(nameof(dependenciesFactory));
@@ -47,6 +49,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         _threadBindingRepository = threadBindingRepository;
         _sessionSummaryService = sessionSummaryService;
         _diagnosticsService = diagnosticsService;
+        _settingsRepository = settingsRepository;
     }
 
     public async Task<ChannelSessionHandle> EnsureChannelSessionAsync(
@@ -98,6 +101,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 message: $"Channel session timed out (inactive >{_options.SessionTimeoutDays}d), will create fresh: bindingId={binding.Id}",
                 sessionId: binding.SessionId);
         }
+
+        var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
 
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
@@ -156,7 +161,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 var createdAfterFallback = await AgentRuntime.CreateAsync(
                     binding.SessionId,
-                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage),
+                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
                     dependencies,
                     cancellationToken);
 
@@ -179,7 +184,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             binding.SessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage),
+            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
             dependencies,
             cancellationToken);
 
@@ -473,12 +478,20 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         return tools;
     }
 
+    private async Task<int> ResolveMaxIterationsAsync(CancellationToken cancellationToken)
+    {
+        if (_settingsRepository is null) return _options.MaxIterations;
+        var settings = await _settingsRepository.GetAsync(cancellationToken);
+        return settings.ChannelMaxIterations ?? _options.MaxIterations;
+    }
+
     private AgentConfig CreateAgentConfig(
         string sessionDirectory,
         string systemPrompt,
         string model,
         IReadOnlyList<string>? tools = null,
-        bool isDirectMessage = false)
+        bool isDirectMessage = false,
+        int? maxIterations = null)
     {
         var skillsPaths = _workspaceService.GetSkillsPaths();
         // KC-5003: DM sessions use workspace root as sandbox — same trust boundary as the main session.
@@ -488,7 +501,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         {
             Model = model,
             SystemPrompt = systemPrompt,
-            MaxIterations = _options.MaxIterations,
+            MaxIterations = maxIterations ?? _options.MaxIterations,
             Tools = tools ?? _options.Tools,
             Permissions = _options.Permissions,
             SandboxOptions = new SandboxOptions
