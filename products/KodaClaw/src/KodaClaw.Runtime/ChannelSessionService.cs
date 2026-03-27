@@ -563,6 +563,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var prompt = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
             .WithCharacterBudget(promptCharBudget)
             .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}).")
+            .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(_workspaceService.RootPath))
             .AddSection(
                 "Channel Session",
                 [

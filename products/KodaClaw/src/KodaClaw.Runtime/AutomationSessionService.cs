@@ -313,6 +313,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         var prompt = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
             .WithCharacterBudget(promptCharBudget)
             .AddBody($"Triggered at: {triggeredAt:yyyy-MM-dd HH:mm:ss zzz} ({triggeredAt.DayOfWeek}).")
+            .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(_workspaceService.RootPath))
             .AddSection(
                 "Automation Definition",
                 [

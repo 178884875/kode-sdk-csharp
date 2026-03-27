@@ -829,7 +829,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var builder = new PromptBuilder(PromptProfiles.Main(_options.SystemPrompt))
             .WithCharacterBudget(promptCharBudget)
             .AddBody("Keep actions observable, local-first, and approval-aware.")
-            .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}). Use get_current_datetime tool for a precise timestamp if the user asks later in the session.");
+            .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}). Use get_current_datetime tool for a precise timestamp if the user asks later in the session.")
+            .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(workspaceRoot));
 
         if (_workspaceReadinessService is not null)
         {
