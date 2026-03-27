@@ -18,7 +18,7 @@ public static class ServiceCollectionExtensions
         configure?.Invoke(options);
 
         services.TryAddSingleton(options);
-        services.TryAddSingleton<IMacOsKeychainCommandRunner, MacOsKeychainCommandRunner>();
+        RegisterPlatformKeychain(services);
         services.TryAddSingleton<ISecretStore, PlatformSecretStore>();
         services.TryAddSingleton<IWorkspaceService, WorkspaceService>();
         services.TryAddSingleton<IWorkspaceGitService, WorkspaceGitService>();
@@ -34,5 +34,26 @@ public static class ServiceCollectionExtensions
             provider.GetService<ILogger<HeartbeatSyncService>>()));
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, HeartbeatFileWatcherHostedService>());
         return services;
+    }
+
+    private static void RegisterPlatformKeychain(IServiceCollection services)
+    {
+        // Each branch is guarded by the matching OperatingSystem.Is*() check, so the
+        // platform-specific types are only instantiated on the correct OS.
+#pragma warning disable CA1416
+        if (OperatingSystem.IsWindows())
+        {
+            services.TryAddSingleton<IPlatformKeychain, WindowsCredentialManager>();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.TryAddSingleton<IPlatformKeychain, MacOsKeychainCommandRunner>();
+        }
+        else
+        {
+            // Linux (or any other Unix): secret-tool with file fallback
+            services.TryAddSingleton<IPlatformKeychain, LinuxSecretStore>();
+        }
+#pragma warning restore CA1416
     }
 }

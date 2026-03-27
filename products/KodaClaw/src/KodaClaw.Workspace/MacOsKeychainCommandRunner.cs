@@ -3,8 +3,10 @@ using KodaClaw.Contracts;
 
 namespace KodaClaw.Workspace;
 
-public sealed class MacOsKeychainCommandRunner : IMacOsKeychainCommandRunner
+public sealed class MacOsKeychainCommandRunner : IPlatformKeychain
 {
+    public string StorageDisplayName => "macOS Keychain";
+
     public async Task<string?> ReadAsync(SecretRef secretRef, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(secretRef);

@@ -6,20 +6,31 @@ namespace KodaClaw.Workspace;
 public sealed class PlatformSecretStore : ISecretStore
 {
     private readonly ConcurrentDictionary<string, MemorySecretEntry> _memorySecrets = new(StringComparer.Ordinal);
-    private readonly IMacOsKeychainCommandRunner _keychainCommandRunner;
+    private readonly IPlatformKeychain _keychain;
     private readonly TimeProvider _timeProvider;
 
-    public PlatformSecretStore()
-        : this(new MacOsKeychainCommandRunner(), TimeProvider.System)
-    {
-    }
-
     public PlatformSecretStore(
-        IMacOsKeychainCommandRunner keychainCommandRunner,
+        IPlatformKeychain keychain,
         TimeProvider? timeProvider = null)
     {
-        _keychainCommandRunner = keychainCommandRunner ?? throw new ArgumentNullException(nameof(keychainCommandRunner));
+        _keychain = keychain ?? throw new ArgumentNullException(nameof(keychain));
         _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
+    /// <summary>
+    /// Creates a <see cref="PlatformSecretStore"/> using the correct OS keychain without DI.
+    /// Use this only in bootstrap/static contexts where DI is not yet available.
+    /// </summary>
+    public static PlatformSecretStore CreateForCurrentPlatform(KodaClawWorkspaceOptions? options = null)
+    {
+#pragma warning disable CA1416 // each branch is guarded by the OperatingSystem check
+        IPlatformKeychain keychain = OperatingSystem.IsWindows()
+            ? new WindowsCredentialManager()
+            : OperatingSystem.IsMacOS()
+                ? new MacOsKeychainCommandRunner()
+                : new LinuxSecretStore(options ?? new KodaClawWorkspaceOptions());
+#pragma warning restore CA1416
+        return new PlatformSecretStore(keychain);
     }
 
     public async Task<string?> GetAsync(SecretRef secretRef, CancellationToken cancellationToken = default)
@@ -32,7 +43,7 @@ public sealed class PlatformSecretStore : ISecretStore
             "memory" => _memorySecrets.TryGetValue(secretRef.ToReferenceString(), out var entry)
                 ? entry.SecretValue
                 : null,
-            "keychain" => await _keychainCommandRunner.ReadAsync(secretRef, cancellationToken).ConfigureAwait(false),
+            "keychain" => await _keychain.ReadAsync(secretRef, cancellationToken).ConfigureAwait(false),
             _ => throw CreateProviderNotSupportedException(secretRef),
         };
     }
@@ -50,7 +61,7 @@ public sealed class PlatformSecretStore : ISecretStore
                     _timeProvider.GetUtcNow());
                 return;
             case "keychain":
-                await _keychainCommandRunner.WriteAsync(secretRef, secretValue.Trim(), cancellationToken).ConfigureAwait(false);
+                await _keychain.WriteAsync(secretRef, secretValue.Trim(), cancellationToken).ConfigureAwait(false);
                 return;
             case "env":
                 throw new InvalidOperationException("Environment-backed secrets are read-only and cannot be upserted by KodaClaw.");
@@ -69,7 +80,7 @@ public sealed class PlatformSecretStore : ISecretStore
                 _memorySecrets.TryRemove(secretRef.ToReferenceString(), out _);
                 return;
             case "keychain":
-                await _keychainCommandRunner.DeleteAsync(secretRef, cancellationToken).ConfigureAwait(false);
+                await _keychain.DeleteAsync(secretRef, cancellationToken).ConfigureAwait(false);
                 return;
             case "env":
                 throw new InvalidOperationException("Environment-backed secrets are read-only and cannot be deleted by KodaClaw.");
@@ -103,9 +114,9 @@ public sealed class PlatformSecretStore : ISecretStore
                     StorageDisplayName: "In-Memory Secret Store"),
             "keychain" => new SecretDescriptor(
                 secretRef,
-                Exists: await _keychainCommandRunner.ExistsAsync(secretRef, cancellationToken).ConfigureAwait(false),
+                Exists: await _keychain.ExistsAsync(secretRef, cancellationToken).ConfigureAwait(false),
                 IsReadOnly: false,
-                StorageDisplayName: "macOS Keychain"),
+                StorageDisplayName: _keychain.StorageDisplayName),
             _ => throw CreateProviderNotSupportedException(secretRef),
         };
     }

@@ -13,7 +13,7 @@ internal static class RuntimeConfigurationBootstrap
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var secretStore = new PlatformSecretStore();
+        var secretStore = PlatformSecretStore.CreateForCurrentPlatform();
         var directResult = ResolveDirectConfiguration(configuration, secretStore);
         if (!string.IsNullOrWhiteSpace(directResult.DefaultModel))
         {

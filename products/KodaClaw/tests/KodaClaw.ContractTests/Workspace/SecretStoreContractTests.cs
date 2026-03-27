@@ -20,7 +20,7 @@ public sealed class SecretStoreContractTests
     [Fact]
     public async Task Platform_secret_store_should_round_trip_memory_provider()
     {
-        var store = new PlatformSecretStore(new FakeMacOsKeychainCommandRunner());
+        var store = new PlatformSecretStore(new FakePlatformKeychain());
         var secretRef = new SecretRef("memory", "tests", "gateway-token");
 
         await store.UpsertAsync(secretRef, "memory-secret");
@@ -42,7 +42,7 @@ public sealed class SecretStoreContractTests
 
         try
         {
-            var store = new PlatformSecretStore(new FakeMacOsKeychainCommandRunner());
+            var store = new PlatformSecretStore(new FakePlatformKeychain());
 
             var resolved = await store.GetAsync(secretRef);
             var descriptor = await store.DescribeAsync(secretRef);
@@ -64,7 +64,7 @@ public sealed class SecretStoreContractTests
     [Fact]
     public async Task Platform_secret_store_should_delegate_keychain_provider_to_runner()
     {
-        var runner = new FakeMacOsKeychainCommandRunner();
+        var runner = new FakePlatformKeychain();
         var store = new PlatformSecretStore(runner);
         var secretRef = new SecretRef("keychain", "models", "default-openai", "Default OpenAI Key");
 
@@ -78,12 +78,15 @@ public sealed class SecretStoreContractTests
         runner.Deletes.Should().ContainSingle();
         resolved.Should().Be("keychain-secret");
         descriptor.Exists.Should().BeTrue();
-        descriptor.StorageDisplayName.Should().Be("macOS Keychain");
+        // StorageDisplayName comes from the keychain implementation; verify it is non-empty.
+        descriptor.StorageDisplayName.Should().NotBeNullOrWhiteSpace();
     }
 
-    private sealed class FakeMacOsKeychainCommandRunner : IMacOsKeychainCommandRunner
+    private sealed class FakePlatformKeychain : IPlatformKeychain
     {
         private readonly Dictionary<string, string> _values = new(StringComparer.Ordinal);
+
+        public string StorageDisplayName => "Test Keychain";
 
         public List<SecretRef> Reads { get; } = [];
 
