@@ -4,6 +4,7 @@ import {
   Terminal, Globe, Network, Pencil, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { fetchMcpServers, saveMcpServers, testMcpServerConnection } from "../lib/api";
+import { getRuntimeConfig } from "../lib/config";
 import type { WorkspaceMcpConfig, WorkspaceMcpServerEntry, McpConnectionTestResult } from "../types/contracts";
 import { Modal } from "./ui/Modal";
 import { ConfirmModal } from "./ui/ConfirmModal";
@@ -446,6 +447,9 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
   }, [open, isEdit, editName, initialEntry]);
 
   const isHttp = isHttpTransport(form.transport);
+  const isWindows = getRuntimeConfig().platform === "win32";
+  const showWindowsNodeHint = isWindows && !isHttp &&
+    /^(npx|npm|yarn|pnpm|uvx|uv)$/i.test(form.command.trim());
 
   function setField<K extends keyof ServerFormState>(key: K, value: ServerFormState[K]) {
     setForm(f => ({ ...f, [key]: value }));
@@ -564,6 +568,13 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
                 value={form.command}
                 onChange={e => setField("command", e.target.value)}
               />
+              {showWindowsNodeHint && (
+                <span className="kc-field__hint kc-field__hint--warn">
+                  Windows 提示：<code>{form.command.trim()}</code> 是 .cmd 脚本，
+                  无法直接启动。请改为 <code>cmd.exe</code>，
+                  并将 <code>/c {form.command.trim()}</code> 填入参数栏。
+                </span>
+              )}
             </div>
             <div className="kc-field">
               <label className="kc-field__label" htmlFor="mcp-args">参数</label>

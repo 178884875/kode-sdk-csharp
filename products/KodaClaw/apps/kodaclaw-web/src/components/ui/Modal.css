@@ -123,6 +123,23 @@
   margin-top: calc(var(--space-1) / 2);
 }
 
+.kc-field__hint--warn {
+  color: var(--warn-text, #92400E);
+  background: var(--warn-soft, #FEF3C7);
+  border: 1px solid var(--warn-border, #FDE68A);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.5;
+}
+
+.kc-field__hint--warn code {
+  font-family: ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  font-size: 0.9em;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
 .kc-field__error {
   font-size: var(--font-size-xs);
   color: var(--error, #DC2626);

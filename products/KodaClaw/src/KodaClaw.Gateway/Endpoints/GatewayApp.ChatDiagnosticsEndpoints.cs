@@ -4,6 +4,7 @@ using KodaClaw.Gateway;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Hosting;
 
 public static partial class GatewayApp
 {
@@ -17,6 +18,7 @@ public static partial class GatewayApp
             [FromServices] IChatSessionService chatSessionService,
             IConfiguration configuration,
             IDiagnosticsService diagnosticsService,
+            IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
             if (!TryAuthorize(context, configuration))
@@ -70,6 +72,10 @@ public static partial class GatewayApp
             context.Response.Headers["X-Accel-Buffering"] = "no";
             context.Response.Headers["Connection"] = "keep-alive";
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, appLifetime.ApplicationStopping);
+            var token = cts.Token;
+
             string? terminalSessionId = request.SessionId;
             string terminalEventType = "gateway.chat.completed";
             string terminalLevel = "info";
@@ -78,7 +84,7 @@ public static partial class GatewayApp
 
             try
             {
-                await foreach (var chatEvent in chatSessionService.StreamMainSessionAsync(request, cancellationToken))
+                await foreach (var chatEvent in chatSessionService.StreamMainSessionAsync(request, token))
                 {
                     terminalSessionId = chatEvent.SessionId ?? terminalSessionId;
                     switch (chatEvent.Type)
@@ -112,11 +118,11 @@ public static partial class GatewayApp
                         ? $"id: {eventId}\nevent: {eventName}\ndata: {serialized}\n\n"
                         : $"event: {eventName}\ndata: {serialized}\n\n";
 
-                    await context.Response.WriteAsync(payload, cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
+                    await context.Response.WriteAsync(payload, token);
+                    await context.Response.Body.FlushAsync(token);
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 throw;
             }
@@ -261,6 +267,7 @@ public static partial class GatewayApp
             HttpContext context,
             IConfiguration configuration,
             IDiagnosticsService diagnosticsService,
+            IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
             if (!TryAuthorize(context, configuration))
@@ -275,19 +282,23 @@ public static partial class GatewayApp
             context.Response.Headers["X-Accel-Buffering"] = "no";
             context.Response.Headers["Connection"] = "keep-alive";
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, appLifetime.ApplicationStopping);
+            var token = cts.Token;
+
             try
             {
-                await foreach (var evt in diagnosticsService.SubscribeAsync(cancellationToken))
+                await foreach (var evt in diagnosticsService.SubscribeAsync(token))
                 {
                     var serialized = System.Text.Json.JsonSerializer.Serialize(evt, GatewayJson.Options);
                     var diagId = evt.Timestamp.ToUnixTimeMilliseconds().ToString();
-                    await context.Response.WriteAsync($"id: {diagId}\ndata: {serialized}\n\n", cancellationToken);
-                    await context.Response.Body.FlushAsync(cancellationToken);
+                    await context.Response.WriteAsync($"id: {diagId}\ndata: {serialized}\n\n", token);
+                    await context.Response.Body.FlushAsync(token);
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // 客户端断开，正常退出
+                // 客户端断开或应用关闭，正常退出
             }
         });
 

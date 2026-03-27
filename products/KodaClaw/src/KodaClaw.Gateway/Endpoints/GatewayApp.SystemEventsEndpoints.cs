@@ -3,6 +3,7 @@ using KodaClaw.Contracts;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 
 public static partial class GatewayApp
 {
@@ -13,6 +14,7 @@ public static partial class GatewayApp
             IConfiguration configuration,
             IDiagnosticsService diagnosticsService,
             IInboxRepository inboxRepository,
+            IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
             if (!TryAuthorize(context, configuration))
@@ -27,25 +29,29 @@ public static partial class GatewayApp
             context.Response.Headers["X-Accel-Buffering"] = "no";
             context.Response.Headers["Connection"] = "keep-alive";
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken, appLifetime.ApplicationStopping);
+            var token = cts.Token;
+
             // Push initial snapshot immediately on connect
-            await PushSystemStatsAsync(context, diagnosticsService, inboxRepository, cancellationToken);
+            await PushSystemStatsAsync(context, diagnosticsService, inboxRepository, token);
 
             long lastPushedMs = 0;
             const long ThrottleMs = 1_000; // at most one push per second
 
             try
             {
-                await foreach (var _ in diagnosticsService.SubscribeAsync(cancellationToken))
+                await foreach (var _ in diagnosticsService.SubscribeAsync(token))
                 {
                     var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     if (nowMs - lastPushedMs < ThrottleMs) continue;
                     lastPushedMs = nowMs;
-                    await PushSystemStatsAsync(context, diagnosticsService, inboxRepository, cancellationToken);
+                    await PushSystemStatsAsync(context, diagnosticsService, inboxRepository, token);
                 }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // client disconnected
+                // client disconnected or application shutting down
             }
         });
     }
