@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("KC-0108 smoke: desk shell is visible and chat input is interactive", async ({ page }) => {
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
-  await expect(page).toHaveTitle("KodaClaw 现场中枢");
+  await expect(page).toHaveTitle("KodaClaw");
   await expect(page.getByTestId("kc-shell")).toBeVisible();
 
   const input = page.getByTestId("chat-input");

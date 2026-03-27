@@ -984,114 +984,291 @@ article.message:hover .message__time {
   opacity: 0.7;
 }
 
-/* ── Tool Band: flat chip row for consecutive tool calls ── */
-.tool-band {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 2px 0;
-}
-
-.tool-chip {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 5px 9px 5px 8px;
-  border-radius: var(--radius-md);
+/* ── Activity Strip: collapsible execution log ── */
+.activity-strip {
+  margin: var(--space-1) 0;
   border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
-  min-width: 0;
-  max-width: 320px;
+  overflow: hidden;
+  width: fit-content;
+  min-width: 280px;
+  max-width: min(680px, 100%);
 }
 
-.tool-chip__header {
+.activity-strip__header {
   display: flex;
   align-items: center;
-  gap: 5px;
-  font-size: var(--font-size-xs);
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
   color: var(--text-tertiary);
-  line-height: 1.3;
+  font-size: var(--font-size-xs);
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
-.tool-chip__name {
-  font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: var(--font-size-xs);
-  letter-spacing: -0.01em;
+.activity-strip__header:hover {
+  background: var(--bg-hover);
   color: var(--text-secondary);
 }
 
-.tool-chip__seq {
-  font-size: 9px;
-  opacity: 0.6;
-  vertical-align: sub;
+.activity-strip__gear {
+  flex-shrink: 0;
+  opacity: 0.45;
 }
 
-.tool-chip__dur {
-  color: var(--text-tertiary);
-  opacity: 0.65;
-  font-size: 10px;
+.activity-strip__count {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
-.tool-chip__status-label {
-  font-size: 10px;
-  opacity: 0.75;
-}
-
-.tool-chip__warn-icon {
-  font-size: 10px;
-  line-height: 1;
-}
-
-.tool-chip__cmd {
+.activity-strip__tools {
   font-family: ui-monospace, "Cascadia Code", monospace;
   font-size: 10px;
   color: var(--text-tertiary);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 280px;
-  line-height: 1.4;
-  opacity: 0.85;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-/* status variants */
-.tool-chip--approved {
-  border-color: rgba(22, 163, 74, 0.20);
-  background: rgba(22, 163, 74, 0.04);
-}
-.tool-chip--approved .tool-chip__header {
-  color: #16a34a;
-}
-.tool-chip--approved .tool-chip__name {
-  color: #15803d;
+.activity-strip__chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  opacity: 0.4;
+  transition: transform var(--duration-base);
 }
 
-.tool-chip--rejected {
-  border-color: rgba(220, 38, 38, 0.15);
-  background: rgba(220, 38, 38, 0.03);
+.activity-strip--expanded .activity-strip__chevron {
+  transform: rotate(180deg);
 }
-.tool-chip--rejected .tool-chip__header {
-  color: #dc2626;
+
+/* rows container */
+.activity-strip__rows {
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* single tool row */
+.activity-row {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.activity-row:last-child {
+  border-bottom: none;
+}
+
+.activity-row--expandable {
+  cursor: pointer;
+}
+
+.activity-row--expandable:hover {
+  background: var(--bg-hover);
+}
+
+.activity-row__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px var(--space-3);
+  min-width: 0;
+}
+
+/* expanded body: grid-trick for smooth height animation */
+.activity-row__body-outer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+
+.activity-row--expanded .activity-row__body-outer {
+  grid-template-rows: 1fr;
+}
+
+.activity-row__body {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 calc(var(--space-3) + 6px + var(--space-2));
+  border-top: 1px dashed var(--border-subtle);
+  /* padding-top/bottom animate with the grid expansion */
+  transition: padding var(--duration-base) ease;
+}
+
+.activity-row--expanded .activity-row__body {
+  padding-top: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.activity-row__full-param {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+  white-space: pre-wrap;
+  flex: 1;
+  line-height: 1.55;
+}
+
+.activity-row__copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-primary);
+  font-size: 10px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast), border-color var(--duration-fast);
+}
+
+.activity-row__copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.activity-row__copy-btn--copied {
+  color: var(--success);
+  border-color: rgba(22, 163, 74, 0.3);
+}
+
+/* chevron rotates when expanded */
+.activity-row__chevron {
+  opacity: 0.35;
+  transition: transform var(--duration-base);
+  flex-shrink: 0;
+}
+
+.activity-row--expanded .activity-row__chevron {
+  transform: rotate(180deg);
+}
+
+/* status dot */
+.activity-row__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.activity-row__dot--neutral { background: var(--text-tertiary); opacity: 0.45; }
+.activity-row__dot--success { background: var(--success); }
+.activity-row__dot--warning { background: var(--warning); }
+.activity-row__dot--error   { background: var(--error); }
+
+/* tool name */
+.activity-row__name {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  letter-spacing: -0.01em;
+}
+
+.activity-row__seq {
+  font-size: 9px;
+  opacity: 0.55;
+  vertical-align: sub;
+}
+
+/* tool name category colors — light mode */
+.activity-row__name--bash      { color: #b45309; } /* amber-700: terminal感 */
+.activity-row__name--fs-read   { color: #1d4ed8; } /* blue-700: 读取 */
+.activity-row__name--fs-write  { color: #0f766e; } /* teal-700: 写入/编辑 */
+.activity-row__name--fs-delete { color: #b91c1c; } /* red-700: 删除 */
+.activity-row__name--todo      { color: #6d28d9; } /* violet-700: 任务 */
+.activity-row__name--workspace { color: #047857; } /* emerald-700: workspace */
+.activity-row__name--mcp       { color: #4338ca; } /* indigo-700: MCP 工具 */
+
+/* dark mode overrides — lighter, same hue family */
+[data-theme="dark"] .activity-row__name--bash      { color: #fbbf24; } /* amber-400 */
+[data-theme="dark"] .activity-row__name--fs-read   { color: #93c5fd; } /* blue-300 */
+[data-theme="dark"] .activity-row__name--fs-write  { color: #5eead4; } /* teal-300 */
+[data-theme="dark"] .activity-row__name--fs-delete { color: #fca5a5; } /* red-300 */
+[data-theme="dark"] .activity-row__name--todo      { color: #c4b5fd; } /* violet-300 */
+[data-theme="dark"] .activity-row__name--workspace { color: #6ee7b7; } /* emerald-300 */
+[data-theme="dark"] .activity-row__name--mcp       { color: #a5b4fc; } /* indigo-300 */
+
+/* key param (command / path / etc.) */
+.activity-row__param {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+/* right-aligned metadata */
+.activity-row__right {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.activity-row__dur {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+.activity-row__warn {
+  font-size: 10px;
+  color: var(--warning);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-row__rejected {
+  font-size: 10px;
+  color: var(--error);
   opacity: 0.75;
 }
-.tool-chip--rejected .tool-chip__name {
-  color: #dc2626;
-  opacity: 0.75;
+
+/* row status variants */
+.activity-row--rejected { background: rgba(220, 38, 38, 0.025); }
+.activity-row--warning  { background: rgba(202, 138, 4, 0.03); }
+
+/* "show N more" button */
+.activity-strip__more {
+  display: block;
+  width: 100%;
+  padding: 5px var(--space-3);
+  background: none;
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  text-align: left;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
 }
 
-.tool-chip--warning {
-  border-color: rgba(202, 138, 4, 0.25);
-  background: rgba(202, 138, 4, 0.05);
-}
-.tool-chip--warning .tool-chip__header {
-  color: var(--warning);
-}
-.tool-chip--warning .tool-chip__name {
-  color: var(--warning);
-}
-.tool-chip--warning .tool-chip__cmd {
-  color: var(--warning);
-  opacity: 0.7;
+.activity-strip__more:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
 }
 
 /* ── Chat view: timeline stripped to content-only (no card wrapper) ── */

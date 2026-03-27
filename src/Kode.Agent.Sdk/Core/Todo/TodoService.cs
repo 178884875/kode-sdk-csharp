@@ -41,8 +41,8 @@ public record TodoSnapshot
 /// </summary>
 public record TodoInput
 {
-    public required string Id { get; init; }
-    public required string Title { get; init; }
+    public string Id { get; init; } = string.Empty;
+    public string Title { get; init; } = string.Empty;
     public TodoStatus Status { get; init; } = TodoStatus.Pending;
     public string? Assignee { get; init; }
     public string? Notes { get; init; }

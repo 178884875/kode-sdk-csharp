@@ -141,14 +141,25 @@ public sealed class ChatSessionService : IChatSessionService
                     break;
 
                 case ToolEndEvent toolEnd:
+                {
+                    var toolInputRaw = toolEnd.Call.InputPreview switch
+                    {
+                        string s => s,
+                        System.Text.Json.JsonElement j => j.GetRawText(),
+                        { } o => o.ToString(),
+                        _ => null,
+                    };
+                    var toolInputPreview = toolInputRaw is { Length: > 400 } ? toolInputRaw[..400] : toolInputRaw;
                     yield return new ChatStreamEvent(
                         Type: "tool_activity",
                         SessionId: sessionId,
                         Timestamp: envelope.Bookmark.Timestamp,
                         ToolName: toolEnd.Call.Name,
                         CallId: toolEnd.Call.Id,
-                        DurationMs: toolEnd.Call.DurationMs);
+                        DurationMs: toolEnd.Call.DurationMs,
+                        InputPreview: toolInputPreview);
                     break;
+                }
 
                 case PermissionRequiredEvent permRequired:
                 {

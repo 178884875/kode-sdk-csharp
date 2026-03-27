@@ -537,12 +537,19 @@ public sealed class JsonAgentStore : IAgentStore
         var walPath = path + ".wal";
         if (File.Exists(walPath))
         {
-            // WAL exists, recover from it
-            if (File.Exists(path))
+            try
             {
-                File.Delete(path);
+                // WAL exists, recover from it
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+                File.Move(walPath, path);
             }
-            File.Move(walPath, path);
+            catch (FileNotFoundException)
+            {
+                // WAL was already moved by a concurrent WriteWithWalAsync — main file is current, proceed.
+            }
         }
 
         if (!File.Exists(path))

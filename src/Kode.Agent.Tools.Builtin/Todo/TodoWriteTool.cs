@@ -39,6 +39,13 @@ public sealed class TodoWriteTool : ToolBase<TodoWriteArgs>
     {
         try
         {
+            // Validate: all todos must have non-empty id and title
+            var invalid = args.Todos.Where(t => string.IsNullOrWhiteSpace(t.Id) || string.IsNullOrWhiteSpace(t.Title)).ToList();
+            if (invalid.Count > 0)
+            {
+                return ToolResult.Fail($"Each todo must have a non-empty 'id' and 'title'. {invalid.Count} item(s) are missing required fields.");
+            }
+
             // Validate: only one in_progress allowed
             var inProgressCount = args.Todos.Count(t => t.Status == TodoStatus.InProgress);
             if (inProgressCount > 1)

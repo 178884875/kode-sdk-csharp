@@ -228,9 +228,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             throw;
         }
 
+        var turnLevel = runResult.StopReason == StopReason.Error ? "warning" : "info";
         RecordDiagnosticEvent(
             eventType: "channel_session.turn_completed",
-            level: "info",
+            level: turnLevel,
             message: $"Channel turn completed: bindingId={binding.Id} stopReason={runResult.StopReason}",
             sessionId: binding.SessionId);
 

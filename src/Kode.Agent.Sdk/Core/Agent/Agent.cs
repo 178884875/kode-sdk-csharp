@@ -595,12 +595,36 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 TokenUsage = totalUsage
             };
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            // User-requested cancellation — silent stop, no error event.
             return new AgentRunResult
             {
                 Success = false,
                 StopReason = StopReason.Cancelled
+            };
+        }
+        catch (OperationCanceledException oce)
+        {
+            // Internal cancellation not triggered by the caller — most likely an HttpClient
+            // request timeout (default was 100 s before we set InfiniteTimeSpan).  Treat as
+            // an error so the user gets feedback instead of a silent hang.
+            var message = oce is TaskCanceledException
+                ? "Model request timed out. The context may be too large or the endpoint is slow."
+                : oce.Message;
+            _logger?.LogWarning(oce, "Agent run interrupted by internal cancellation (possible model timeout)");
+            _eventBus.EmitMonitor(new ErrorEvent
+            {
+                Type = "error",
+                Severity = "error",
+                Phase = "model",
+                Message = message,
+                Detail = new { hint = "model_timeout", originalMessage = oce.Message }
+            });
+            return new AgentRunResult
+            {
+                Success = false,
+                StopReason = StopReason.Error
             };
         }
         catch (Exception ex)

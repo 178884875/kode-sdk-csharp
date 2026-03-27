@@ -381,7 +381,7 @@ describe("App shell", () => {
     });
 
     expect(document.documentElement.lang).toBe("zh-CN");
-    expect(document.title).toBe("KodaClaw 现场中枢");
+    expect(document.title).toBe("KodaClaw");
 
     const user = userEvent.setup();
     // LocaleToggle has moved to Settings Desk — navigate there first

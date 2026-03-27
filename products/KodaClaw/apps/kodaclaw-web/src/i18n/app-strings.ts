@@ -4,8 +4,8 @@ import type { DeskMeta } from '../shell-shared/types';
 export function useAppStrings() {
   return useLocaleText({
     zh: {
-      documentTitle: 'KodaClaw 现场中枢',
-      documentDescription: 'KodaClaw 现场中枢：面向本地优先代理的引导、对话与控制台工作台。',
+      documentTitle: 'KodaClaw',
+      documentDescription: 'KodaClaw：本地优先的个人 Agent OS，支持多会话、工作区记忆与外部渠道接入。',
       notCreatedYet: '尚未创建',
       gatewayFallback: '代理 / 同源',
       healthLabels: {
@@ -29,7 +29,7 @@ export function useAppStrings() {
         { id: 'settings',    label: '设置',        eyebrow: '工作区配置', summary: '编辑身份文件、绑定渠道账号、调整偏好与系统操作。' },
       ] as DeskMeta[],
       chat: {
-        initialSystemNote: '现场中枢已就绪。',
+        initialSystemNote: 'KodaClaw 已就绪。',
         placeholderMain: '描述你希望 Koda 处理的任务…',
         emptyCompletion: '[空响应]',
         unknownStreamError: '未知流式错误。',

@@ -48,6 +48,13 @@ public sealed class FsMultiEditTool : ToolBase<FsMultiEditArgs>
 
         foreach (var edit in args.Edits)
         {
+            if (string.IsNullOrWhiteSpace(edit.Path) || string.IsNullOrWhiteSpace(edit.Find))
+            {
+                results.Add(new EditResultInfo { Path = edit.Path, Replacements = 0, Status = "error", Message = "Each edit must have non-empty 'path' and 'find' fields." });
+                errorCount++;
+                continue;
+            }
+
             try
             {
                 var content = await context.Sandbox.ReadFileAsync(edit.Path, cancellationToken);
@@ -197,19 +204,19 @@ public class EditOperation
     /// File path to edit.
     /// </summary>
     [ToolParameter(Description = "File path to edit")]
-    public required string Path { get; init; }
+    public string Path { get; init; } = string.Empty;
 
     /// <summary>
     /// Text to find and replace.
     /// </summary>
     [ToolParameter(Description = "Existing text to replace")]
-    public required string Find { get; init; }
+    public string Find { get; init; } = string.Empty;
 
     /// <summary>
     /// Replacement text.
     /// </summary>
     [ToolParameter(Description = "Replacement text")]
-    public required string Replace { get; init; }
+    public string Replace { get; init; } = string.Empty;
 
     /// <summary>
     /// Whether to replace all occurrences.

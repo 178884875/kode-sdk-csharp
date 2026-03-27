@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { CheckCircle, MessageSquare, X, XCircle, type LucideProps } from "lucide-react";
-import type { ForwardRefExoticComponent, RefAttributes } from "react";
+import { Check, CheckCircle, ChevronDown, Cog, Copy, MessageSquare, X, XCircle } from "lucide-react";
 import type { ChatMessage, ChatRole } from "../types/chat";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { EmptyState } from "./ui/EmptyState";
@@ -60,82 +59,192 @@ function groupMessages(messages: ChatMessage[]): RenderItem[] {
   return result;
 }
 
-function extractBashCommand(inputPreview?: string | null): string | null {
+// ── extractKeyParam: extract the most informative parameter for a given tool ──
+
+type ToolCategory = "bash" | "fs-read" | "fs-write" | "fs-delete" | "todo" | "workspace" | "mcp" | "default";
+
+function getToolCategory(toolName: string): ToolCategory {
+  if (toolName === "bash_run") return "bash";
+  if (toolName === "fs_read") return "fs-read";
+  if (["fs_write", "fs_edit", "fs_multi_edit"].includes(toolName)) return "fs-write";
+  if (["fs_delete", "fs_rm"].includes(toolName)) return "fs-delete";
+  if (toolName === "todo_write") return "todo";
+  if (toolName.startsWith("workspace_")) return "workspace";
+  if (toolName.startsWith("mcp__")) return "mcp";
+  return "default";
+}
+
+function extractKeyParam(toolName: string, inputPreview?: string | null): string | null {
   if (!inputPreview) return null;
   try {
     const parsed = JSON.parse(inputPreview);
-    if (typeof parsed.command === "string") return parsed.command;
+    if (toolName === "bash_run") {
+      return typeof parsed.command === "string" ? parsed.command : null;
+    }
+    if (["fs_read", "fs_write", "fs_edit", "fs_delete", "fs_rm", "fs_multi_edit"].includes(toolName)) {
+      return typeof parsed.path === "string" ? parsed.path
+           : typeof parsed.file_path === "string" ? parsed.file_path
+           : null;
+    }
+    if (toolName === "todo_write" && Array.isArray(parsed.todos) && parsed.todos.length > 0) {
+      const first = parsed.todos[0];
+      return typeof first?.content === "string" ? first.content.slice(0, 80) : null;
+    }
+    if (toolName === "workspace_protocol_update") {
+      return typeof parsed.target === "string" ? `→ ${parsed.target}` : null;
+    }
+    if (toolName === "workspace_memory_append") {
+      return typeof parsed.content === "string" ? parsed.content.slice(0, 80) : null;
+    }
   } catch { /* not JSON */ }
-  return inputPreview.length < 300 ? inputPreview : null;
+  return inputPreview.length < 100 ? inputPreview : null;
 }
 
-function ToolBand({ items }: { items: ToolGroupItem[] }) {
-  // Compute total occurrences per tool name to decide whether to show sequence numbers
-  const totalCounts = items.reduce<Record<string, number>>((acc, item) => {
-    const name = item.msg.toolName ?? "tool";
-    acc[name] = (acc[name] ?? 0) + 1;
-    return acc;
-  }, {});
+// ── ActivityRow: single tool execution row ────────────────────────────────────
+
+type ActivityRowProps = { item: ToolGroupItem; totalCounts: Record<string, number> };
+
+function ActivityRow({ item, totalCounts }: ActivityRowProps) {
+  const toolName = item.msg.toolName ?? "tool";
+  const showSeq = totalCounts[toolName] > 1;
+  const category = getToolCategory(toolName);
+  const param = extractKeyParam(toolName, item.msg.inputPreview);
+  const hasWarning = !!item.warning;
+  const durationMs = item.msg.durationMs;
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const canExpand = !!param;
+
+  function handleCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!param) return;
+    navigator.clipboard.writeText(param).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  let rowClass = "activity-row";
+  let dotClass = "activity-row__dot--neutral";
+
+  if (item.msg.role === "approval") {
+    if (item.msg.decision === "approved") {
+      dotClass = hasWarning ? "activity-row__dot--warning" : "activity-row__dot--success";
+      if (hasWarning) rowClass += " activity-row--warning";
+    } else {
+      dotClass = "activity-row__dot--error";
+      rowClass += " activity-row--rejected";
+    }
+  } else if (hasWarning) {
+    dotClass = "activity-row__dot--warning";
+    rowClass += " activity-row--warning";
+  }
+  if (canExpand) rowClass += " activity-row--expandable";
+  if (expanded) rowClass += " activity-row--expanded";
 
   return (
-    <div className="tool-band">
-      {items.map((item, idx) => {
-        const toolName = item.msg.toolName ?? "tool";
-        const showSeq = totalCounts[toolName] > 1;
-        const isBashRun = toolName === "bash_run";
-        const command = isBashRun ? extractBashCommand(item.msg.inputPreview) : null;
-        const hasWarning = !!item.warning;
+    <div className={rowClass} onClick={canExpand ? () => setExpanded(e => !e) : undefined}>
+      <div className="activity-row__header">
+        <span className={`activity-row__dot ${dotClass}`} aria-hidden="true" />
+        <code className={`activity-row__name activity-row__name--${category}`}>
+          {toolName}
+          {showSeq && <sub className="activity-row__seq">{item.seq}</sub>}
+        </code>
+        {param && <span className="activity-row__param" title={param}>{param}</span>}
+        <span className="activity-row__right">
+          {hasWarning && <span className="activity-row__warn">△ {item.warning}</span>}
+          {!hasWarning && item.msg.decision === "rejected" && (
+            <span className="activity-row__rejected">已拒绝</span>
+          )}
+          {!hasWarning && item.msg.decision !== "rejected" && durationMs != null && (
+            <span className="activity-row__dur">{durationMs}ms</span>
+          )}
+          {canExpand && (
+            <ChevronDown size={10} strokeWidth={2} className="activity-row__chevron" aria-hidden="true" />
+          )}
+        </span>
+      </div>
 
-        type LucideIcon = ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>;
-        let statusClass = "tool-chip--activity";
-        let StatusIcon: LucideIcon | null = null;
-        let statusLabel: string | null = null;
-
-        if (item.msg.role === "approval") {
-          if (item.msg.decision === "approved") {
-            statusClass = hasWarning ? "tool-chip--warning" : "tool-chip--approved";
-            StatusIcon = hasWarning ? null : CheckCircle;
-          } else {
-            statusClass = "tool-chip--rejected";
-            StatusIcon = XCircle;
-            statusLabel = "已拒绝";
-          }
-        } else if (hasWarning) {
-          statusClass = "tool-chip--warning";
-        }
-
-        if (hasWarning) {
-          statusLabel = item.warning ?? null;
-        }
-
-        const durationMs = item.msg.durationMs;
-
-        return (
-          <div key={item.msg.id ?? idx} className={`tool-chip ${statusClass}`}>
-            <div className="tool-chip__header">
-              {StatusIcon && (
-                <StatusIcon size={11} strokeWidth={2} aria-hidden="true" />
-              )}
-              {hasWarning && !StatusIcon && (
-                <span className="tool-chip__warn-icon" aria-hidden="true">△</span>
-              )}
-              <code className="tool-chip__name">
-                {toolName}
-                {showSeq && <sub className="tool-chip__seq">{item.seq}</sub>}
-              </code>
-              {statusLabel && (
-                <span className="tool-chip__status-label">{statusLabel}</span>
-              )}
-              {!statusLabel && durationMs != null && (
-                <span className="tool-chip__dur">· {durationMs}ms</span>
-              )}
-            </div>
-            {command && (
-              <div className="tool-chip__cmd" title={command}>{command}</div>
-            )}
+      {canExpand && param && (
+        <div className="activity-row__body-outer">
+          <div className="activity-row__body">
+            <code className="activity-row__full-param">{param}</code>
+            <button
+              className={`activity-row__copy-btn${copied ? " activity-row__copy-btn--copied" : ""}`}
+              onClick={handleCopy}
+              title="复制"
+            >
+              {copied
+                ? <><Check size={11} strokeWidth={2} /><span>已复制</span></>
+                : <><Copy size={11} strokeWidth={2} /><span>复制</span></>
+              }
+            </button>
           </div>
-        );
-      })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── ActivityStrip: collapsible execution log ──────────────────────────────────
+
+const ACTIVITY_PREVIEW_COUNT = 5;
+
+function ActivityStrip({ items }: { items: ToolGroupItem[] }) {
+  // History groups default to collapsed; live groups default to expanded
+  const isHistory = items[0]?.msg.isHistory === true;
+  const [expanded, setExpanded] = useState(!isHistory);
+  const [showAll, setShowAll] = useState(false);
+
+  const totalCounts = useMemo(
+    () => items.reduce<Record<string, number>>((acc, item) => {
+      const n = item.msg.toolName ?? "tool";
+      acc[n] = (acc[n] ?? 0) + 1;
+      return acc;
+    }, {}),
+    [items],
+  );
+
+  // Build summary: "bash_run×18  fs_edit×3"
+  const summaryLabel = useMemo(() =>
+    Object.entries(totalCounts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 4)
+      .map(([n, c]) => (c > 1 ? `${n}×${c}` : n))
+      .join("  "),
+    [totalCounts],
+  );
+
+  const displayItems = expanded
+    ? (showAll ? items : items.slice(0, ACTIVITY_PREVIEW_COUNT))
+    : [];
+  const hiddenCount = items.length - ACTIVITY_PREVIEW_COUNT;
+
+  return (
+    <div className={`activity-strip${expanded ? " activity-strip--expanded" : ""}`}>
+      <button
+        className="activity-strip__header"
+        onClick={() => setExpanded(e => !e)}
+        aria-expanded={expanded}
+      >
+        <Cog size={12} strokeWidth={1.75} className="activity-strip__gear" aria-hidden="true" />
+        <span className="activity-strip__count">{items.length} 步</span>
+        <span className="activity-strip__tools">{summaryLabel}</span>
+        <ChevronDown size={12} strokeWidth={2} className="activity-strip__chevron" aria-hidden="true" />
+      </button>
+
+      {expanded && (
+        <div className="activity-strip__rows">
+          {displayItems.map((item, idx) => (
+            <ActivityRow key={item.msg.id ?? idx} item={item} totalCounts={totalCounts} />
+          ))}
+          {!showAll && hiddenCount > 0 && (
+            <button className="activity-strip__more" onClick={() => setShowAll(true)}>
+              ··· 还有 {hiddenCount} 步 · 展开全部
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -414,7 +523,7 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
           ) : (
             groupMessages(messages).map((item, idx) => {
               if (item.kind === "tool_group") {
-                return <ToolBand key={`tg-${idx}`} items={item.items} />;
+                return <ActivityStrip key={`tg-${idx}`} items={item.items} />;
               }
 
               const message = item.msg;

@@ -44,9 +44,11 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton<IRuntimeConfigurationResolver>(
             new StaticRuntimeConfigurationResolver(snapshot));
-        services.AddHttpClient(nameof(OpenAIProvider));
+        services.AddHttpClient(nameof(OpenAIProvider))
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.AddHttpClient(nameof(AnthropicProvider))
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler());
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler())
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.TryAddSingleton<IRuntimeModelProviderFactory, DefaultRuntimeModelProviderFactory>();
         services.TryAddSingleton<DynamicModelProvider>();
         services.TryAddSingleton<IModelProvider, RegistryAwareModelProvider>();

@@ -25,8 +25,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
     private readonly IWorkspaceService _workspaceService;
     private readonly IMainSessionAgentDependenciesFactory _dependenciesFactory;
     private readonly MainSessionOptions _options;
-    private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, SessionControlSubscriptions> _sessionSubscriptions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SessionControlSubscriptions> _sessionSubscriptions = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, LiveApprovalContext> _liveApprovals = new(StringComparer.Ordinal);
     private readonly HashSet<string> _resumedSessionIds = new(StringComparer.Ordinal);
     private readonly IDiagnosticsService? _diagnosticsService;
@@ -124,17 +124,15 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         if (!string.IsNullOrWhiteSpace(previousSessionId))
         {
-            if (_sessionSubscriptions.TryGetValue(previousSessionId, out var subs))
+            if (_sessionSubscriptions.TryRemove(previousSessionId, out var subs))
             {
                 subs.Dispose();
-                _sessionSubscriptions.Remove(previousSessionId);
             }
 
-            if (_agents.TryGetValue(previousSessionId, out var agent))
+            if (_agents.TryRemove(previousSessionId, out var agent))
             {
                 var isResumed = _resumedSessionIds.Remove(previousSessionId);
                 await TryGenerateSessionSummaryAsync(previousSessionId, "main", cancellationToken, isResumed);
-                _agents.Remove(previousSessionId);
                 await agent.DisposeAsync();
             }
         }
@@ -161,15 +159,13 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         if (!string.IsNullOrWhiteSpace(previousSessionId))
         {
-            if (_sessionSubscriptions.TryGetValue(previousSessionId, out var subs))
+            if (_sessionSubscriptions.TryRemove(previousSessionId, out var subs))
             {
                 subs.Dispose();
-                _sessionSubscriptions.Remove(previousSessionId);
             }
 
-            if (_agents.TryGetValue(previousSessionId, out var agent))
+            if (_agents.TryRemove(previousSessionId, out var agent))
             {
-                _agents.Remove(previousSessionId);
                 await agent.DisposeAsync();
             }
         }
@@ -757,9 +753,9 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                 var settings = await _settingsRepository.GetAsync(cancellationToken);
                 if (settings.AutoApproveToolCalls)
                 {
-                    return _options.Permissions with { Mode = "auto" };
+                    return _options.Permissions with { Mode = "auto", RequireApprovalTools = [] };
                 }
-                return _options.Permissions with { Mode = "approval" };
+                return _options.Permissions;
             }
             catch
             {

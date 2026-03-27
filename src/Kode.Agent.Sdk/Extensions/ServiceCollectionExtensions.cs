@@ -54,7 +54,8 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpClient<IModelProvider, AnthropicProvider>((sp, client) =>
         {
-            // HttpClient is configured in the provider
+            // Disable default 100s timeout; streaming calls are bounded by CancellationToken instead.
+            client.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
         })
         .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler());
 
@@ -78,7 +79,8 @@ public static class ServiceCollectionExtensions
         var options = new OpenAIOptions { ApiKey = "" };
         configure(options);
 
-        services.AddHttpClient<IModelProvider, OpenAIProvider>();
+        services.AddHttpClient<IModelProvider, OpenAIProvider>()
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.AddSingleton(options);
         services.AddSingleton<IModelProvider>(sp =>
         {
