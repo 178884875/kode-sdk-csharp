@@ -9,7 +9,7 @@ using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.ModelHub;
-using KodaClaw.PluginHost.Registry;
+using KodaClaw.Storage.Json.Repositories;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,16 +56,13 @@ public sealed class BackupApiIntegrationTests
         File.Exists(Path.Combine(extractedArchive.Path, KodaClawWorkspaceLayout.SessionsDirectory, "main-001", "meta.json")).Should().BeTrue();
         File.Exists(Path.Combine(extractedArchive.Path, KodaClawWorkspaceLayout.SessionsDirectory, "main-001", "messages.json")).Should().BeFalse();
 
-        var extractedWorkspace = new TestWorkspaceService(GatewayAuthIntegrationTests.CreateSnapshot(
-            requiresBootstrap: false,
-            rootPath: extractedArchive.Path));
-        var extractedChannels = await new SqliteChannelAccountRepository(extractedWorkspace)
+        var extractedChannels = await new JsonChannelAccountRepository(extractedArchive.Path)
             .ListAsync(new ChannelAccountQuery(Limit: 10));
-        var extractedBindings = await new SqliteThreadBindingRepository(extractedWorkspace)
+        var extractedBindings = await new JsonThreadBindingRepository(extractedArchive.Path)
             .ListAsync(new ChannelQuery(Limit: 10));
-        var extractedPlugins = await new SqlitePluginRegistryRepository(extractedWorkspace)
+        var extractedPlugins = await new JsonPluginRegistryRepository(extractedArchive.Path)
             .ListAsync(new PluginQuery(Limit: 10));
-        var extractedAutomations = await new SqliteAutomationDefinitionRepository(extractedWorkspace)
+        var extractedAutomations = await new JsonAutomationDefinitionRepository(extractedArchive.Path)
             .ListAsync(new AutomationDefinitionQuery(Limit: 10));
 
         extractedChannels.Should().ContainSingle(account =>
@@ -109,7 +106,7 @@ public sealed class BackupApiIntegrationTests
         var importPayload = await importResponse.Content.ReadFromJsonAsync<BackupImportResponse>();
         importPayload.Should().NotBeNull();
         File.Exists(importPayload!.RepairReportPath).Should().BeTrue();
-        importPayload.RestoredPaths.Should().Contain("config/control-plane.db");
+        importPayload.RestoredPaths.Should().Contain("config/app.json");
         importPayload.SkippedPaths.Should().Contain("identity/device.json");
 
         var targetWorkspaceService = targetHosted.Services.GetRequiredService<IWorkspaceService>();

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -37,13 +38,8 @@ public sealed class SqliteApprovalRepositoryIntegrationTests
         {
             var repository = provider.GetRequiredService<IApprovalRepository>();
             var reloaded = await repository.GetByIdAsync(expected.Id);
-            var databasePath = Path.Combine(
-                workspace.Path,
-                KodaClawWorkspaceLayout.ConfigDirectory,
-                KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
 
             reloaded.Should().Be(expected);
-            File.Exists(databasePath).Should().BeTrue();
         }
     }
 
@@ -95,6 +91,7 @@ public sealed class SqliteApprovalRepositoryIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawControlPlane();
         return services.BuildServiceProvider();
     }

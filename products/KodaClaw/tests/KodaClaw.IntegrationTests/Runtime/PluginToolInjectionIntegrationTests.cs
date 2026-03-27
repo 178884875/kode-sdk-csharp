@@ -6,6 +6,7 @@ using KodaClaw.PluginHost;
 using KodaClaw.PluginHost.Hosting;
 using KodaClaw.PluginHost.Trust;
 using KodaClaw.Runtime;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -190,6 +191,7 @@ public sealed class PluginToolInjectionIntegrationTests
 
             var services = new ServiceCollection();
             services.AddKodaClawWorkspace(options => options.RootPath = rootPath);
+            services.AddKodaClawJsonStore(rootPath);
             services.AddKodaClawControlPlane();
             services.AddKodaClawPluginHost(options =>
             {

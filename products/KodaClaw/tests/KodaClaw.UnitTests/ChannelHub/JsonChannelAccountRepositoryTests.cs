@@ -1,18 +1,26 @@
 using FluentAssertions;
-using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
-using Microsoft.Data.Sqlite;
+using KodaClaw.Storage.Json.Repositories;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 
-public sealed class SqliteChannelAccountRepositoryTests
+public sealed class JsonChannelAccountRepositoryTests : IDisposable
 {
+    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir))
+            Directory.Delete(_tempDir, recursive: true);
+    }
+
+    private JsonChannelAccountRepository CreateRepository() => new(_tempDir);
+
     [Fact]
     public async Task Repository_should_round_trip_channel_account()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-account-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var account = BuildAccount(
             id: "telegram-main",
             connectorKind: ChannelConnectorKind.Telegram,
@@ -34,8 +42,7 @@ public sealed class SqliteChannelAccountRepositoryTests
     [Fact]
     public async Task List_should_apply_connector_and_state_filters()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-account-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var baseTime = new DateTimeOffset(2026, 3, 19, 9, 0, 0, TimeSpan.Zero);
 
         await repository.UpsertAsync(BuildAccount(
@@ -61,51 +68,23 @@ public sealed class SqliteChannelAccountRepositoryTests
             State: ChannelAccountState.Degraded,
             Limit: 10));
 
-        telegramAccounts.Select(static item => item.Id).Should().Equal("telegram-2", "telegram-1");
+        telegramAccounts.Select(static item => item.Id).Should().BeEquivalentTo(new[] { "telegram-1", "telegram-2" });
         degradedAccounts.Should().ContainSingle().Which.Id.Should().Be("telegram-2");
     }
 
     [Fact]
-    public async Task Repository_should_initialize_channel_accounts_table_in_control_plane_db()
+    public async Task Repository_should_persist_accounts_to_filesystem()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-account-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         await repository.UpsertAsync(BuildAccount(
             id: "telegram-init",
             connectorKind: ChannelConnectorKind.Telegram,
             state: ChannelAccountState.Disconnected,
             timestamp: new DateTimeOffset(2026, 3, 19, 10, 0, 0, TimeSpan.Zero)));
 
-        var databasePath = Path.Combine(
-            workspace.Path,
-            KodaClawWorkspaceLayout.ConfigDirectory,
-            KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
-        File.Exists(databasePath).Should().BeTrue();
-
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-        };
-
-        await using var connection = new SqliteConnection(builder.ToString());
-        await connection.OpenAsync();
-
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table' AND name = 'channel_accounts'
-            LIMIT 1;
-            """;
-
-        var tableName = await command.ExecuteScalarAsync();
-        tableName.Should().Be("channel_accounts");
-    }
-
-    private static SqliteChannelAccountRepository CreateRepository(string rootPath)
-    {
-        return new SqliteChannelAccountRepository(new TestWorkspaceService(rootPath));
+        var stored = await repository.GetByIdAsync("telegram-init");
+        stored.Should().NotBeNull();
+        stored!.Id.Should().Be("telegram-init");
     }
 
     private static ChannelAccount BuildAccount(

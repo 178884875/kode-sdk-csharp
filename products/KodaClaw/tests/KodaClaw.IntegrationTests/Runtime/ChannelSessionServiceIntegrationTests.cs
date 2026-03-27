@@ -393,7 +393,7 @@ public sealed class ChannelSessionServiceIntegrationTests
         string sessionId,
         ChannelThreadType threadType)
     {
-        var now = new DateTimeOffset(2026, 3, 19, 12, 0, 0, TimeSpan.Zero);
+        var now = DateTimeOffset.UtcNow;
         var sessionKind = threadType == ChannelThreadType.DirectMessage
             ? SessionKind.ChannelDirectMessage
             : SessionKind.ChannelGroup;

@@ -4,7 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
-using KodaClaw.Storage;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -200,7 +200,7 @@ public sealed class CanvasApiIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
-        services.AddKodaClawStorage();
+        services.AddKodaClawJsonStore(workspaceRoot);
         using var provider = services.BuildServiceProvider();
 
         var repository = provider.GetRequiredService<ICanvasArtifactRepository>();

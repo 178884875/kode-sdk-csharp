@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.ControlPlane\KodaClaw.ControlPlane.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.Gateway\KodaClaw.Gateway.csproj" />
+    <ProjectReference Include="..\..\src\KodaClaw.Storage.Json\KodaClaw.Storage.Json.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.ModelHub\KodaClaw.ModelHub.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\..\src\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />

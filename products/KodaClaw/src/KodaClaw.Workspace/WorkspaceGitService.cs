@@ -21,7 +21,7 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
     /// Bump this constant whenever GitIgnoreContent changes.
     /// EnsureGitRepoAsync uses it to detect stale .gitignore files on existing repos.
     /// </summary>
-    private const int GitIgnoreVersion = 2;
+    private const int GitIgnoreVersion = 3;
     private const string GitIgnoreVersionMarker = "# kodaclaw-gitignore-version:";
 
     private static readonly string GitIgnoreContent =
@@ -35,13 +35,15 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         media/
         state/
 
+        # Internal system state (approvals, inbox, audit logs, channel bindings, etc.)
+        .koda/
+
         # Sensitive identity files
         identity/device.json
         identity/profile.json
 
         # Runtime / sensitive config files
         config/gateway.json
-        config/control-plane.db
         config/onboarding.json
         config/startup-repair-report.json
         config/update-state.json

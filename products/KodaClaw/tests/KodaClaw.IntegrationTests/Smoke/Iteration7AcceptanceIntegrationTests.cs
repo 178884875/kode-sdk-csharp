@@ -12,6 +12,7 @@ using KodaClaw.ControlPlane;
 using KodaClaw.IntegrationTests.Gateway;
 using KodaClaw.ModelHub;
 using KodaClaw.PluginHost;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -247,7 +248,7 @@ public sealed class Iteration7AcceptanceIntegrationTests
             File.Exists(importPayload!.RepairReportPath).Should().BeTrue();
             importPayload.Checklist.Items.Should().Contain(item =>
                 item.Id.StartsWith("secret-ref-missing:", StringComparison.Ordinal));
-            importPayload.RestoredPaths.Should().Contain("config/control-plane.db");
+            importPayload.RestoredPaths.Should().Contain("config/app.json");
         }
         finally
         {
@@ -300,6 +301,7 @@ public sealed class Iteration7AcceptanceIntegrationTests
         var services = new ServiceCollection();
         services.AddKodaClawControlPlane();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawAutomation(options =>
         {
             options.Enabled = false;

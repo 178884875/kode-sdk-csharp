@@ -28,11 +28,6 @@ public static class ServiceCollectionExtensions
         }
 
         services.TryAddSingleton(schedulerOptions);
-        services.TryAddSingleton<SqliteAutomationDatabase>();
-        services.TryAddSingleton<IAutomationDefinitionRepository>(provider =>
-            new SqliteAutomationDefinitionRepository(provider.GetRequiredService<SqliteAutomationDatabase>()));
-        services.TryAddSingleton<IAutomationRunRepository>(provider =>
-            new SqliteAutomationRunRepository(provider.GetRequiredService<SqliteAutomationDatabase>()));
         services.TryAddSingleton<IAutomationClock, SystemAutomationClock>();
         services.TryAddSingleton<IAutomationScheduler>(provider =>
         {

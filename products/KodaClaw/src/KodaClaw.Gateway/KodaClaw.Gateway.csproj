@@ -13,6 +13,7 @@
     <ProjectReference Include="..\KodaClaw.PluginHost\KodaClaw.PluginHost.csproj" />
     <ProjectReference Include="..\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />
     <ProjectReference Include="..\KodaClaw.Storage\KodaClaw.Storage.csproj" />
+    <ProjectReference Include="..\KodaClaw.Storage.Json\KodaClaw.Storage.Json.csproj" />
     <ProjectReference Include="..\KodaClaw.Workspace\KodaClaw.Workspace.csproj" />
   </ItemGroup>
   <PropertyGroup>

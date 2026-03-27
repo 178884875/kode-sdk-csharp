@@ -1,8 +1,6 @@
 using KodaClaw.Contracts;
-using KodaClaw.PluginHost.Diagnostics;
 using KodaClaw.PluginHost.Hosting;
 using KodaClaw.PluginHost.Manifest;
-using KodaClaw.PluginHost.Registry;
 using KodaClaw.PluginHost.Trust;
 using Kode.Agent.Mcp;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,8 +32,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(options);
         services.TryAddSingleton<PluginManifestLoader>();
         services.TryAddSingleton<IPluginTrustEvaluator, PluginTrustEvaluator>();
-        services.TryAddSingleton<IPluginRegistryRepository, SqlitePluginRegistryRepository>();
-        services.TryAddSingleton<IPluginLogRepository, SqlitePluginLogRepository>();
         services.TryAddSingleton<IPluginLifecycleHost, PluginLifecycleHost>();
         return services;
     }

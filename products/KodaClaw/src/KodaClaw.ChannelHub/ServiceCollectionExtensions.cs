@@ -14,9 +14,6 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IChannelAccountRepository, SqliteChannelAccountRepository>();
-        services.TryAddSingleton<IThreadBindingRepository, SqliteThreadBindingRepository>();
-        services.TryAddSingleton<IChannelAuditRepository, SqliteChannelAuditRepository>();
         services.TryAddSingleton<ChannelAuditQueryService>();
         services.TryAddSingleton<ChannelPolicyEngine>();
         services.TryAddSingleton<ChannelEventIngestionService>();

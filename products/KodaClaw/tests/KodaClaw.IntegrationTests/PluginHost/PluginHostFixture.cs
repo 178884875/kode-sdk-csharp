@@ -4,6 +4,7 @@ using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.PluginHost;
 using KodaClaw.PluginHost.Hosting;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -55,6 +56,7 @@ internal sealed class PluginHostFixture : IAsyncDisposable
 
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = rootPath);
+        services.AddKodaClawJsonStore(rootPath);
         services.AddKodaClawControlPlane();
         services.AddKodaClawPluginHost(options =>
         {

@@ -23,9 +23,6 @@ public static class ServiceCollectionExtensions
             services.TryAddSingleton<IDiagnosticsService, InMemoryDiagnosticsService>();
         }
 
-        services.TryAddSingleton<IInboxRepository, SqliteInboxRepository>();
-        services.TryAddSingleton<IApprovalRepository, SqliteApprovalRepository>();
-        services.TryAddSingleton<ISettingsRepository, SqliteSettingsRepository>();
         return services;
     }
 }

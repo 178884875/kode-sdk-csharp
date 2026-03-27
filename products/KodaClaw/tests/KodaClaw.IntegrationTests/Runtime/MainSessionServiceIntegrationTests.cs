@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json.Repositories;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -678,8 +679,8 @@ public sealed class MainSessionServiceIntegrationTests
             });
             Diagnostics = new TestDiagnosticsService();
             CorrelationAccessor = new TestCorrelationContextAccessor();
-            Approvals = new SqliteApprovalRepository(Workspace);
-            Inbox = new SqliteInboxRepository(Workspace);
+            Approvals = new JsonApprovalRepository(RootPath);
+            Inbox = new JsonInboxRepository(RootPath);
         }
 
         public string RootPath { get; }
@@ -690,9 +691,9 @@ public sealed class MainSessionServiceIntegrationTests
 
         public TestCorrelationContextAccessor CorrelationAccessor { get; }
 
-        public SqliteApprovalRepository Approvals { get; }
+        public JsonApprovalRepository Approvals { get; }
 
-        public SqliteInboxRepository Inbox { get; }
+        public JsonInboxRepository Inbox { get; }
 
         public MainSessionService CreateService(IModelProvider modelProvider)
         {

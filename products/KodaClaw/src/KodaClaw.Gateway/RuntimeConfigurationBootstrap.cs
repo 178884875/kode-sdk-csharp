@@ -1,7 +1,8 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 
 namespace KodaClaw.Gateway;
@@ -109,57 +110,43 @@ internal static class RuntimeConfigurationBootstrap
                 ?? configuration["Workspace:RootPath"],
         };
 
-        var databasePath = Path.Combine(
+        var modelsDir = Path.Combine(
             workspaceOptions.ResolveRootPath(),
             KodaClawWorkspaceLayout.ConfigDirectory,
-            KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
-        if (!File.Exists(databasePath))
+            "models");
+
+        if (!Directory.Exists(modelsDir))
         {
             return null;
         }
 
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-        };
+        var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        jsonOptions.Converters.Add(new JsonStringEnumConverter());
 
-        using var connection = new SqliteConnection(builder.ToString());
-        connection.Open();
-
-        var columns = LoadColumns(connection);
-        if (columns.Count == 0 || !columns.Contains("is_default"))
+        foreach (var file in Directory.EnumerateFiles(modelsDir, "*.json"))
         {
-            return null;
+            try
+            {
+                var json = File.ReadAllText(file);
+                var endpoint = JsonSerializer.Deserialize<ModelEndpoint>(json, jsonOptions);
+                if (endpoint is { IsDefault: true })
+                {
+                    return new StoredModelEndpoint(
+                        Provider: endpoint.Provider,
+                        ModelId: endpoint.ModelId,
+                        BaseUrl: endpoint.BaseUrl,
+                        ApiKeyEnvironmentVariable: endpoint.ApiKeyEnvironmentVariable,
+                        ApiKeySecretRef: endpoint.ApiKeySecretRef,
+                        Enabled: endpoint.Enabled);
+                }
+            }
+            catch
+            {
+                // 忽略单文件解析失败，继续扫描其他文件
+            }
         }
 
-        using var command = connection.CreateCommand();
-        command.CommandText =
-            $"""
-            SELECT
-                provider,
-                model_id,
-                base_url,
-                api_key_env,
-                {GetSecretRefProjection(columns)},
-                enabled
-            FROM model_endpoints
-            WHERE is_default = 1
-            LIMIT 1;
-            """;
-
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
-        {
-            return null;
-        }
-
-        return new StoredModelEndpoint(
-            Provider: Enum.Parse<ModelProviderKind>(reader.GetString(0), ignoreCase: true),
-            ModelId: reader.GetString(1),
-            BaseUrl: reader.IsDBNull(2) ? null : reader.GetString(2),
-            ApiKeyEnvironmentVariable: reader.IsDBNull(3) ? null : reader.GetString(3),
-            ApiKeySecretRef: reader.IsDBNull(4) ? null : reader.GetString(4),
-            Enabled: reader.GetInt64(5) != 0);
+        return null;
     }
 
     private static string ResolveModelEndpointApiKey(
@@ -180,28 +167,6 @@ internal static class RuntimeConfigurationBootstrap
         return string.IsNullOrWhiteSpace(environmentVariable)
             ? string.Empty
             : Normalize(Environment.GetEnvironmentVariable(environmentVariable) ?? configuration[environmentVariable]) ?? string.Empty;
-    }
-
-    private static HashSet<string> LoadColumns(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "PRAGMA table_info(model_endpoints);";
-
-        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
-        {
-            columns.Add(reader.GetString(1));
-        }
-
-        return columns;
-    }
-
-    private static string GetSecretRefProjection(HashSet<string> columns)
-    {
-        return columns.Contains("api_key_secret_ref")
-            ? "api_key_secret_ref"
-            : "NULL";
     }
 
     private static string? Normalize(string? value)

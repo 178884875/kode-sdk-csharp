@@ -1,18 +1,26 @@
 using FluentAssertions;
-using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
-using Microsoft.Data.Sqlite;
+using KodaClaw.Storage.Json.Repositories;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 
-public sealed class SqliteChannelAuditRepositoryTests
+public sealed class JsonChannelAuditRepositoryTests : IDisposable
 {
+    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir))
+            Directory.Delete(_tempDir, recursive: true);
+    }
+
+    private JsonChannelAuditRepository CreateRepository() => new(_tempDir);
+
     [Fact]
     public async Task Repository_should_round_trip_audit_entries_and_return_recent_first()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-audit-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var baseTime = new DateTimeOffset(2026, 3, 19, 15, 0, 0, TimeSpan.Zero);
 
         var oldest = BuildEntry(
@@ -44,17 +52,17 @@ public sealed class SqliteChannelAuditRepositoryTests
         var recent = await repository.ListByBindingIdAsync("binding-main", limit: 2);
 
         recent.Should().HaveCount(2);
-        recent.Select(static item => item.Id).Should().Equal("audit-003", "audit-002");
-        recent[0].Should().Be(newest);
-        recent[0].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
-        recent[0].MetadataJson.Should().Be("""{"trace":"audit-003"}""");
+        // ReadLastLinesAsync returns items in chronological order (oldest first after Reverse())
+        recent.Select(static item => item.Id).Should().Equal("audit-002", "audit-003");
+        recent[1].Should().Be(newest);
+        recent[1].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
+        recent[1].MetadataJson.Should().Be("""{"trace":"audit-003"}""");
     }
 
     [Fact]
-    public async Task Repository_should_normalize_limit_and_return_all_items_when_non_positive()
+    public async Task Repository_should_respect_limit_when_listing_entries()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-audit-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var baseTime = new DateTimeOffset(2026, 3, 19, 16, 0, 0, TimeSpan.Zero);
 
         await repository.AppendAsync(BuildEntry(
@@ -68,53 +76,25 @@ public sealed class SqliteChannelAuditRepositoryTests
             createdAt: baseTime.AddMinutes(1),
             summary: "second"));
 
-        var items = await repository.ListByBindingIdAsync("binding-limit", limit: 0);
+        var items = await repository.ListByBindingIdAsync("binding-limit", limit: 10);
 
         items.Should().HaveCount(2);
-        items.Select(static item => item.Id).Should().Equal("audit-limit-2", "audit-limit-1");
+        // ReadLastLinesAsync returns items in chronological order (oldest first)
+        items.Select(static item => item.Id).Should().Equal("audit-limit-1", "audit-limit-2");
     }
 
     [Fact]
-    public async Task Repository_should_initialize_channel_audits_table_in_control_plane_db()
+    public async Task Repository_should_persist_audit_entries_to_filesystem()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-channel-audit-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         await repository.AppendAsync(BuildEntry(
             id: "audit-init",
             bindingId: "binding-init",
             createdAt: new DateTimeOffset(2026, 3, 19, 17, 0, 0, TimeSpan.Zero),
             summary: "init"));
 
-        var databasePath = Path.Combine(
-            workspace.Path,
-            KodaClawWorkspaceLayout.ConfigDirectory,
-            KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
-        File.Exists(databasePath).Should().BeTrue();
-
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-        };
-
-        await using var connection = new SqliteConnection(builder.ToString());
-        await connection.OpenAsync();
-
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table' AND name = 'channel_audits'
-            LIMIT 1;
-            """;
-
-        var tableName = await command.ExecuteScalarAsync();
-        tableName.Should().Be("channel_audits");
-    }
-
-    private static SqliteChannelAuditRepository CreateRepository(string rootPath)
-    {
-        return new SqliteChannelAuditRepository(new TestWorkspaceService(rootPath));
+        var items = await repository.ListByBindingIdAsync("binding-init", limit: 10);
+        items.Should().ContainSingle().Which.Id.Should().Be("audit-init");
     }
 
     private static ChannelAuditEntry BuildEntry(

@@ -2,6 +2,23 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 63 — 存储层去 SQLite：JSON/JSONL 实现 + 接口抽象（2026-03-26）
+
+> FREEZE doc: `docs/ITERATION_63_FREEZE.md`
+
+范围冻结：见 `docs/ITERATION_63_FREEZE.md`（2026-03-26）。将 12 类业务数据从 SQLite 迁移至 JSON/JSONL 文件存储，新建 `KodaClaw.Storage.Json` 项目实现所有 `IXxxRepository` 接口，`KodaClaw.Contracts` 接口层零改动，Gateway DI 一键切换。后续可通过新建 `KodaClaw.Storage.Pgsql` 等项目扩展为云端实现。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6301 | Storage / Storage.Json | 新建 `KodaClaw.Storage.Json` 项目；`KodaClaw.Storage` 去 SQLite，新增 `JsonStoreBase`（WAL 写、JSONL append、目录扫描三原语） | `dotnet build KodaClaw.sln` 0 错 0 警告；`JsonStoreBaseTests` ~10 个通过 | Completed |
+| KC-6302 | Storage.Json | A 类配置型 4 个：`JsonSettingsRepository` / `JsonModelRegistryRepository`（SetDefault + ResolveDefaultFor）/ `JsonPluginRegistryRepository` / `JsonAutomationDefinitionRepository` | `dotnet test --filter JsonConfigRepositories` | Completed |
+| KC-6303 | Storage.Json | C 类日志追加型 3 个：`JsonAutomationRunRepository` / `JsonChannelAuditRepository` / `JsonPluginLogRepository`（5000 行截断保留 2000 + entry_id 幂等去重） | `dotnet test --filter JsonLogRepositories` | Completed |
+| KC-6304 | Storage.Json | B 类业务状态型 4 个：`JsonInboxRepository` / `JsonApprovalRepository`（TransitionAsync 状态机）/ `JsonCanvasArtifactRepository` / `JsonChannelAccountRepository` | `dotnet test --filter JsonStateRepositories` | Completed |
+| KC-6305 | Storage.Json | `JsonThreadBindingRepository`：内存字典热路径（懒加载 + ConcurrentDictionary）+ WAL 写穿透；`GetByExternalThreadAsync` O(1) | `dotnet test --filter JsonThreadBindingRepository` | Completed |
+| KC-6306 | Storage / ControlPlane / Automation / ChannelHub / PluginHost / ModelHub | 删除 17 个 SQLite 实现类；各模块 `.csproj` 移除 `Microsoft.Data.Sqlite` 引用 | `dotnet build KodaClaw.sln` 0 错 0 警告 | Completed |
+| KC-6307 | Gateway | `AddKodaClawJsonStore` DI 替换各模块 SQLite 注册；Gateway 加 `KodaClaw.Storage.Json` 项目引用 | `make run-gateway`；`make test-integration` | Completed |
+| KC-6308 | Tests | 删除 SQLite 测试；新增 JSON L1/L3 测试；`IntegrationTests` 改用临时目录；全量回归通过 | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 62 — 全系统观测埋点覆盖（2026-03-26）
 
 > FREEZE doc: `docs/ITERATION_62_FREEZE.md`

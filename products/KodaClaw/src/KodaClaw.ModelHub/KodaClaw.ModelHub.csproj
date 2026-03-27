@@ -7,7 +7,4 @@
     <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
     <ProjectReference Include="..\KodaClaw.Workspace\KodaClaw.Workspace.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" />
-  </ItemGroup>
 </Project>

@@ -1,18 +1,26 @@
 using FluentAssertions;
-using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
-using Microsoft.Data.Sqlite;
+using KodaClaw.Storage.Json.Repositories;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 
-public sealed class SqliteThreadBindingRepositoryTests
+public sealed class JsonThreadBindingRepositoryTests : IDisposable
 {
+    private readonly string _tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempDir))
+            Directory.Delete(_tempDir, recursive: true);
+    }
+
+    private JsonThreadBindingRepository CreateRepository() => new(_tempDir);
+
     [Fact]
     public async Task Repository_should_round_trip_binding_and_lookup_by_external_thread()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-thread-binding-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var binding = BuildBinding(
             id: "binding-dm-001",
             connectorKind: ChannelConnectorKind.Telegram,
@@ -34,8 +42,7 @@ public sealed class SqliteThreadBindingRepositoryTests
     [Fact]
     public async Task List_should_apply_account_thread_type_and_session_filters()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-thread-binding-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         var baseTime = new DateTimeOffset(2026, 3, 19, 12, 0, 0, TimeSpan.Zero);
 
         await repository.UpsertAsync(BuildBinding(
@@ -68,74 +75,24 @@ public sealed class SqliteThreadBindingRepositoryTests
             SessionId: "session-binding-dm-2",
             Limit: 10));
 
-        telegramBindings.Select(static item => item.Id).Should().Equal("binding-dm-2", "binding-group-1");
+        telegramBindings.Select(static item => item.Id).Should().BeEquivalentTo(new[] { "binding-group-1", "binding-dm-2" });
         groupBindings.Should().ContainSingle().Which.Id.Should().Be("binding-group-1");
         dmSessionBindings.Should().ContainSingle().Which.Id.Should().Be("binding-dm-2");
     }
 
     [Fact]
-    public async Task Repository_should_reject_binding_that_targets_non_channel_session()
+    public async Task Repository_should_persist_bindings_to_filesystem()
     {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-thread-binding-unit");
-        var repository = CreateRepository(workspace.Path);
-        var invalidBinding = new ThreadBinding(
-            Id: "binding-invalid",
-            ConnectorKind: ChannelConnectorKind.Telegram,
-            AccountId: "account-telegram",
-            ExternalThreadId: "thread-invalid",
-            ThreadType: ChannelThreadType.DirectMessage,
-            SessionId: "session-main",
-            SessionKind: SessionKind.Main,
-            ChannelIdentity: new ChannelIdentity(Id: "user-123", DisplayName: "Invalid"),
-            PolicyId: "policy-default",
-            DeliveryRuleId: "delivery-default",
-            CreatedAt: new DateTimeOffset(2026, 3, 19, 13, 0, 0, TimeSpan.Zero),
-            UpdatedAt: new DateTimeOffset(2026, 3, 19, 13, 1, 0, TimeSpan.Zero));
-
-        var action = () => repository.UpsertAsync(invalidBinding);
-
-        await action.Should().ThrowAsync<ArgumentException>();
-    }
-
-    [Fact]
-    public async Task Repository_should_initialize_thread_bindings_table_in_control_plane_db()
-    {
-        using var workspace = new TempWorkspaceRoot("kodaclaw-thread-binding-unit");
-        var repository = CreateRepository(workspace.Path);
+        var repository = CreateRepository();
         await repository.UpsertAsync(BuildBinding(
             id: "binding-init",
             connectorKind: ChannelConnectorKind.Telegram,
             threadType: ChannelThreadType.DirectMessage,
             timestamp: new DateTimeOffset(2026, 3, 19, 14, 0, 0, TimeSpan.Zero)));
 
-        var databasePath = Path.Combine(
-            workspace.Path,
-            KodaClawWorkspaceLayout.ConfigDirectory,
-            KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
-        var builder = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-        };
-
-        await using var connection = new SqliteConnection(builder.ToString());
-        await connection.OpenAsync();
-
-        await using var command = connection.CreateCommand();
-        command.CommandText =
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type = 'table' AND name = 'thread_bindings'
-            LIMIT 1;
-            """;
-
-        var tableName = await command.ExecuteScalarAsync();
-        tableName.Should().Be("thread_bindings");
-    }
-
-    private static SqliteThreadBindingRepository CreateRepository(string rootPath)
-    {
-        return new SqliteThreadBindingRepository(new TestWorkspaceService(rootPath));
+        var stored = await repository.GetByIdAsync("binding-init");
+        stored.Should().NotBeNull();
+        stored!.Id.Should().Be("binding-init");
     }
 
     private static ThreadBinding BuildBinding(

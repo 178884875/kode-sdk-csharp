@@ -12,6 +12,7 @@ using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.Runtime;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -305,6 +306,7 @@ public sealed class ApprovalApiIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawControlPlane();
         using var provider = services.BuildServiceProvider();
         var repository = provider.GetRequiredService<IApprovalRepository>();

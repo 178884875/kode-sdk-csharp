@@ -2,6 +2,7 @@ using FluentAssertions;
 using KodaClaw.Automation;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -28,6 +29,7 @@ public sealed class HeartbeatSyncIntegrationTests : IDisposable
 
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = _rootPath);
+        services.AddKodaClawJsonStore(_rootPath);
         services.AddKodaClawControlPlane();
         services.AddKodaClawAutomation(options =>
         {

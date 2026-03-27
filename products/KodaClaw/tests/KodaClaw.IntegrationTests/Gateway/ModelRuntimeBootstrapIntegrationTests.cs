@@ -5,6 +5,7 @@ using System.Text.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ModelHub;
+using KodaClaw.Storage.Json.Repositories;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
@@ -62,11 +63,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
 
         try
         {
-            var workspaceService = new WorkspaceService(new KodaClawWorkspaceOptions
-            {
-                RootPath = workspace.Path,
-            });
-            var repository = new SqliteModelRegistryRepository(workspaceService);
+            var repository = new JsonModelRegistryRepository(workspace.Path);
             var now = DateTimeOffset.UtcNow;
             await repository.AddAsync(new ModelEndpoint(
                 Id: "model-default",

@@ -4,6 +4,7 @@ using KodaClaw.Automation;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.Runtime;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
@@ -426,6 +427,7 @@ public sealed class AutomationSchedulerIntegrationTests
 
             var services = new ServiceCollection();
             services.AddKodaClawWorkspace(options => options.RootPath = RootPath);
+            services.AddKodaClawJsonStore(RootPath);
             services.AddKodaClawControlPlane();
             services.AddSingleton<IAutomationClock>(Clock);
             services.AddSingleton<IAutomationSessionService>(SessionService);

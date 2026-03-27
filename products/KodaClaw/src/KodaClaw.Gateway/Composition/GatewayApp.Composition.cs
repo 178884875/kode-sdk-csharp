@@ -9,7 +9,7 @@ using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using KodaClaw.PluginHost;
 using KodaClaw.Runtime;
-using KodaClaw.Storage;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
@@ -69,10 +69,10 @@ public static partial class GatewayApp
         builder.Services.AddSingleton<IChannelConnectorRegistry>(
             provider => provider.GetRequiredService<ChannelConnectorHostedService>());
 
+        builder.Services.AddKodaClawJsonStore(workspaceRoot);
         builder.Services.AddKodaClawAutomation(options => options.Enabled = true);
         builder.Services.AddKodaClawChannelHub();
         builder.Services.AddModelRegistry();
-        builder.Services.AddKodaClawStorage();
         builder.Services.AddKodaClawMcpHub();
         builder.Services.AddKodaClawPluginHost();
         builder.Services.AddSingleton<IPluginGatewayService, PluginGatewayService>();

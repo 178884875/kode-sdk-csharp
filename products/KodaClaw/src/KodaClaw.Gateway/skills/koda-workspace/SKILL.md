@@ -14,7 +14,7 @@ metadata:
 
 ## Workspace 文件布局
 
-KodaClaw 将所有状态以普通文件形式存储在 `~/.kodaclaw/workspace/`：
+KodaClaw 将所有状态以普通文件形式存储在 `workspace/`（相对于 workspace 根目录）：
 
 | 文件 | 用途 |
 |------|------|
@@ -96,6 +96,6 @@ diagnostics_query(correlationId="abc123...", sinceMinutes=60, limit=50)
 
 为未来 session 添加领域知识：
 
-1. 写入 SKILL.md：调用 `fs_write` 工具，路径填 `~/.kodaclaw/workspace/skills/<name>/SKILL.md`
+1. 写入 SKILL.md：调用 `fs_write` 工具，路径填 `workspace/skills/<name>/SKILL.md`
 2. 验证发现：调用 `skill_list` 工具确认新技能已出现
 3. 在当前 session 激活：调用 `skill_activate` 工具，传入技能名称

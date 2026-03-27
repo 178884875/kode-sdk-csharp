@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -133,6 +134,7 @@ public sealed class InboxApiIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawControlPlane();
         using var provider = services.BuildServiceProvider();
 

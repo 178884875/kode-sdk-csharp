@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ModelHub;
+using KodaClaw.Storage.Json.Repositories;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Xunit;
@@ -103,11 +104,7 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
         using var workspace = new TempWorkspaceRoot("seed-skip");
 
         // Pre-populate the registry BEFORE starting the gateway
-        var workspaceService = new WorkspaceService(new KodaClawWorkspaceOptions
-        {
-            RootPath = workspace.Path,
-        });
-        var repo = new SqliteModelRegistryRepository(workspaceService);
+        var repo = new JsonModelRegistryRepository(workspace.Path);
         var now = DateTimeOffset.UtcNow;
         await repo.AddAsync(new ModelEndpoint(
             Id: "model-existing",

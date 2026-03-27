@@ -6,6 +6,7 @@ using KodaClaw.Automation;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.PluginHost;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -125,6 +126,7 @@ public sealed class StartupRepairApiIntegrationTests
         var services = new ServiceCollection();
         services.AddKodaClawControlPlane();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawAutomation(options =>
         {
             options.Enabled = false;

@@ -4,6 +4,7 @@ using KodaClaw.ChannelHub;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -149,6 +150,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawControlPlane();
         services.AddSingleton<ITelegramApiClient>(fakeTelegramApiClient);
         services.AddKodaClawChannelHub();

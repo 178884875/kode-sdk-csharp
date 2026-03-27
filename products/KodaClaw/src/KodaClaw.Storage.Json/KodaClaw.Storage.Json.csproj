@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KodaClaw.Storage.Json</AssemblyName>
+    <RootNamespace>KodaClaw.Storage.Json</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.Storage\KodaClaw.Storage.csproj" />
+  </ItemGroup>
+</Project>

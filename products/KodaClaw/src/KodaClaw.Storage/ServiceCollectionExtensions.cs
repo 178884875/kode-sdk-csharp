@@ -1,16 +1,6 @@
-using KodaClaw.Contracts;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
-
 namespace KodaClaw.Storage;
 
-public static class ServiceCollectionExtensions
+// 存储基础设施层。Repository 实现由 KodaClaw.Storage.Json 或其他实现包注册。
+public static class StorageExtensions
 {
-    public static IServiceCollection AddKodaClawStorage(this IServiceCollection services)
-    {
-        ArgumentNullException.ThrowIfNull(services);
-
-        services.TryAddSingleton<ICanvasArtifactRepository, SqliteCanvasArtifactRepository>();
-        return services;
-    }
 }

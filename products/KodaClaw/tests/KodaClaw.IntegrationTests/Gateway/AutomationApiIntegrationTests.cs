@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Automation;
 using KodaClaw.Contracts;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -142,6 +143,7 @@ public sealed class AutomationApiIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawAutomation();
         using var provider = services.BuildServiceProvider();
 

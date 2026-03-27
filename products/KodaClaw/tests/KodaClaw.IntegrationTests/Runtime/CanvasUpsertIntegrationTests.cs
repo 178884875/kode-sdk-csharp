@@ -2,7 +2,7 @@ using System.IO;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
-using KodaClaw.Storage;
+using KodaClaw.Storage.Json.Repositories;
 using KodaClaw.Workspace;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Moq;
@@ -21,12 +21,12 @@ public sealed class CanvasUpsertIntegrationTests : IDisposable
     {
         _rootPath = Path.Combine(Path.GetTempPath(), "kodaclaw-canvas-integration", Guid.NewGuid().ToString("N"));
         _workspace = new WorkspaceService(new KodaClawWorkspaceOptions { RootPath = _rootPath });
-        _canvasRepo = new SqliteCanvasArtifactRepository(_workspace);
+        _canvasRepo = new JsonCanvasArtifactRepository(_rootPath);
         _tool = new CanvasUpsertTool(_workspace, _canvasRepo);
     }
 
     [Fact]
-    public async Task Upsert_writes_file_and_registers_artifact_in_sqlite()
+    public async Task Upsert_writes_file_and_registers_artifact()
     {
         await _workspace.EnsureInitializedAsync();
 

@@ -10,7 +10,6 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IModelRegistryRepository, SqliteModelRegistryRepository>();
         services.TryAddSingleton<IGenerationService, OpenAIImageGenerationService>();
         services.TryAddSingleton<ISpeechService, OpenAICompatibleTtsService>();
         return services;

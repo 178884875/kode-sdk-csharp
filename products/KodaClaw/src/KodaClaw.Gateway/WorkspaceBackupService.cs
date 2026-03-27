@@ -7,7 +7,7 @@ using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
 using KodaClaw.ModelHub;
-using KodaClaw.PluginHost.Registry;
+using KodaClaw.Storage.Json.Repositories;
 
 namespace KodaClaw.Gateway;
 
@@ -196,11 +196,7 @@ internal sealed class WorkspaceBackupService
             var restoredPaths = new List<string>();
             var skippedPaths = new List<string>();
             await RestoreWorkspaceFilesAsync(extractedRoot, snapshot.RootPath, restoredPaths, skippedPaths, cancellationToken);
-
-            // After replacing control-plane.db on disk, evict all pooled SQLite connections so
-            // subsequent opens get a fresh handle to the new file rather than a stale pooled
-            // connection whose internal page cache still points at the old database image.
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            await RestoreControlPlaneJsonStoreAsync(extractedRoot, snapshot.RootPath, restoredPaths, cancellationToken);
 
             var importedAppConfigPath = Path.Combine(extractedRoot, KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.AppConfigFile);
             if (File.Exists(importedAppConfigPath))
@@ -251,13 +247,12 @@ internal sealed class WorkspaceBackupService
         await EnsureTableWithinLimitAsync(sourceWorkspaceRoot, "plugins", "plugins", cancellationToken);
         await EnsureTableWithinLimitAsync(sourceWorkspaceRoot, "automation_definitions", "automation definitions", cancellationToken);
 
-        var stagingWorkspace = new StaticWorkspaceService(stagingRoot);
-        var stagingSettingsRepository = new SqliteSettingsRepository(stagingWorkspace);
-        var stagingModelRepository = new SqliteModelRegistryRepository(stagingWorkspace);
-        var stagingChannelAccountRepository = new SqliteChannelAccountRepository(stagingWorkspace);
-        var stagingThreadBindingRepository = new SqliteThreadBindingRepository(stagingWorkspace);
-        var stagingPluginRepository = new SqlitePluginRegistryRepository(stagingWorkspace);
-        var stagingAutomationDefinitionRepository = new SqliteAutomationDefinitionRepository(stagingWorkspace);
+        var stagingSettingsRepository = new JsonSettingsRepository(stagingRoot);
+        var stagingModelRepository = new JsonModelRegistryRepository(stagingRoot);
+        var stagingChannelAccountRepository = new JsonChannelAccountRepository(stagingRoot);
+        var stagingThreadBindingRepository = new JsonThreadBindingRepository(stagingRoot);
+        var stagingPluginRepository = new JsonPluginRegistryRepository(stagingRoot);
+        var stagingAutomationDefinitionRepository = new JsonAutomationDefinitionRepository(stagingRoot);
 
         var settings = await _settingsRepository.GetAsync(cancellationToken);
         await stagingSettingsRepository.SaveAsync(settings, cancellationToken);
@@ -936,11 +931,11 @@ internal sealed class WorkspaceBackupService
 
         var workspace = new StaticWorkspaceService(extractedRoot);
         var appConfig = await workspace.LoadAppConfigAsync(cancellationToken);
-        var modelRepository = new SqliteModelRegistryRepository(workspace);
-        var channelAccountRepository = new SqliteChannelAccountRepository(workspace);
-        var threadBindingRepository = new SqliteThreadBindingRepository(workspace);
-        var pluginRepository = new SqlitePluginRegistryRepository(workspace);
-        var automationDefinitionRepository = new SqliteAutomationDefinitionRepository(workspace);
+        var modelRepository = new JsonModelRegistryRepository(extractedRoot);
+        var channelAccountRepository = new JsonChannelAccountRepository(extractedRoot);
+        var threadBindingRepository = new JsonThreadBindingRepository(extractedRoot);
+        var pluginRepository = new JsonPluginRegistryRepository(extractedRoot);
+        var automationDefinitionRepository = new JsonAutomationDefinitionRepository(extractedRoot);
 
         var sessionIds = Directory.Exists(Path.Combine(extractedRoot, KodaClawWorkspaceLayout.SessionsDirectory))
             ? Directory.EnumerateDirectories(Path.Combine(extractedRoot, KodaClawWorkspaceLayout.SessionsDirectory))
@@ -1290,9 +1285,8 @@ internal sealed class WorkspaceBackupService
         DateTimeOffset updatedAt,
         CancellationToken cancellationToken)
     {
-        var workspace = new StaticWorkspaceService(extractedRoot);
-        var pluginRepository = new SqlitePluginRegistryRepository(workspace);
-        var automationDefinitionRepository = new SqliteAutomationDefinitionRepository(workspace);
+        var pluginRepository = new JsonPluginRegistryRepository(extractedRoot);
+        var automationDefinitionRepository = new JsonAutomationDefinitionRepository(extractedRoot);
 
         var plugins = await pluginRepository.ListAsync(new PluginQuery(Limit: RepositorySafetyLimit), cancellationToken);
         foreach (var plugin in plugins)
@@ -1426,6 +1420,69 @@ internal sealed class WorkspaceBackupService
         restoredPaths.Add(ToDisplayPath(targetWorkspaceRoot, relativePath));
     }
 
+    private static async Task RestoreControlPlaneJsonStoreAsync(
+        string extractedRoot,
+        string targetWorkspaceRoot,
+        ICollection<string> restoredPaths,
+        CancellationToken cancellationToken)
+    {
+        // Single-file stores
+        await RestoreOptionalRelativeFileAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(KodaClawWorkspaceLayout.ConfigDirectory, "settings.json"),
+            restoredPaths, cancellationToken);
+
+        // Directory stores
+        await RestoreOptionalRelativeDirectoryAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(KodaClawWorkspaceLayout.ConfigDirectory, "models"),
+            restoredPaths, cancellationToken);
+        await RestoreOptionalRelativeDirectoryAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(KodaClawWorkspaceLayout.ConfigDirectory, "plugins"),
+            restoredPaths, cancellationToken);
+        await RestoreOptionalRelativeDirectoryAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(".koda", "store", "channels", "accounts"),
+            restoredPaths, cancellationToken);
+        await RestoreOptionalRelativeDirectoryAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(".koda", "store", "channels", "bindings"),
+            restoredPaths, cancellationToken);
+        await RestoreOptionalRelativeDirectoryAsync(
+            extractedRoot, targetWorkspaceRoot,
+            Path.Combine(".koda", "store", "automations"),
+            restoredPaths, cancellationToken);
+    }
+
+    private static async Task RestoreOptionalRelativeDirectoryAsync(
+        string extractedRoot,
+        string targetWorkspaceRoot,
+        string relativeDir,
+        ICollection<string> restoredPaths,
+        CancellationToken cancellationToken)
+    {
+        var sourceDir = Path.Combine(extractedRoot, relativeDir);
+        if (!Directory.Exists(sourceDir))
+        {
+            return;
+        }
+
+        var targetDir = Path.Combine(targetWorkspaceRoot, relativeDir);
+        Directory.CreateDirectory(targetDir);
+
+        foreach (var sourceFile in Directory.EnumerateFiles(sourceDir, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDir, sourceFile);
+            var targetFile = Path.Combine(targetDir, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
+            await using var sourceStream = File.OpenRead(sourceFile);
+            await using var destinationStream = File.Create(targetFile);
+            await sourceStream.CopyToAsync(destinationStream, cancellationToken);
+            restoredPaths.Add(ToDisplayPath(targetWorkspaceRoot, Path.Combine(relativeDir, relativePath)));
+        }
+    }
+
     private static string ToDisplayPath(string workspaceRoot, string relativeOrAbsolutePath)
     {
         var absolutePath = Path.IsPathRooted(relativeOrAbsolutePath)
@@ -1449,36 +1506,28 @@ internal sealed class WorkspaceBackupService
         throw new InvalidOperationException($"Backup export/import currently supports at most {RepositorySafetyLimit} {displayName}, but found {count}.");
     }
 
-    private static async Task<int> GetTableCountAsync(
+    private static Task<int> GetTableCountAsync(
         string workspaceRoot,
         string tableName,
         CancellationToken cancellationToken)
     {
-        var databasePath = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ControlPlaneDatabaseFile);
-        if (!File.Exists(databasePath))
+        _ = cancellationToken;
+        var dir = tableName switch
         {
-            return 0;
+            "channel_accounts" => Path.Combine(workspaceRoot, ".koda", "store", "channels", "accounts"),
+            "thread_bindings" => Path.Combine(workspaceRoot, ".koda", "store", "channels", "bindings"),
+            "plugins" => Path.Combine(workspaceRoot, "config", "plugins"),
+            "automation_definitions" => Path.Combine(workspaceRoot, ".koda", "store", "automations"),
+            _ => null,
+        };
+
+        if (dir is null || !Directory.Exists(dir))
+        {
+            return Task.FromResult(0);
         }
 
-        var connectionString = new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-        }.ToString();
-
-        await using var connection = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
-        await connection.OpenAsync(cancellationToken);
-        await using var existsCommand = connection.CreateCommand();
-        existsCommand.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;";
-        existsCommand.Parameters.AddWithValue("$name", tableName);
-        var exists = Convert.ToInt32(await existsCommand.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture) > 0;
-        if (!exists)
-        {
-            return 0;
-        }
-
-        await using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = $"SELECT COUNT(*) FROM {tableName};";
-        return Convert.ToInt32(await countCommand.ExecuteScalarAsync(cancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+        var count = Directory.EnumerateFiles(dir, "*.json").Count();
+        return Task.FromResult(count);
     }
 
     private static string NormalizePath(string path)

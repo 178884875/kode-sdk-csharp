@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -9,6 +10,11 @@ public sealed class ChannelTurnOrchestrator
 {
     private const string TurnSource = "channel.turn";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    // 短时间窗口去重：防止同一消息被连接器重复投递（iLink at-least-once 语义）
+    // key = "{connectorKind}::{accountId}::{externalMessageId}"，value = 首次处理时间
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentMessageIds = new(StringComparer.Ordinal);
+    private static readonly TimeSpan MessageDeduplicationWindow = TimeSpan.FromSeconds(60);
 
     private readonly ChannelEventIngestionService _ingestionService;
     private readonly IChannelSessionService _channelSessionService;
@@ -141,6 +147,38 @@ public sealed class ChannelTurnOrchestrator
             await AppendOutcomeAuditAsync(processing.Binding, processing.DeliveryRule.Mode, "turn.no_action", outcome, cancellationToken);
             RecordDiagnosticEvent("channel.turn.no_action", "info", outcome.Summary, processing.Binding, outcome);
             return new ChannelTurnOrchestrationResult(processing, outcome, ExecutedTurn: false);
+        }
+
+        // 短时间窗口去重：同一 ExternalMessageId 在 60 秒内只处理一次，
+        // 防止 iLink 等渠道的 at-least-once 重复投递触发多次 Agent turn。
+        if (!string.IsNullOrEmpty(envelope.ExternalMessageId))
+        {
+            var dedupKey = $"{envelope.ConnectorKind}::{envelope.AccountId}::{envelope.ExternalMessageId}";
+            var now = DateTimeOffset.UtcNow;
+
+            // 懒清理：移除超过去重窗口的旧记录
+            foreach (var stale in _recentMessageIds
+                .Where(kv => now - kv.Value > MessageDeduplicationWindow)
+                .Select(kv => kv.Key)
+                .ToList())
+            {
+                _recentMessageIds.TryRemove(stale, out _);
+            }
+
+            if (!_recentMessageIds.TryAdd(dedupKey, now))
+            {
+                var dupOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.NoAction,
+                    summary: $"Duplicate message suppressed (externalMessageId={envelope.ExternalMessageId}).",
+                    processing,
+                    envelope,
+                    reasonCode: "duplicate_message");
+                _logger.LogInformation(
+                    "Suppressed duplicate channel turn for binding {BindingId} externalMessageId={ExternalMessageId}",
+                    processing.Binding.Id, envelope.ExternalMessageId);
+                RecordDiagnosticEvent("channel.turn.duplicate_suppressed", "info", dupOutcome.Summary, processing.Binding, dupOutcome);
+                return new ChannelTurnOrchestrationResult(processing, dupOutcome, ExecutedTurn: false);
+            }
         }
 
         var hasExplicitMention = DetectExplicitMention(envelope, account);

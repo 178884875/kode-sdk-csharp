@@ -2,6 +2,7 @@ using FluentAssertions;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -109,6 +110,7 @@ public sealed class ChannelDeliveryGovernanceIntegrationTests
     {
         var services = new ServiceCollection();
         services.AddKodaClawWorkspace(options => options.RootPath = workspaceRoot);
+        services.AddKodaClawJsonStore(workspaceRoot);
         services.AddKodaClawControlPlane();
         services.AddKodaClawChannelHub();
         return services.BuildServiceProvider();
