@@ -515,21 +515,33 @@ public sealed class LocalSandbox : ISandbox
         var c = command;
 
         // Keep this list small and conservative; it is a best-effort guardrail, not a security boundary.
+        // Patterns are grouped by platform but all evaluated regardless of OS,
+        // because user-supplied commands may target a different platform context.
         var patterns = new[]
         {
-            @"rm\s+-rf\s+\/($|\s)",
-            @"\bsudo\s+",
-            @"\bshutdown\b",
-            @"\breboot\b",
-            @"\bmkfs\.",
-            @"\bdd\s+.*\bof=",
-            @":\(\)\{\s*:\|\:&\s*\};:",
-            @"\bchmod\s+777\s+\/",
-            @"\bcurl\s+.*\|\s*(bash|sh)\b",
-            @"\bwget\s+.*\|\s*(bash|sh)\b",
-            @">\s*\/dev\/sda",
+            // --- Unix / cross-platform ---
+            @"rm\s+-rf\s+\/($|\s)",         // rm -rf / (root wipe)
+            @"\bsudo\s+",                    // privilege escalation
+            @"\bshutdown\b",                 // shutdown (works on both Unix and Windows)
+            @"\breboot(?!\S)",               // reboot — (?!\S) avoids matching "reboot.sh" filenames
+            @"\bmkfs\.",                     // format filesystem
+            @"\bdd\s+.*\bof=\/dev\/",        // dd writing to block device (tightened from of=)
+            @":\(\)\{\s*:\|\:&\s*\};:",      // fork bomb
+            @"\bchmod\s+777\s+\/",           // chmod 777 root
+            @"\bcurl\s+.*\|\s*(bash|sh)\b",  // curl | bash (remote code execution)
+            @"\bwget\s+.*\|\s*(bash|sh)\b",  // wget | bash
+            @">\s*\/dev\/sda",               // overwrite block device directly
             @"\bmkswap\b",
-            @"\bswapon\b"
+            @"\bswapon\b",
+
+            // --- Windows ---
+            // Note: patterns use `"?` to also catch quoted-path variants (e.g. format "C:"), because
+            // Windows paths with spaces are typically quoted by the caller.
+            @"\bformat\s+""?[a-zA-Z]:",                               // format C: or format "C:"
+            @"\bdel\s+.*/[sS].*\s+""?[a-zA-Z]:\\($|""|\s)",          // del /s targeting drive root
+            @"\b(rd|rmdir)\s+/[sS]\s+/[qQ]\s+""?[a-zA-Z]:\\($|""|\s)", // rd /s /q C:\ or "C:\"
+            @"\breg\s+(delete|add)\s+hk",                             // registry modification (HKLM/HKCU/...)
+            @"\bpowershell\b.*\bRemove-Item\b.*-Recurse.*""?[a-zA-Z]:\\($|""|\s)", // Remove-Item -Recurse on drive
         };
 
         foreach (var p in patterns)
@@ -555,7 +567,11 @@ public sealed class LocalSandbox : ISandbox
 
     private static string GetShellArgs(string command)
     {
-        return OperatingSystem.IsWindows() ? $"/c {command}" : $"-c \"{command.Replace("\"", "\\\"")}\"";
+        // Wrap the command in quotes so paths containing spaces are handled correctly.
+        // Both cmd.exe (/c "...") and bash (-c "...") strip the outer quotes and pass
+        // the inner string to the shell; internal double-quotes are escaped with \".
+        var escaped = command.Replace("\"", "\\\"");
+        return OperatingSystem.IsWindows() ? $"/c \"{escaped}\"" : $"-c \"{escaped}\"";
     }
 }
 

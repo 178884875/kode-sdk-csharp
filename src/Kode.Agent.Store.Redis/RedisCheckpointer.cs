@@ -34,7 +34,7 @@ public sealed class RedisCheckpointer : ICheckpointer
         var db = Database;
         var key = GetKey(checkpoint.Id);
         var json = JsonSerializer.Serialize(checkpoint, _jsonOptions);
-        var expiry = _options.TtlSeconds is > 0 ? TimeSpan.FromSeconds(_options.TtlSeconds.Value) : (TimeSpan?)null;
+        var expiry = _options.TtlSeconds is > 0 ? (Expiration)TimeSpan.FromSeconds(_options.TtlSeconds.Value) : default;
 
         await db.StringSetAsync(key, json, expiry);
 

@@ -24,6 +24,10 @@ public class RedisAgentStore : IAgentStore
 
     private IDatabase Database => _redis.GetDatabase(_options.Database);
 
+    // StackExchange.Redis 2.12+ replaced TimeSpan? with the Expiration struct.
+    // TimeSpan has an implicit conversion to Expiration; default(Expiration) means no expiry.
+    private Expiration DataExpiry => _options.Expiration is { } ts ? (Expiration)ts : default;
+
     public RedisAgentStore(
         IConnectionMultiplexer redis,
         RedisStoreOptions? options = null,
@@ -54,7 +58,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(messages, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, "messages"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, "messages"), json, DataExpiry);
         await db.SetAddAsync(IndexKey(), agentId);
     }
 
@@ -70,7 +74,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(records, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, "tool-calls"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, "tool-calls"), json, DataExpiry);
     }
 
     public async Task<IReadOnlyList<ToolCallRecord>> LoadToolCallRecordsAsync(string agentId, CancellationToken cancellationToken = default)
@@ -148,7 +152,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(snapshot, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, "todos"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, "todos"), json, DataExpiry);
     }
 
     public async Task<TodoSnapshot?> LoadTodosAsync(string agentId, CancellationToken cancellationToken = default)
@@ -266,7 +270,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(window, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, $"history:windows:{window.Id}"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, $"history:windows:{window.Id}"), json, DataExpiry);
         await db.SetAddAsync(Key(agentId, "history:windows:index"), window.Id);
     }
 
@@ -291,7 +295,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(record, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, $"history:compressions:{record.Id}"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, $"history:compressions:{record.Id}"), json, DataExpiry);
         await db.SetAddAsync(Key(agentId, "history:compressions:index"), record.Id);
     }
 
@@ -317,7 +321,7 @@ public class RedisAgentStore : IAgentStore
         var db = Database;
         var id = $"{file.Timestamp}:{file.Path}";
         var json = JsonSerializer.Serialize(file, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, $"history:recovered:{id}"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, $"history:recovered:{id}"), json, DataExpiry);
         await db.SetAddAsync(Key(agentId, "history:recovered:index"), id);
     }
 
@@ -387,7 +391,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(info, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, "meta"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, "meta"), json, DataExpiry);
         await db.SetAddAsync(IndexKey(), agentId);
     }
 
@@ -407,7 +411,7 @@ public class RedisAgentStore : IAgentStore
     {
         var db = Database;
         var json = JsonSerializer.Serialize(state, _jsonOptions);
-        await db.StringSetAsync(Key(agentId, "skills"), json, _options.Expiration);
+        await db.StringSetAsync(Key(agentId, "skills"), json, DataExpiry);
     }
 
     public async Task<SkillsState?> LoadSkillsStateAsync(string agentId, CancellationToken cancellationToken = default)
