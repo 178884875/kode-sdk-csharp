@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
+using KodaClaw.Workspace;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub;
@@ -11,10 +12,14 @@ public sealed class ChannelTurnOrchestrator
     private const string TurnSource = "channel.turn";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    // 短时间窗口去重：防止同一消息被连接器重复投递（iLink at-least-once 语义）
+    // Fixed by Nietzsche: persistent dedup to survive gateway restarts.
+    // Feishu WS uses at-least-once delivery; on reconnect it re-pushes unacknowledged
+    // messages with a new event_id but the same message_id. Without persistent dedup,
+    // gateway restart clears the in-memory set and duplicate turns fire.
     // key = "{connectorKind}::{accountId}::{externalMessageId}"，value = 首次处理时间
     private readonly ConcurrentDictionary<string, DateTimeOffset> _recentMessageIds = new(StringComparer.Ordinal);
-    private static readonly TimeSpan MessageDeduplicationWindow = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan MessageDeduplicationWindow = TimeSpan.FromMinutes(30);
+    private const string DedupeFileName = ".dedupe-state.json";
 
     private readonly ChannelEventIngestionService _ingestionService;
     private readonly IChannelSessionService _channelSessionService;
@@ -30,6 +35,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelThreadSummaryWriter? _summaryWriter;
     private readonly IChannelSendCapture? _sendCapture;
     private readonly ILogger<ChannelTurnOrchestrator> _logger;
+    private readonly string? _dedupeFilePath;
 
     public ChannelTurnOrchestrator(
         ChannelEventIngestionService ingestionService,
@@ -45,6 +51,7 @@ public sealed class ChannelTurnOrchestrator
         ICorrelationContextAccessor? correlationContextAccessor = null,
         IChannelThreadSummaryWriter? summaryWriter = null,
         IChannelSendCapture? sendCapture = null,
+        KodaClawWorkspaceOptions? workspaceOptions = null,
         ILogger<ChannelTurnOrchestrator>? logger = null)
     {
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
@@ -61,6 +68,11 @@ public sealed class ChannelTurnOrchestrator
         _summaryWriter = summaryWriter;
         _sendCapture = sendCapture;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
+        var workspaceRoot = workspaceOptions?.ResolveRootPath();
+        _dedupeFilePath = !string.IsNullOrWhiteSpace(workspaceRoot)
+            ? Path.Combine(workspaceRoot, DedupeFileName)
+            : null;
+        LoadDedupeState();
     }
 
     public async Task<ChannelTurnOrchestrationResult> ProcessInboundAsync(
@@ -179,6 +191,8 @@ public sealed class ChannelTurnOrchestrator
                 RecordDiagnosticEvent("channel.turn.duplicate_suppressed", "info", dupOutcome.Summary, processing.Binding, dupOutcome);
                 return new ChannelTurnOrchestrationResult(processing, dupOutcome, ExecutedTurn: false);
             }
+
+            SaveDedupeState();
         }
 
         var hasExplicitMention = DetectExplicitMention(envelope, account);
@@ -581,5 +595,69 @@ public sealed class ChannelTurnOrchestrator
         {
             return null;
         }
+    }
+
+
+
+    // Fixed by Nietzsche: load persisted dedup state from disk on startup.
+    // Re-populates the in-memory set with recently processed message IDs so
+    // Feishu reconnect re-delivery is properly suppressed after a restart.
+    private void LoadDedupeState()
+    {
+        if (_dedupeFilePath is null) return;
+        try
+        {
+            if (!File.Exists(_dedupeFilePath)) return;
+
+            var json = File.ReadAllText(_dedupeFilePath);
+            if (string.IsNullOrWhiteSpace(json)) return;
+
+            var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (data is null) return;
+
+            var cutoff = DateTimeOffset.UtcNow - MessageDeduplicationWindow;
+            var loaded = 0;
+            foreach (var kv in data)
+            {
+                if (DateTimeOffset.TryParse(kv.Value, out var ts) && ts > cutoff)
+                {
+                    _recentMessageIds.TryAdd(kv.Key, ts);
+                    loaded++;
+                }
+            }
+
+            if (loaded > 0)
+            {
+                _logger.LogInformation(
+                    "Loaded {Count} dedupe entries from {FilePath} (filtered expired)", loaded, _dedupeFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load dedupe state from {FilePath}", _dedupeFilePath);
+        }
+    }
+
+    // Fixed by Nietzsche: persist current dedup state to disk (fire-and-forget).
+    // Writes the full in-memory set as JSON so it can be restored on restart.
+    private void SaveDedupeState()
+    {
+        if (_dedupeFilePath is null) return;
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                var data = _recentMessageIds.ToDictionary(
+                    kv => kv.Key,
+                    kv => kv.Value.ToString("O"));
+                var json = JsonSerializer.Serialize(data, JsonOptions);
+                File.WriteAllText(_dedupeFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to save dedupe state to {FilePath}", _dedupeFilePath);
+            }
+        });
     }
 }

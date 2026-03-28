@@ -624,6 +624,7 @@ public static partial class GatewayApp
             PatchChannelAccountRequest request,
             IConfiguration configuration,
             IChannelAccountRepository channelAccountRepository,
+            IThreadBindingRepository threadBindingRepository,
             IChannelConnectorRegistry channelConnectorRegistry,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
@@ -660,13 +661,24 @@ public static partial class GatewayApp
             }
 
             var enabledChanged = request.Enabled.HasValue && request.Enabled.Value != existing.InboundEnabled;
+
+            // 若传入 DeliveryMode，将 defaultDeliveryMode 合并进 ConfigurationJson
+            var updatedConfigJson = existing.ConfigurationJson;
+            if (request.DeliveryMode.HasValue)
+                updatedConfigJson = MergeDefaultDeliveryMode(existing.ConfigurationJson, request.DeliveryMode.Value);
+
             var updated = existing with
             {
                 DisplayName = NormalizeOptionalString(request.DisplayName) ?? existing.DisplayName,
                 InboundEnabled = request.Enabled ?? existing.InboundEnabled,
+                ConfigurationJson = updatedConfigJson,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
             await channelAccountRepository.UpsertAsync(updated, cancellationToken);
+
+            // 批量更新该账号所有线程绑定的投递模式
+            if (request.DeliveryMode.HasValue)
+                await threadBindingRepository.UpdateDeliveryModeByAccountIdAsync(id, request.DeliveryMode.Value, cancellationToken);
 
             if (enabledChanged)
             {
@@ -706,6 +718,7 @@ public static partial class GatewayApp
             string id,
             IConfiguration configuration,
             IChannelAccountRepository channelAccountRepository,
+            IThreadBindingRepository threadBindingRepository,
             IChannelConnectorRegistry channelConnectorRegistry,
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
@@ -734,6 +747,9 @@ public static partial class GatewayApp
             _ = Task.Run(
                 () => channelConnectorRegistry.StopAccountAsync(id, CancellationToken.None),
                 CancellationToken.None);
+
+            // 删除该账号的所有线程绑定（线程索引）
+            await threadBindingRepository.DeleteByAccountIdAsync(id, cancellationToken);
 
             await channelAccountRepository.DeleteAsync(id, cancellationToken);
 

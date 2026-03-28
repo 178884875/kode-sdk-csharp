@@ -101,7 +101,7 @@ public sealed class WeChatConnector : IChannelConnector
         // 启动后台长轮询，不等待
         _logger.LogInformation("WeChat connector starting poll loop for account {AccountId}", accountId);
 
-        _ = Task.Run(
+        startedAccount.LoopTask = Task.Run(
             () => PollLoopAsync(startedAccount, onEvent, cts.Token),
             CancellationToken.None);
 
@@ -119,6 +119,18 @@ public sealed class WeChatConnector : IChannelConnector
             return;
 
         await startedAccount.Cts.CancelAsync().ConfigureAwait(false);
+
+        // 等待 Poll Loop 真正退出，防止新 StartAsync 与旧 Loop 并发运行处理相同消息
+        try
+        {
+            await startedAccount.LoopTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("WeChat poll loop for account {AccountId} did not stop within 5s", accountId);
+        }
+        catch (Exception) { /* OperationCanceledException 或其他异常均可忽略 */ }
+
         startedAccount.Cts.Dispose();
 
         RecordDiagnosticEvent("wechat.account_stopped", "info",
@@ -252,8 +264,6 @@ public sealed class WeChatConnector : IChannelConnector
         }
         finally
         {
-            // loop 退出时（无论正常还是异常）移除自己，允许 StartAsync 重新添加
-            _startedAccounts.TryRemove(ctx.Account.Id, out _);
             _logger.LogInformation("WeChat poll loop stopped for account {AccountId}", ctx.Account.Id);
         }
     }
@@ -427,6 +437,9 @@ public sealed class WeChatConnector : IChannelConnector
         public WeChatConnectorConfiguration Configuration { get; } = Configuration;
         public CancellationTokenSource Cts { get; } = Cts;
         public string SyncBuf { get; set; } = SyncBuf;
+
+        /// <summary>后台轮询 Task，供 StopAsync 等待退出</summary>
+        public Task LoopTask { get; set; } = Task.CompletedTask;
 
         /// <summary>内存 LRU 消息 ID 列表（有序，最早加入的在前）</summary>
         public List<long> SeenMessageIds { get; } = new();

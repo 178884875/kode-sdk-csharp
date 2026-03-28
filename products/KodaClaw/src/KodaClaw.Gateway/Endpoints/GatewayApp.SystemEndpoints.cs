@@ -654,7 +654,7 @@ public static partial class GatewayApp
             }
         });
 
-        system.MapGet("/storage-usage", async (
+        system.MapGet("/storage-usage", (
             HttpContext context,
             IWorkspaceService workspaceService,
             IConfiguration configuration,
@@ -670,7 +670,7 @@ public static partial class GatewayApp
                     eventType: "gateway.auth.failed",
                     level: "warning",
                     message: "Unauthorized access to storage-usage endpoint.");
-                return Results.Unauthorized();
+                return Task.FromResult(Results.Unauthorized());
             }
 
             var sessionsRoot = Path.Combine(workspaceService.RootPath, KodaClawWorkspaceLayout.SessionsDirectory);
@@ -701,7 +701,7 @@ public static partial class GatewayApp
                     ["totalSizeBytes"] = response.TotalSizeBytes.ToString(),
                 });
 
-            return Results.Ok(response);
+            return Task.FromResult(Results.Ok(response));
         });
 
         system.MapPost("/bootstrap-complete", async (

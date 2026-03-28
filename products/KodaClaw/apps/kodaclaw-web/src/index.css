@@ -1281,8 +1281,28 @@ article.message:hover .message__time {
 }
 
 .kc-chat-timeline .timeline__body {
-  gap: 20px;
+  gap: 0;
   padding: 8px 0;
+}
+
+/* Default bottom margin for all direct children */
+.kc-chat-timeline .timeline__body > * {
+  margin-bottom: 20px;
+}
+
+/* Activity strip: tighter spacing — it's part of the agent's thinking flow */
+.kc-chat-timeline .activity-strip {
+  margin-bottom: 8px;
+}
+
+/* Element immediately before an activity strip also gets tighter spacing */
+.kc-chat-timeline .timeline__body > *:has(+ .activity-strip) {
+  margin-bottom: 8px;
+}
+
+/* Remove trailing margin on last element */
+.kc-chat-timeline .timeline__body > *:last-child {
+  margin-bottom: 0;
 }
 
 /* User bubble: cleaner right pill */

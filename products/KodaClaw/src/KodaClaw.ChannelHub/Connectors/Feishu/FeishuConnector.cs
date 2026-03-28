@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
 using KodaClaw.Workspace;
+using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 
@@ -25,14 +26,17 @@ public sealed class FeishuConnector : IChannelConnector
     private readonly ChannelSecretResolver _secretResolver;
     private readonly IMediaStore? _mediaStore;
     private readonly IDiagnosticsService? _diagnosticsService;
+    private readonly ILogger<FeishuConnector> _logger;
 
     public FeishuConnector(
+        ILogger<FeishuConnector> logger,
         IFeishuApiClient? apiClient = null,
         FeishuConnectorOptions? options = null,
         ISecretStore? secretStore = null,
         IMediaStore? mediaStore = null,
         IDiagnosticsService? diagnosticsService = null)
     {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _apiClient = apiClient ?? new HttpFeishuApiClient();
         _options = options ?? new FeishuConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
@@ -42,7 +46,7 @@ public sealed class FeishuConnector : IChannelConnector
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.Feishu;
 
-    public async Task StartAsync(
+    public Task StartAsync(
         ChannelAccount account,
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken = default)
@@ -66,7 +70,8 @@ public sealed class FeishuConnector : IChannelConnector
             configuration.AppId,
             configuration.AppSecret,
             (envelope, eventId, ct) => DispatchEventAsync(accountId, account, configuration, envelope, eventId, onEvent, ct),
-            _options);
+            _options,
+            _diagnosticsService);
 
         var startedAccount = new StartedAccount(
             account: account with { Id = accountId },
@@ -80,34 +85,16 @@ public sealed class FeishuConnector : IChannelConnector
             throw new InvalidOperationException($"Feishu account '{accountId}' is already started.");
         }
 
+        // Fire-and-forget：WS 连接在后台建立并自动重连，不阻塞 StartAsync。
+        // 连接错误和重连由 FeishuWebSocketClient 内部处理；账号状态更新由调用方（ReconcileChannelAccountRuntimeAsync）
+        // 在用户显式重新配置账号时处理。
         wsClient.Start(cancellationToken);
 
-        // 等待 WS 首次连接建立（最多 5 秒）。
-        // - 连接成功：正常返回，ReconcileChannelAccountRuntimeAsync 写入 Connected
-        // - 连接失败（凭证错误/网络问题）：抛 InvalidOperationException，写入 Degraded + LastError
-        // - 超时（5s 内未建立，但也未失败）：正常返回，连接在后台继续重试
-        try
-        {
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
-            await wsClient.WaitForFirstConnectionAsync(timeoutCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // 仅超时（WS 还在建立中）：继续返回，不设为 Degraded
-            RecordDiagnosticEvent("feishu.connection_timeout", "warning",
-                $"Feishu WebSocket connection timed out (retrying in background): accountId={accountId}");
-        }
-        catch (Exception ex)
-        {
-            // 首次连接明确失败（如凭证无效、网络拒绝）：向上抛，让调用方写入 Degraded
-            RecordDiagnosticEvent("feishu.connection_failed", "error",
-                $"Feishu WebSocket connection failed: accountId={accountId} error={ex.Message}");
-            throw new InvalidOperationException($"Feishu WebSocket connection failed: {ex.Message}", ex);
-        }
-
+        _logger.LogInformation("Feishu WebSocket connector starting for account {AccountId}", accountId);
         RecordDiagnosticEvent("feishu.account_started", "info",
             $"Feishu account started: accountId={accountId}");
+
+        return Task.CompletedTask;
     }
 
     public async Task StopAsync(string accountId, CancellationToken cancellationToken = default)
@@ -285,8 +272,8 @@ public sealed class FeishuConnector : IChannelConnector
         var (cleanText, hasMention) = ProcessMentions(rawText, configuration.AppId, message.Mentions);
 
         var threadType = ResolveThreadType(message.ChatType);
-        var receiveIdType = threadType == ChannelThreadType.DirectMessage ? "open_id" : "chat_id";
-        var externalThreadId = $"{receiveIdType}:{message.ChatId}";
+        // 飞书私聊的 ChatId 是 oc_ 开头，属于 chat_id 类型，不是 open_id
+        var externalThreadId = $"chat_id:{message.ChatId}";
 
         var occurredAt = TryParseTimestamp(message.CreateTime);
 

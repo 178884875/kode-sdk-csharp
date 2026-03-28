@@ -130,6 +130,8 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 {
                     // YAML-style block scalar: collect indented continuation lines until the
                     // next top-level bullet or section header.
+                    // Empty lines produce paragraph breaks (\n\n); non-empty lines are joined
+                    // with \n so that Markdown rendering preserves structure.
                     lineIndex++;
                     var sb = new StringBuilder();
                     while (lineIndex < lines.Length)
@@ -145,10 +147,15 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                         {
                             if (sb.Length > 0)
                             {
-                                sb.Append(' ');
+                                sb.Append('\n');
                             }
 
                             sb.Append(contTrimmed);
+                        }
+                        else if (sb.Length > 0)
+                        {
+                            // Blank line → paragraph break for Markdown
+                            sb.Append('\n');
                         }
 
                         lineIndex++;

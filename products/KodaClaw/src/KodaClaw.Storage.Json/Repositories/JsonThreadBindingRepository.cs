@@ -90,6 +90,34 @@ public sealed class JsonThreadBindingRepository : JsonStoreBase, IThreadBindingR
         return true;
     }
 
+    public async Task<int> DeleteByAccountIdAsync(string accountId, CancellationToken cancellationToken = default)
+    {
+        await EnsureLoadedAsync(cancellationToken);
+        var bindingIds = _index
+            .Where(kv => kv.Key.Item2 == accountId)
+            .Select(kv => kv.Value)
+            .ToList();
+
+        foreach (var bindingId in bindingIds)
+            await DeleteAsync(bindingId, cancellationToken);
+
+        return bindingIds.Count;
+    }
+
+    public async Task<int> UpdateDeliveryModeByAccountIdAsync(string accountId, DeliveryMode mode, CancellationToken cancellationToken = default)
+    {
+        await EnsureLoadedAsync(cancellationToken);
+        var bindingIds = _index
+            .Where(kv => kv.Key.Item2 == accountId)
+            .Select(kv => kv.Value)
+            .ToList();
+
+        foreach (var bindingId in bindingIds)
+            await UpdateDeliveryModeOverrideAsync(bindingId, mode, cancellationToken);
+
+        return bindingIds.Count;
+    }
+
     public async Task<bool> UpdateDeliveryModeOverrideAsync(
         string id,
         DeliveryMode? deliveryModeOverride,

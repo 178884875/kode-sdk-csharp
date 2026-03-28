@@ -79,6 +79,31 @@ public static partial class GatewayApp
         };
     }
 
+    /// <summary>
+    /// 将 defaultDeliveryMode 写入（或更新）账号的 ConfigurationJson，保留其余字段不变。
+    /// </summary>
+    private static string? MergeDefaultDeliveryMode(string? existingJson, DeliveryMode mode)
+    {
+        var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(existingJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(existingJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                        dict[prop.Name] = prop.Value.Clone();
+                }
+            }
+            catch (JsonException) { /* 忽略损坏的 JSON，重新构建 */ }
+        }
+
+        dict["defaultDeliveryMode"] = mode.ToString();
+        return JsonSerializer.Serialize(dict);
+    }
+
     private static string? NormalizeOptionalJson(string? value)
     {
         var normalized = NormalizeOptionalString(value);

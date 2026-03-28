@@ -1,3 +1,4 @@
+using Cronos;
 using KodaClaw.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -87,7 +88,12 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
                       LastRunStatus = existingDef.LastRunStatus,
                       LastError = existingDef.LastError,
                   }
-                : definition with { CreatedAt = DateTimeOffset.UtcNow, UpdatedAt = DateTimeOffset.UtcNow };
+                : definition with
+                  {
+                      CreatedAt = DateTimeOffset.UtcNow,
+                      UpdatedAt = DateTimeOffset.UtcNow,
+                      NextRunAt = ComputeInitialNextRunAt(definition.CronExpression),
+                  };
 
             await _definitionRepository.UpsertAsync(merged, cancellationToken);
             upserted++;
@@ -108,5 +114,23 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
             upserted, deleted);
 
         return new HeartbeatSyncResult(Upserted: upserted, Deleted: deleted, CompilationFailed: false);
+    }
+
+    private static DateTimeOffset? ComputeInitialNextRunAt(string? cronExpression)
+    {
+        if (string.IsNullOrWhiteSpace(cronExpression))
+        {
+            return null;
+        }
+
+        try
+        {
+            var cron = CronExpression.Parse(cronExpression.Trim());
+            return cron.GetNextOccurrence(DateTimeOffset.UtcNow, TimeZoneInfo.Local);
+        }
+        catch (CronFormatException)
+        {
+            return null;
+        }
     }
 }

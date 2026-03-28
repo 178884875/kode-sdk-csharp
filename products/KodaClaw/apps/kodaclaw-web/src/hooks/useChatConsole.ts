@@ -48,6 +48,9 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
   // Track callIds that already have an approval message, so tool_activity can skip duplicates
   const approvalCallIds = useRef<Set<string>>(new Set());
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Incremented whenever the timeline should auto-scroll to bottom.
+  // History prepend does NOT increment this, so it never accidentally yanks scroll position.
+  const [scrollToBottomVersion, setScrollToBottomVersion] = useState(0);
 
   const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
@@ -90,17 +93,18 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       ...createMessage("user", content || "📎", "done"),
       ...(mediaUrls && mediaUrls.length > 0 ? { mediaUrls } : {}),
     };
-    const assistantMessage = createMessage("assistant", "", "streaming");
+    const initialAssistantMessage = createMessage("assistant", "", "streaming");
+    let currentAssistantMsgId = initialAssistantMessage.id;
 
     setDraft("");
     setIsStreaming(true);
     approvalCallIds.current = new Set();
-    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setMessages((current) => [...current, userMessage, initialAssistantMessage]);
+    setScrollToBottomVersion((v) => v + 1);
     const ctrl = new AbortController();
     streamAbortRef.current = ctrl;
 
     try {
-      let lastStep: number | null = null;
       let rotatedSessionId: string | null = null;
       for await (const event of streamChatEvents({ message: content, mediaIds: hasMedia ? mediaIds : null }, ctrl.signal)) {
         if (event.type === "session_rotated") {
@@ -108,7 +112,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           // Insert a visual separator just before the in-progress assistant message so the user can
           // see that workspace files were updated and a new conversation context has started.
           setMessages((current) => {
-            const idx = current.findIndex((m) => m.id === assistantMessage.id);
+            const idx = current.findIndex((m) => m.id === currentAssistantMsgId);
             const sep = createMessage("system", "✨ workspace 已更新 · 进入新对话", "done", event.sessionId);
             if (idx < 0) return [...current, sep];
             return [...current.slice(0, idx), sep, ...current.slice(idx)];
@@ -117,15 +121,12 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
         }
 
         if (event.type === "text_chunk") {
-          const stepChanged =
-            lastStep !== null && event.step != null && event.step !== lastStep;
-          if (event.step != null) lastStep = event.step;
           setMessages((current) =>
             current.map((message) =>
-              message.id === assistantMessage.id
+              message.id === currentAssistantMsgId
                 ? {
                     ...message,
-                    text: `${message.text}${stepChanged ? "\n\n" : ""}${event.delta ?? ""}`,
+                    text: `${message.text}${event.delta ?? ""}`,
                     status: "streaming",
                     timestamp: event.timestamp ?? Date.now(),
                     sessionId: event.sessionId,
@@ -183,10 +184,22 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           // Skip if an approval card already represents this call (no duplicate needed)
           if (event.callId && approvalCallIds.current.has(event.callId)) continue;
           const toolMsg = createMessage("tool_activity", "", "done", event.sessionId);
-          setMessages((current) => [
-            ...current,
-            { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null, inputPreview: event.inputPreview ?? null },
-          ]);
+          const prevAssistantId = currentAssistantMsgId;
+          const nextAssistantMsg = createMessage("assistant", "", "streaming");
+          currentAssistantMsgId = nextAssistantMsg.id;
+          setMessages((current) => {
+            const prev = current.find((m) => m.id === prevAssistantId);
+            // If the previous assistant placeholder has no text, remove it entirely rather than
+            // leaving an empty "done" bubble sitting above the tool strip.
+            const withPrev = prev?.text
+              ? current.map((m) => m.id === prevAssistantId ? { ...m, status: "done" as const } : m)
+              : current.filter((m) => m.id !== prevAssistantId);
+            return [
+              ...withPrev,
+              { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null, inputPreview: event.inputPreview ?? null },
+              nextAssistantMsg,
+            ];
+          });
           continue;
         }
 
@@ -194,17 +207,20 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           setActiveToolName(null);
           setMessages((current) =>
             current.map((message) =>
-              message.id === assistantMessage.id
+              message.id === currentAssistantMsgId
                 ? {
                     ...message,
-                    status: "done",
+                    status: "done" as const,
                     sessionId: event.sessionId,
                     timestamp: event.timestamp ?? Date.now(),
+                    // If agent ended with a tool call and produced no text, use emptyCompletion;
+                    // otherwise keep the accumulated text.
                     text: message.text || copy.emptyCompletion,
                   }
                 : message,
             ),
           );
+          setScrollToBottomVersion((v) => v + 1);
           setIsStreaming(false);
           // Notify App to refresh the gateway snapshot so activeMainSessionId stays in sync.
           // We fire this after done (stream completed) to avoid triggering loadHistory mid-stream.
@@ -218,7 +234,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
         setActiveToolName(null);
         setMessages((current) =>
           current.map((message) =>
-            message.id === assistantMessage.id
+            message.id === currentAssistantMsgId
               ? {
                   ...message,
                   role: "error",
@@ -236,7 +252,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantMessage.id
+          message.id === currentAssistantMsgId
             ? {
                 ...message,
                 status: "done",
@@ -257,7 +273,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       setActiveToolName(null);
       setMessages((current) =>
         current.map((message) =>
-          message.id === assistantMessage.id
+          message.id === currentAssistantMsgId
             ? {
                 ...message,
                 role: "error",
@@ -275,6 +291,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
   const appendSystemNote = useCallback((note: string) => {
     setMessages((current) => [...current, createMessage("system", note, "done")]);
+    setScrollToBottomVersion((v) => v + 1);
   }, []);
 
   const clearMessages = useCallback((systemNote?: string) => {
@@ -286,6 +303,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     setHasMoreHistory(false);
     historySkipRef.current = 0;
     historySessionIdRef.current = null;
+    setScrollToBottomVersion((v) => v + 1);
   }, [copy.initialSystemNote]);
 
   const prependHistory = useCallback((items: SessionMessageItem[], hasMore: boolean, sessionId: string) => {
@@ -389,5 +407,6 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     loadMoreHistory,
     isLoadingHistory,
     hasMoreHistory,
+    scrollToBottomVersion,
   };
 }

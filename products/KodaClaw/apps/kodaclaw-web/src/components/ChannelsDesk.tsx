@@ -161,6 +161,9 @@ export function ChannelsDesk() {
         Plugin: "插件",
       },
       copyBindingId: "复制 BindingId",
+      accountDeliveryMode: "默认投递模式",
+      accountDeliveryHint: "将同步应用到所有线程",
+      accountDeliveryApplying: "应用中...",
       weChatRescan: "重新扫码",
       weChatRescanSuccess: "重新登录成功",
       addChannel: "+ 添加渠道",
@@ -306,6 +309,9 @@ export function ChannelsDesk() {
         Plugin: "Plugin",
       },
       copyBindingId: "Copy BindingId",
+      accountDeliveryMode: "Default delivery mode",
+      accountDeliveryHint: "Applied to all threads",
+      accountDeliveryApplying: "Applying...",
       weChatRescan: "Re-scan QR",
       weChatRescanSuccess: "Re-login successful",
       addChannel: "+ Add Channel",
@@ -350,6 +356,7 @@ export function ChannelsDesk() {
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [weChatRescanId, setWeChatRescanId] = useState<string | null>(null);
+  const [accountDeliveryApplying, setAccountDeliveryApplying] = useState<string | null>(null);
 
   // Add channel form state
   const [showAddForm, setShowAddForm] = useState(false);
@@ -790,6 +797,46 @@ export function ChannelsDesk() {
     }
   }
 
+  async function handleAccountDeliveryModeChange(accountId: string, mode: DeliveryMode) {
+    setAccountDeliveryApplying(accountId);
+    setError(null);
+    try {
+      await updateChannelAccount(accountId, { deliveryMode: mode });
+      await loadDesk("refresh");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Failed to update delivery mode.");
+    } finally {
+      setAccountDeliveryApplying(null);
+    }
+  }
+
+  function parseAccountDefaultDeliveryMode(account: ChannelAccount): DeliveryMode | null {
+    if (!account.configurationJson) return null;
+    try {
+      const config = JSON.parse(account.configurationJson) as Record<string, unknown>;
+      const mode = config["defaultDeliveryMode"];
+      if (mode === "AutoSend" || mode === "DraftApproval" || mode === "RequireApproval") return mode;
+    } catch { /* */ }
+    return null;
+  }
+
+  function resolveConnectorColor(kind: ChannelConnectorKind): string {
+    switch (kind) {
+      case "WeChat": return "#07C160";
+      case "Telegram": return "#0088CC";
+      case "Feishu": return "#00B96B";
+      default: return "var(--border-medium)";
+    }
+  }
+
+  function resolveDeliveryModeBadgeClass(mode: DeliveryMode): string {
+    switch (mode) {
+      case "AutoSend": return "delivery-badge delivery-badge--auto";
+      case "DraftApproval": return "delivery-badge delivery-badge--draft";
+      case "RequireApproval": return "delivery-badge delivery-badge--require";
+    }
+  }
+
   return (
     <section className="" data-testid="channels-desk">
       <h2 className="desk-section-title">{text.title}</h2>
@@ -901,6 +948,26 @@ export function ChannelsDesk() {
                 <span className="metric-label">
                   {text.updatedAt(formatDateTime(account.updatedAt, text.unavailable))}
                 </span>
+                <div className="channel-account-card__delivery-row">
+                  <label className="channel-account-card__delivery-label" htmlFor={`account-dm-${account.id}`}>
+                    {text.accountDeliveryMode}
+                  </label>
+                  <Select
+                    id={`account-dm-${account.id}`}
+                    className="channel-account-card__delivery-select"
+                    value={parseAccountDefaultDeliveryMode(account) ?? ""}
+                    disabled={accountDeliveryApplying === account.id}
+                    onChange={(e) => {
+                      void handleAccountDeliveryModeChange(account.id, e.target.value as DeliveryMode);
+                    }}
+                  >
+                    <option value="" disabled>{accountDeliveryApplying === account.id ? text.accountDeliveryApplying : "—"}</option>
+                    <option value="AutoSend">{text.deliveryMode.AutoSend}</option>
+                    <option value="DraftApproval">{text.deliveryMode.DraftApproval}</option>
+                    <option value="RequireApproval">{text.deliveryMode.RequireApproval}</option>
+                  </Select>
+                  <span className="channel-account-card__delivery-hint">{text.accountDeliveryHint}</span>
+                </div>
                 <div className="channel-account-card__actions">
                   <Button
                     variant={account.inboundEnabled ? "ghost" : "primary"}
@@ -1146,23 +1213,28 @@ export function ChannelsDesk() {
             {threads.map((thread) => {
               const selected = selectedBindingId === thread.bindingId;
               return (
-                <Button
+                <button
                   key={thread.bindingId}
-                  variant="ghost"
-                  shape="pill"
-                  selected={selected}
-                  className={`channel-thread-btn${selected ? " channel-thread-btn--selected" : ""}`}
+                  type="button"
+                  className={`channel-thread-card${selected ? " channel-thread-card--selected" : ""}`}
                   data-testid={`channel-thread-select-${thread.bindingId}`}
                   aria-pressed={selected}
-                  onClick={() => {
-                    void handleSelectThread(thread.bindingId);
-                  }}
+                  style={{ "--platform-color": resolveConnectorColor(thread.connectorKind) } as React.CSSProperties}
+                  onClick={() => { void handleSelectThread(thread.bindingId); }}
                 >
-                  <div className="channel-thread-btn__topline">
-                    <span className="channel-thread-btn__kind">{thread.connectorKind}</span>
-                    <span className="channel-thread-btn__delivery">{resolveDeliveryModeLabel(thread.deliveryMode)}</span>
-                    <Button
-                      variant="ghost"
+                  <div className="channel-thread-card__topline">
+                    <span className="channel-thread-card__kind">{thread.connectorKind}</span>
+                    <span className={resolveDeliveryModeBadgeClass(thread.deliveryMode)}>
+                      {resolveDeliveryModeLabel(thread.deliveryMode)}
+                    </span>
+                    <span className="channel-thread-card__spacer" />
+                    {thread.lastInboundAt && (
+                      <span className="channel-thread-card__time">
+                        {formatDateTime(thread.lastInboundAt, "")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
                       className="copy-binding-id-btn"
                       title={text.copyBindingId}
                       onClick={(e) => {
@@ -1170,13 +1242,20 @@ export function ChannelsDesk() {
                         void navigator.clipboard.writeText(thread.bindingId);
                       }}
                     >
-                      <Copy size={12} strokeWidth={2} />
-                    </Button>
+                      <Copy size={11} strokeWidth={2} />
+                    </button>
                   </div>
-                  <div className="channel-thread-btn__title">{thread.displayTitle}</div>
-                  <div className="channel-thread-btn__preview">{trimText(thread.lastMessagePreview)}</div>
-                  <div className="channel-thread-btn__state">{resolveThreadState(thread)}</div>
-                </Button>
+                  <div className="channel-thread-card__title">{thread.displayTitle}</div>
+                  {thread.lastMessagePreview && (
+                    <div className="channel-thread-card__preview">{trimText(thread.lastMessagePreview)}</div>
+                  )}
+                  {(thread.pendingApprovalId || thread.hasPendingDraft) && (
+                    <div className="channel-thread-card__pending">
+                      <span className="channel-thread-card__pending-dot" />
+                      {thread.pendingApprovalId ? text.pendingDraft : text.pendingDraft}
+                    </div>
+                  )}
+                </button>
               );
             })}
 

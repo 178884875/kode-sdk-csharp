@@ -111,16 +111,30 @@ internal sealed class ChannelInboundGatewayService
             return;
         }
 
+        RecordChannelEvent("feishu.account_starting", "info",
+            $"Starting Feishu account: id={account.Id} inboundEnabled={account.InboundEnabled} state={account.State}",
+            account.Id);
+
         try
         {
             await _feishuConnector.StartAsync(
                 account,
                 async (envelope, token) => await ProcessAsync(envelope, token),
                 cancellationToken);
+            RecordChannelEvent("feishu.account_started", "info",
+                $"Feishu account started OK: id={account.Id}", account.Id);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
         {
             // 账号已在运行，保持现有连接
+            RecordChannelEvent("feishu.account_already_started", "info",
+                $"Feishu account already started: id={account.Id}", account.Id);
+        }
+        catch (Exception ex)
+        {
+            RecordChannelEvent("feishu.account_start_failed", "error",
+                $"Feishu account start FAILED: id={account.Id} error={ex.Message}", account.Id);
+            throw;
         }
     }
 
@@ -159,6 +173,20 @@ internal sealed class ChannelInboundGatewayService
         CancellationToken cancellationToken = default)
     {
         return _weChatConnector.StopAsync(accountId, cancellationToken);
+    }
+
+    private void RecordChannelEvent(string eventType, string level, string message, string? accountId = null)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "gateway.channels",
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: accountId is not null
+                ? new Dictionary<string, string?> { ["accountId"] = accountId }
+                : null));
     }
 
     private void RecordRuntimeSkipped(ThreadBinding binding, string message)

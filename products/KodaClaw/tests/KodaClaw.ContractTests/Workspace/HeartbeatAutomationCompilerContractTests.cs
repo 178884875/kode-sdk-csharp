@@ -330,4 +330,50 @@ prompt: missing bullet marker
 
         definitions[0].NotificationChannels.Should().BeNull();
     }
+
+    [Fact]
+    public void Compile_should_preserve_newlines_in_block_scalar_prompt()
+    {
+        var markdown = """
+# Heartbeat
+
+## Multi Stage Task
+- cron: "0 23 * * *"
+- prompt: >
+    Step one: do this.
+    Step two: do that.
+
+    Step three: new paragraph.
+- enabled: true
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].Prompt.Should().Be("Step one: do this.\nStep two: do that.\n\nStep three: new paragraph.");
+    }
+
+    [Fact]
+    public void Compile_should_preserve_markdown_formatting_in_block_scalar_prompt()
+    {
+        var markdown = """
+# Heartbeat
+
+## Rich Prompt
+- cron: "45 23 * * *"
+- prompt: >
+    **Stage 1** — Gather sources:
+    1. Read file A.
+    2. Read file B.
+
+    **Stage 2** — Consolidate:
+    - Merge new facts.
+    - Remove duplicates.
+- enabled: true
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions[0].Prompt.Should().Contain("**Stage 1**");
+        definitions[0].Prompt.Should().Contain("**Stage 2**");
+        // Paragraph break between stages
+        definitions[0].Prompt.Should().Contain("2. Read file B.\n\n**Stage 2**");
+    }
 }

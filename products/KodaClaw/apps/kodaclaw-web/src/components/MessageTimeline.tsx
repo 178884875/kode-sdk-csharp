@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, CheckCircle, ChevronDown, Cog, Copy, MessageSquare, X, XCircle } from "lucide-react";
@@ -33,6 +34,9 @@ function groupMessages(messages: ChatMessage[]): RenderItem[] {
   }
 
   for (const msg of messages) {
+    // Skip empty done assistant messages (tool placeholders that received no text)
+    if (msg.role === "assistant" && !msg.text && msg.status !== "streaming") continue;
+
     const isDecidedApproval = msg.role === "approval" && msg.decision !== "pending";
     const isToolActivity = msg.role === "tool_activity";
     const isToolWarning = msg.role === "system" && msg.isToolWarning === true;
@@ -449,9 +453,12 @@ type MessageTimelineProps = {
   hasMoreHistory?: boolean;
   isLoadingHistory?: boolean;
   onLoadMoreHistory?: () => void;
+  /** Incremented by the parent whenever the timeline should auto-scroll to bottom.
+   *  History prepends do NOT increment this, keeping scroll position stable. */
+  scrollToBottomVersion?: number;
 };
 
-export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMoreHistory, isLoadingHistory, onLoadMoreHistory }: MessageTimelineProps) {
+export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMoreHistory, isLoadingHistory, onLoadMoreHistory, scrollToBottomVersion }: MessageTimelineProps) {
   const { formatTime } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -462,7 +469,7 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
   const text = useLocaleText({
     zh: {
       empty: "还没有消息。使用下方输入框开启新一轮对话。",
-      historySeparator: "以下为历史对话",
+      historySeparator: "以上为历史对话",
       loadMore: "加载更多",
       loadingHistory: "加载中…",
       roles: {
@@ -492,12 +499,58 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
     },
   });
 
-  useEffect(() => {
-    const el = bottomRef.current;
-    if (el && typeof el.scrollIntoView === "function") {
-      el.scrollIntoView({ behavior: "smooth" });
+  // ── Scroll management ────────────────────────────────────────────────────────
+  //
+  // Two independent concerns:
+  //
+  // 1. Scroll-to-bottom: triggered only by `scrollToBottomVersion` increments from the
+  //    parent (send, done, clearMessages). History prepends never increment it, so the
+  //    user's scroll position is unaffected when "加载更多" fires.
+  //
+  // 2. Scroll restoration for "加载更多": when history is prepended at the top, we
+  //    capture the distance-from-bottom before the load and restore it after, so the
+  //    currently-visible content stays in place. This runs in useLayoutEffect (before
+  //    paint) so there's no flicker.
+
+  const scrollContainerRef = useRef<HTMLElement | null>(null); // cached; walk DOM once
+  const prevIsLoadingRef = useRef(false);
+  const savedScrollBottomRef = useRef<number | null>(null);
+
+  function getScrollContainer(): HTMLElement | null {
+    if (scrollContainerRef.current) return scrollContainerRef.current;
+    let el = bottomRef.current?.parentElement ?? null;
+    while (el) {
+      const oy = getComputedStyle(el).overflowY;
+      if (oy === "auto" || oy === "scroll") { scrollContainerRef.current = el; return el; }
+      el = el.parentElement;
     }
-  }, [messages.length, isStreaming]);
+    return null;
+  }
+
+  // "加载更多" scroll anchor: save before load, restore after
+  useLayoutEffect(() => {
+    const wasLoading = prevIsLoadingRef.current;
+    const nowLoading = !!isLoadingHistory;
+    prevIsLoadingRef.current = nowLoading;
+
+    const container = getScrollContainer();
+    if (!container) return;
+
+    if (!wasLoading && nowLoading) {
+      savedScrollBottomRef.current = container.scrollHeight - container.scrollTop;
+    } else if (wasLoading && !nowLoading && savedScrollBottomRef.current !== null) {
+      container.scrollTop = container.scrollHeight - savedScrollBottomRef.current;
+      savedScrollBottomRef.current = null;
+    }
+  }, [isLoadingHistory]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Explicit scroll-to-bottom: only when the parent says so
+  useEffect(() => {
+    if (scrollToBottomVersion === undefined) return;
+    // Skip if a history load is in progress — useLayoutEffect will restore position instead
+    if (isLoadingHistory) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [scrollToBottomVersion, isLoadingHistory]);
 
   return (
     <>

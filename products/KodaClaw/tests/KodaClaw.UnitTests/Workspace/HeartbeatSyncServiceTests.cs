@@ -186,6 +186,35 @@ public sealed class HeartbeatSyncServiceTests : IDisposable
             Times.Never);
     }
 
+    [Fact]
+    public async Task New_definition_gets_NextRunAt_computed_from_cron_so_it_does_not_fire_immediately()
+    {
+        // Regression: new definitions previously got NextRunAt=null which caused the scheduler
+        // to treat them as immediately due (IsDue returns true when NextRunAt is null).
+        var markdown = BuildMarkdown("Daily Report");
+        WriteHeartbeatFile(markdown);
+
+        var compiled = new[] { BuildDefinition("daily-report") };  // NextRunAt = null from compiler
+        _compiler.Setup(c => c.Compile(markdown)).Returns(compiled);
+        _repository
+            .Setup(r => r.ListAsync(It.IsAny<AutomationDefinitionQuery?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<AutomationDefinition>());  // no existing → brand new
+
+        AutomationDefinition? upserted = null;
+        _repository
+            .Setup(r => r.UpsertAsync(It.IsAny<AutomationDefinition>(), It.IsAny<CancellationToken>()))
+            .Callback<AutomationDefinition, CancellationToken>((d, _) => upserted = d)
+            .Returns(Task.CompletedTask);
+
+        var before = DateTimeOffset.UtcNow;
+        await _syncService.SyncAsync();
+        var after = DateTimeOffset.UtcNow;
+
+        upserted.Should().NotBeNull();
+        upserted!.NextRunAt.Should().NotBeNull("new definitions must have NextRunAt computed from cron to avoid immediate firing");
+        upserted.NextRunAt.Should().BeAfter(before, "NextRunAt must be in the future, not in the past");
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_rootPath))

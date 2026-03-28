@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 
@@ -49,10 +50,10 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
     private readonly string _appSecret;
     private readonly Func<FeishuWsEventEnvelope, string, CancellationToken, Task> _onEvent;
     private readonly FeishuConnectorOptions _options;
+    private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ConcurrentQueue<string> _dedupeQueue = new();
     private readonly ConcurrentDictionary<string, byte> _dedupeSet = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, ChunkBuffer> _chunkBuffers = new(StringComparer.Ordinal);
-    private readonly TaskCompletionSource _connectedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _cts;
     private Task _loopTask = Task.CompletedTask;
 
@@ -61,13 +62,15 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         string appId,
         string appSecret,
         Func<FeishuWsEventEnvelope, string, CancellationToken, Task> onEvent,
-        FeishuConnectorOptions options)
+        FeishuConnectorOptions options,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _apiClient  = apiClient  ?? throw new ArgumentNullException(nameof(apiClient));
         _appId      = appId      ?? throw new ArgumentNullException(nameof(appId));
         _appSecret  = appSecret  ?? throw new ArgumentNullException(nameof(appSecret));
         _onEvent    = onEvent    ?? throw new ArgumentNullException(nameof(onEvent));
         _options    = options    ?? throw new ArgumentNullException(nameof(options));
+        _diagnosticsService = diagnosticsService;
     }
 
     public void Start(CancellationToken externalCancellation)
@@ -75,10 +78,6 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         _cts = CancellationTokenSource.CreateLinkedTokenSource(externalCancellation);
         _loopTask = Task.Run(() => RunConnectionLoopAsync(_cts.Token), CancellationToken.None);
     }
-
-    /// <summary>等待首次 WebSocket 连接建立（注册完成），超时后抛 OperationCanceledException。</summary>
-    public Task WaitForFirstConnectionAsync(CancellationToken cancellationToken = default)
-        => _connectedTcs.Task.WaitAsync(cancellationToken);
 
     public async Task StopAsync()
     {
@@ -108,18 +107,19 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             try
             {
                 await RunSingleConnectionAsync(cancellationToken).ConfigureAwait(false);
-                Console.Error.WriteLine($"[FeishuWS] app={_appId} connection closed, reconnecting (attempt #{attempt + 1})...");
+                RecordDiagnosticEvent("feishu.ws.reconnecting", "info",
+                    $"[FeishuWS] app={_appId} connection closed, reconnecting (attempt #{attempt + 1})...");
                 retryDelay = _options.ReconnectBaseDelay;
+                attempt = 0;
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                _connectedTcs.TrySetCanceled(cancellationToken);
                 return;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[FeishuWS] app={_appId} connection failed: {ex.Message}");
-                _connectedTcs.TrySetException(ex);
+                RecordDiagnosticEvent("feishu.ws.connection_failed", "error",
+                    $"[FeishuWS] app={_appId} connection failed (attempt #{attempt}): {ex.Message}");
             }
 
             try
@@ -148,19 +148,20 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         using var ws = new ClientWebSocket();
         // 认证通过 URL 中的 ticket 完成，无需额外 Authorization 头
         await ws.ConnectAsync(new Uri(endpoint.Url), cancellationToken).ConfigureAwait(false);
-        Console.Error.WriteLine($"[FeishuWS] app={_appId} connected (service_id={serviceId})");
-
-        _connectedTcs.TrySetResult();
+        RecordDiagnosticEvent("feishu.ws.connected", "info",
+            $"[FeishuWS] app={_appId} connected (service_id={serviceId})");
 
         var pingInterval = TimeSpan.FromSeconds(
             endpoint.PingIntervalSeconds > 0 ? endpoint.PingIntervalSeconds : 90);
 
+        // ClientWebSocket.SendAsync 不支持并发调用，用 sendLock 序列化 heartbeat 和 ACK 的发送
+        using var sendLock = new SemaphoreSlim(1, 1);
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var heartbeatTask = RunHeartbeatAsync(ws, serviceId, pingInterval, heartbeatCts.Token);
+        var heartbeatTask = RunHeartbeatAsync(ws, serviceId, pingInterval, sendLock, heartbeatCts.Token);
 
         try
         {
-            await ReceiveLoopAsync(ws, serviceId, cancellationToken).ConfigureAwait(false);
+            await ReceiveLoopAsync(ws, serviceId, sendLock, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -176,6 +177,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         ClientWebSocket ws,
         int serviceId,
         TimeSpan interval,
+        SemaphoreSlim sendLock,
         CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -186,8 +188,16 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
                 var ping = BuildFrame(serviceId, MethodControl,
                     [("type", "ping")],
                     payload: null);
-                await ws.SendAsync(ping, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
-                    .ConfigureAwait(false);
+                await sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ws.SendAsync(ping, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                finally
+                {
+                    sendLock.Release();
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -195,7 +205,8 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[FeishuWS] app={_appId} heartbeat error: {ex.Message}");
+                RecordDiagnosticEvent("feishu.ws.heartbeat_error", "warning",
+                    $"[FeishuWS] app={_appId} heartbeat error: {ex.Message}");
                 return;
             }
         }
@@ -206,6 +217,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
     private async Task ReceiveLoopAsync(
         ClientWebSocket ws,
         int serviceId,
+        SemaphoreSlim sendLock,
         CancellationToken cancellationToken)
     {
         var buffer = new byte[64 * 1024];
@@ -217,23 +229,32 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
 
             if (closed || rawBytes is null) break;
 
-            Console.Error.WriteLine($"[FeishuWS] RawFrame: {rawBytes.Length} bytes | hex={BitConverter.ToString(rawBytes[..Math.Min(32, rawBytes.Length)])}");
+            RecordDiagnosticEvent("feishu.ws.frame_received", "info",
+                $"[FeishuWS] RawFrame: {rawBytes.Length} bytes | hex={BitConverter.ToString(rawBytes[..Math.Min(32, rawBytes.Length)])}");
 
             var frame = DecodeFrame(rawBytes);
             if (frame is null)
             {
-                Console.Error.WriteLine($"[FeishuWS] DecodeFrame returned null");
+                RecordDiagnosticEvent("feishu.ws.decode_failed", "warning",
+                    "[FeishuWS] DecodeFrame returned null");
                 continue;
             }
 
             var frameType = GetHeader(frame.Headers, "type");
-            Console.Error.WriteLine($"[FeishuWS] Decoded: service={frame.Service} method={frame.Method} type={frameType} payloadLen={frame.Payload?.Length ?? 0}");
+            RecordDiagnosticEvent("feishu.ws.frame_decoded", "info",
+                $"[FeishuWS] Decoded: service={frame.Service} method={frame.Method} type={frameType} payloadLen={frame.Payload?.Length ?? 0}");
             if (frameType == "pong") continue;
 
             if (frame.Method == MethodData)
             {
-                await HandleEventFrameAsync(ws, frame, serviceId, cancellationToken)
+                await HandleEventFrameAsync(ws, frame, serviceId, sendLock, cancellationToken)
                     .ConfigureAwait(false);
+            }
+            else if (frame.Method != MethodControl)
+            {
+                // 飞书服务端推送的内部协议帧（如 method=125 的投递回执确认），无需处理
+                RecordDiagnosticEvent("feishu.ws.unknown_method", "info",
+                    $"[FeishuWS] Ignoring frame: method={frame.Method} service={frame.Service} type={frameType}");
             }
         }
     }
@@ -267,6 +288,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         ClientWebSocket ws,
         FeishuProtoFrame frame,
         int serviceId,
+        SemaphoreSlim sendLock,
         CancellationToken cancellationToken)
     {
         var frameReceivedAt = Stopwatch.GetTimestamp();
@@ -279,8 +301,8 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             return;
         }
 
-        // 立即 ACK，满足飞书 3s 要求
-        await AckFrameAsync(ws, frame, frameReceivedAt, cancellationToken).ConfigureAwait(false);
+        // 立即 ACK，满足飞书 3s 要求（通过 sendLock 避免与 heartbeat 并发写 ws）
+        await AckFrameAsync(ws, frame, frameReceivedAt, sendLock, cancellationToken).ConfigureAwait(false);
 
         if (frame.Payload is null || frame.Payload.Length == 0) return;
 
@@ -313,7 +335,8 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             fullPayload = frame.Payload;
         }
 
-        Console.Error.WriteLine($"[FeishuWS] Event payload ({fullPayload.Length}b): {Encoding.UTF8.GetString(fullPayload, 0, Math.Min(300, fullPayload.Length))}");
+        RecordDiagnosticEvent("feishu.ws.event_payload", "info",
+            $"[FeishuWS] Event payload ({fullPayload.Length}b): {Encoding.UTF8.GetString(fullPayload, 0, Math.Min(300, fullPayload.Length))}");
 
         FeishuWsEventEnvelope? envelope;
         try
@@ -322,14 +345,29 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         }
         catch (JsonException ex)
         {
-            Console.Error.WriteLine($"[FeishuWS] Deserialize failed: {ex.Message}");
+            RecordDiagnosticEvent("feishu.ws.deserialize_failed", "warning",
+                $"[FeishuWS] Deserialize failed: {ex.Message}");
             return;
         }
 
         if (envelope is null) return;
 
+        // 过滤飞书重投的陈旧事件（飞书 ACK 失败后会在 5 分钟 / 6 小时等时间点重投，
+        // 重投时 eventId 不同，普通去重无法拦截，用 createTime 兜底）
+        var eventAge = DateTimeOffset.UtcNow - ParseEventTimestamp(envelope.Header?.CreateTime);
+        if (eventAge > TimeSpan.FromMinutes(10))
+        {
+            RecordDiagnosticEvent("feishu.ws.stale_event_dropped", "info",
+                $"[FeishuWS] Dropped stale event: age={eventAge.TotalMinutes:F1}min eventId={envelope.Header?.EventId}");
+            return;
+        }
+
         var eventId = envelope.Header?.EventId ?? string.Empty;
         if (!string.IsNullOrWhiteSpace(eventId) && !TryTrackEvent(eventId)) return;
+
+        // 飞书重投时 eventId 不同但底层 message_id 不变，追加 message_id 去重兜底
+        var messageId = envelope.Event?.Message?.MessageId;
+        if (!string.IsNullOrWhiteSpace(messageId) && !TryTrackEvent(messageId)) return;
 
         // fire-and-forget：业务处理不阻塞 WS 接收循环
         _ = Task.Run(async () =>
@@ -340,7 +378,8 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[FeishuWS] app={_appId} event handler error: {ex.Message}");
+                RecordDiagnosticEvent("feishu.ws.event_handler_error", "error",
+                    $"[FeishuWS] app={_appId} event handler error: {ex.Message}");
             }
         }, CancellationToken.None);
     }
@@ -349,6 +388,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         ClientWebSocket ws,
         FeishuProtoFrame frame,
         long frameReceivedTimestamp,
+        SemaphoreSlim sendLock,
         CancellationToken cancellationToken)
     {
         var msgId = GetHeader(frame.Headers, "message_id");
@@ -365,8 +405,16 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         var ackPayload = Encoding.UTF8.GetBytes("{\"code\":200}");
         var ackBytes = BuildFrame(frame.Service, frame.Method, ackHeaders, ackPayload);
 
-        await ws.SendAsync(ackBytes, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
-            .ConfigureAwait(false);
+        await sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ws.SendAsync(ackBytes, WebSocketMessageType.Binary, endOfMessage: true, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            sendLock.Release();
+        }
     }
 
     // ── Protobuf 编码 / 解码 ──────────────────────────────────────────────
@@ -405,49 +453,76 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
 
     private static FeishuProtoFrame? DecodeFrame(byte[] data)
     {
+        long service = 0;
+        long method  = 0;
+        var headers  = new List<(string Key, string Value)>();
+        byte[]? payload = null;
+
+        var pos = 0;
+
         try
         {
-            var pos = 0;
-            long service = 0, method = 0;
-            var headers = new List<(string Key, string Value)>();
-            byte[]? payload = null;
-
             while (pos < data.Length)
             {
-                var tag = (int)ReadVarint(data, ref pos);
-                var fieldNumber = tag >> 3;
-                var wireType   = tag & 0x07;
+                var tag = ReadVarint(data, ref pos);
+                var fn  = (int)(tag >> 3);
+                var wt  = (int)(tag & 0x07);
 
-                switch (fieldNumber)
+                if (pos > data.Length) break;
+
+                switch (fn)
                 {
-                    case FnSeqId:
-                    case FnLogId:
-                        ReadVarint(data, ref pos);
+                    case 1: case 2: // SeqId, LogId
+                    case 3: // Service
+                        if (fn == 3) service = (long)ReadVarint(data, ref pos);
+                        else ReadVarint(data, ref pos);
                         break;
-                    case FnService:
-                        service = (long)ReadVarint(data, ref pos);
-                        break;
-                    case FnMethod:
+                    case 4: // Method
                         method = (long)ReadVarint(data, ref pos);
                         break;
-                    case FnHeaders:
+                    case 5: // Headers (repeated)
                     {
                         var len = (int)ReadVarint(data, ref pos);
+                        if (pos + len > data.Length) break;
                         headers.Add(DecodeHeader(data, pos, len));
                         pos += len;
                         break;
                     }
-                    case FnPayload:
+                    case 8: // Payload
                     {
                         var len = (int)ReadVarint(data, ref pos);
+                        if (pos + len > data.Length) break;
                         payload = new byte[len];
                         Array.Copy(data, pos, payload, 0, len);
                         pos += len;
                         break;
                     }
                     default:
-                        SkipField(data, ref pos, wireType);
+                    {
+                        // 飞书额外字段 6,7,9,10,11,12,13,14 — 按 wireType 跳过
+                        if (wt == 0) // varint
+                        {
+                            ReadVarint(data, ref pos);
+                        }
+                        else if (wt == 2) // length-delimited
+                        {
+                            var len = (int)ReadVarint(data, ref pos);
+                            pos += len;
+                        }
+                        else if (wt == 1) // 64-bit
+                        {
+                            pos += 8;
+                        }
+                        else if (wt == 5) // 32-bit
+                        {
+                            pos += 4;
+                        }
+                        else // wt 3,4,6,7 — skip 1 byte safety
+                        {
+                            pos++;
+                        }
                         break;
+                    }
                 }
             }
 
@@ -485,12 +560,13 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         ulong result = 0;
         int   shift  = 0;
 
-        while (true)
+        while (pos < data.Length)
         {
             var b = data[pos++];
             result |= (ulong)(b & 0x7F) << shift;
             if ((b & 0x80) == 0) break;
             shift += 7;
+            if (shift >= 64) break;
         }
 
         return result;
@@ -502,8 +578,29 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         {
             case WtVarint:          ReadVarint(data, ref pos); break;
             case WtLengthDelimited: pos += (int)ReadVarint(data, ref pos); break;
-            case 1:                 pos += 8; break; // 64-bit
-            case 5:                 pos += 4; break; // 32-bit
+            case 1:                 pos += 8; break; // 64-bit fixed
+            case 5:                 pos += 4; break; // 32-bit fixed
+            case 3:                 SkipGroup(data, ref pos); break; // start group
+            case 4:                 break; // end group
+        }
+    }
+
+    /// <summary>
+    /// 跳过 protobuf group（wireType=3/4，deprecated 嵌套格式）。
+    /// 递归读取直到匹配的 end group tag。
+    /// </summary>
+    private static void SkipGroup(byte[] data, ref int pos)
+    {
+        if (pos >= data.Length) return;
+        var startTag = (int)ReadVarint(data, ref pos);
+        var groupField = startTag >> 3;
+        while (pos < data.Length)
+        {
+            var tag = (int)ReadVarint(data, ref pos);
+            var fn = tag >> 3;
+            var wt = tag & 0x07;
+            if (fn == groupField && wt == 4) return;
+            SkipField(data, ref pos, wt);
         }
     }
 
@@ -553,6 +650,13 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         }
     }
 
+    private static DateTimeOffset ParseEventTimestamp(string? createTime)
+    {
+        if (string.IsNullOrWhiteSpace(createTime)) return DateTimeOffset.UtcNow;
+        return long.TryParse(createTime, out var ms)
+            ? DateTimeOffset.FromUnixTimeMilliseconds(ms)
+            : DateTimeOffset.UtcNow;
+    }
 
     // ── 事件去重 LRU ──────────────────────────────────────────────────────
 
@@ -569,6 +673,19 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         }
 
         return true;
+    }
+
+    // ── 诊断 ──────────────────────────────────────────────────────────────
+
+    private void RecordDiagnosticEvent(string eventType, string level, string message)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: "feishu.websocket",
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow));
     }
 }
 
