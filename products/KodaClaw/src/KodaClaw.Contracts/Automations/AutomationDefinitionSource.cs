@@ -7,4 +7,5 @@ public enum AutomationDefinitionSource
 {
     Heartbeat,
     Manual,
+    OneShot,
 }

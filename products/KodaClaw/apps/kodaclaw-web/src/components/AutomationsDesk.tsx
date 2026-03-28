@@ -809,7 +809,7 @@ export function AutomationsDesk() {
   }
 
   return (
-    <section className="" data-testid="automations-desk">
+    <section className="automations-desk" data-testid="automations-desk">
       <h2 className="desk-section-title">{text.title}</h2>
       <p className="desk-section-desc">{text.copy}</p>
 

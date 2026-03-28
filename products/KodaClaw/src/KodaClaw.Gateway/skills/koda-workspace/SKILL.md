@@ -3,7 +3,7 @@ name: koda-workspace
 description: KodaClaw workspace 协议指南——workspace 文件布局、工具使用模式、各类 session 上下文差异
 license: built-in
 compatibility: KodaClaw 1.x
-allowed-tools: workspace_protocol_update workspace_memory_append workspace_read diagnostics_query
+allowed-tools: workspace_protocol_update workspace_memory_append workspace_read diagnostics_query schedule_reminder
 metadata:
   kind: builtin-core
   version: "1.1"
@@ -50,6 +50,32 @@ workspace_protocol_update(target="user", section="偏好", content="- 偏好简�
 workspace_read(path="workspace/MEMORY.md")
 ```
 
+### schedule_reminder
+安排一次性定时提醒——在未来某个特定时刻触发一次 Agent 会话执行给定 prompt。
+
+**何时使用（vs heartbeat）：**
+- 用 `schedule_reminder`：明确的单次时间点，如"明天下午三点提醒我"、"2026-04-01 检查服务器"
+- 用 `heartbeat`（写入 workspace）：周期性重复任务，如"每天 9 点"、"每周五下午"
+
+**参数：**
+- `prompt`（必填）：到时触发的 Agent 指令，应当自洽、不依赖当前对话上下文
+- `fireAt`（必填）：ISO 8601 格式，必须包含时区偏移，如 `2026-04-01T15:00:00+08:00`
+- `title`（可选）：简短标题，显示在 Inbox 条目中
+- `channels`（可选）：结果推送的渠道 BindingId 列表，如 `["tg-12345"]`
+
+```
+schedule_reminder(
+  prompt="检查 CI 流水线是否全绿，如有失败写入 Inbox",
+  fireAt="2026-04-01T10:00:00+08:00",
+  title="CI 健康检查"
+)
+```
+
+**注意：**
+- `fireAt` 必须是未来时间，不接受过去时间
+- `prompt` 要写得完整——执行时没有当前对话上下文
+- 工具返回 `{ timerId, fireAt }`，可告知用户已安排
+
 ### diagnostics_query
 查询系统近期诊断事件，用于 Agent **主动自诊断**。返回字段：`ts`、`level`、`source`、`eventType`、`message`、`correlationId`、`sessionId`（不含 attributes，避免敏感数据进入上下文）。
 
@@ -89,7 +115,8 @@ diagnostics_query(correlationId="abc123...", sinceMinutes=60, limit=50)
 
 - 学到用户稳定偏好或背景信息后，写入 `user`。
 - 重要事件、决策或需要未来引用的内容，写入 `memory`。
-- 用户要求定时任务（"每天早上 9 点..."）时，写入 `heartbeat`。
+- 用户要求**周期性**定时任务（"每天早上 9 点..."）时，写入 `heartbeat`。
+- 用户要求**一次性**提醒（"明天下午三点..."、"X 月 X 日..."）时，调用 `schedule_reminder`，不写 heartbeat。
 - 避免写入临时对话细节——只写在下次 session 中有实际价值的内容。
 
 ## 技能自安装

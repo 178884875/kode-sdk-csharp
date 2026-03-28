@@ -7,6 +7,7 @@ using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
+using System.Collections.Concurrent;
 
 namespace KodaClaw.Runtime;
 
@@ -27,6 +28,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ISettingsRepository? _settingsRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
         IWorkspaceService workspaceService,
@@ -214,6 +216,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var handle = await EnsureChannelSessionAsync(binding, policy, cancellationToken);
         var prompt = BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
         AgentRunResult runResult;
+        var sessionLock = _sessionLocks.GetOrAdd(handle.SessionId, _ => new SemaphoreSlim(1, 1));
+        await sessionLock.WaitAsync(cancellationToken);
         try
         {
             runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
@@ -226,6 +230,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 message: $"Channel turn failed: bindingId={binding.Id} error={ex.GetBaseException().Message}",
                 sessionId: binding.SessionId);
             throw;
+        }
+        finally
+        {
+            sessionLock.Release();
         }
 
         var turnLevel = runResult.StopReason == StopReason.Error ? "warning" : "info";
@@ -258,6 +266,13 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         _agents.Clear();
+
+        foreach (var semaphore in _sessionLocks.Values)
+        {
+            semaphore.Dispose();
+        }
+
+        _sessionLocks.Clear();
     }
 
     private async Task<IReadOnlyList<PromptContextDocument>> LoadContextDocumentsAsync(
@@ -384,6 +399,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         {
             await TryGenerateChannelSessionSummaryAsync(binding, cancellationToken);
             _agents.Remove(binding.SessionId);
+            if (_sessionLocks.TryRemove(binding.SessionId, out var removedLock))
+            {
+                removedLock.Dispose();
+            }
             await agent.DisposeAsync();
         }
 

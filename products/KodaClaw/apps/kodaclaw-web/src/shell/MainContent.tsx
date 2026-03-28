@@ -101,7 +101,7 @@ export function MainContent({
   return (
     <div className="kc-desk-view" data-testid="control-plane-view" data-kc-view={mainDesk}>
       <DeskPageHeader icon={config.icon} title={config.label} />
-      <div className={`kc-desk-content${mainDesk === 'settings' ? ' kc-desk-content--split' : ''}${mainDesk === 'diagnostics' ? ' kc-desk-content--fullbleed' : ''}`}>
+      <div className={`kc-desk-content${mainDesk === 'settings' ? ' kc-desk-content--split' : ''}${mainDesk === 'diagnostics' ? ' kc-desk-content--fullbleed' : ''}${mainDesk === 'automations' ? ' kc-desk-content--automations' : ''}`}>
         {mainDesk === 'inbox' && <InboxApprovalDesk />}
         {mainDesk === 'sessions' && (
           <SessionsDiagnosticsDesk

@@ -22,6 +22,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
     private readonly ISettingsRepository? _settingsRepository;
     private readonly IAutomationNotificationService? _notificationService;
     private readonly IMemoryConsolidationService? _memoryConsolidationService;
+    private readonly IOneShotTimerService? _oneShotTimerService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ILogger<AutomationScheduler>? _logger;
@@ -37,6 +38,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         ISettingsRepository? settingsRepository = null,
         IAutomationNotificationService? notificationService = null,
         IMemoryConsolidationService? memoryConsolidationService = null,
+        IOneShotTimerService? oneShotTimerService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null,
         IDiagnosticsService? diagnosticsService = null,
         ILogger<AutomationScheduler>? logger = null,
@@ -51,6 +53,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         _settingsRepository = settingsRepository;
         _notificationService = notificationService;
         _memoryConsolidationService = memoryConsolidationService;
+        _oneShotTimerService = oneShotTimerService;
         _correlationContextAccessor = correlationContextAccessor;
         _diagnosticsService = diagnosticsService;
         _logger = logger;
@@ -148,6 +151,18 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
             await ExecuteDefinitionAsync(definition, now, cancellationToken);
             executed++;
+        }
+
+        if (_oneShotTimerService is not null)
+        {
+            try
+            {
+                await _oneShotTimerService.TickAsync(cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger?.LogWarning(ex, "One-shot timer tick failed; skipping.");
+            }
         }
 
         return executed;

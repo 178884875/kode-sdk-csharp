@@ -2,6 +2,20 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 64 — 一次性定时提醒（2026-03-28）
+
+> FREEZE doc: `docs/ITERATION_64_FREEZE.md`
+
+范围：P0 核心能力——Agent 可通过 `schedule_reminder` 工具安排一次性定时任务，`AutomationScheduler` 每分钟 tick 时检测到期 timer 并触发 Agent 会话执行，结果写入 Inbox。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6401 | Contracts | `OneShotTimerRecord` / `OneShotTimerStatus` / `IOneShotTimerRepository` 数据类型；`AutomationDefinitionSource.OneShot` 枚举值 | `dotnet build` 0 错 | Completed |
+| KC-6402 | Storage.Json | `JsonOneShotTimerRepository`：JSON 数组文件 + WAL 原子写 + SemaphoreSlim 并发保护；注册至 `AddKodaClawJsonStore` | `dotnet test --filter JsonOneShotTimer` | Completed |
+| KC-6403 | Automation | `IOneShotTimerService` + `OneShotTimerService`：TickAsync 查 Pending timers → 乐观锁标 Fired → 合成 AutomationDefinition → StartAutomationSession → 写 Inbox；注入 `AutomationScheduler.TickCoreAsync` 末尾 | `dotnet test --filter OneShotTimerService` 6 个通过 | Completed |
+| KC-6404 | Runtime | `ScheduleReminderTool`（`schedule_reminder`）：fireAt ISO 8601 校验 + AddAsync；加入 `DefaultTools`；注册 ToolRegistry；`koda-workspace/SKILL.md` allowed-tools 追加 | `dotnet build` 0 错 | Completed |
+| KC-6405 | Tests | `OneShotTimerServiceTests`（L1, 6）+ `OneShotTimerContractTests`（L3, 5）；全量回归 427/429 unit + 259 integration + 159 contract | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 63 — 存储层去 SQLite：JSON/JSONL 实现 + 接口抽象（2026-03-26）
 
 > FREEZE doc: `docs/ITERATION_63_FREEZE.md`

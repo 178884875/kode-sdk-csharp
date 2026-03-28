@@ -352,6 +352,26 @@ prompt: missing bullet marker
     }
 
     [Fact]
+    public void Compile_should_accept_inline_empty_list_for_inputs_and_channels()
+    {
+        // Regression: "inputs: []" and "channels: []" previously threw "Unsupported field".
+        var markdown = """
+# Heartbeat
+
+## Empty Lists
+- cron: "0 9 * * *"
+- prompt: Check health.
+- inputs: []
+- channels: []
+""";
+        var definitions = _compiler.Compile(markdown);
+
+        definitions.Should().ContainSingle();
+        definitions[0].InputPaths.Should().BeNullOrEmpty();
+        definitions[0].NotificationChannels.Should().BeNullOrEmpty();
+    }
+
+    [Fact]
     public void Compile_should_preserve_markdown_formatting_in_block_scalar_prompt()
     {
         var markdown = """

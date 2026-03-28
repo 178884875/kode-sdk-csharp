@@ -198,13 +198,13 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
                 continue;
             }
 
-            if (string.Equals(bulletContent, "inputs:", StringComparison.OrdinalIgnoreCase))
+            if (IsEmptyListField(bulletContent, "inputs"))
             {
                 lineIndex = ParseInputs(lines, lineIndex + 1, currentSection);
                 continue;
             }
 
-            if (string.Equals(bulletContent, "channels:", StringComparison.OrdinalIgnoreCase))
+            if (IsEmptyListField(bulletContent, "channels"))
             {
                 lineIndex = ParseChannels(lines, lineIndex + 1, currentSection);
                 continue;
@@ -587,6 +587,24 @@ public sealed class HeartbeatAutomationCompiler : IHeartbeatAutomationCompiler
         }
 
         return string.Join('/', segments);
+    }
+
+    /// <summary>
+    /// Returns true when a bullet content represents a list field header that is either
+    /// empty ("inputs:") or declared as an explicit empty YAML list ("inputs: []").
+    /// Nested items, if any, are parsed by the caller on subsequent lines.
+    /// </summary>
+    private static bool IsEmptyListField(string bulletContent, string fieldName)
+    {
+        var prefix = $"{fieldName}:";
+        if (!bulletContent.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var rest = bulletContent[prefix.Length..].Trim();
+        // Accept "field:" (rest is empty) or "field: []" (explicit empty YAML list).
+        return rest.Length == 0 || rest == "[]";
     }
 
     private static bool TryReadTopLevelBullet(string line, out string content)

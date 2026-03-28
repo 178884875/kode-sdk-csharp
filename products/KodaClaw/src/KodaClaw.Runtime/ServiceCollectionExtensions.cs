@@ -141,6 +141,13 @@ public static class ServiceCollectionExtensions
                     _ => new DiagnosticsQueryTool(diagnosticsService, correlationContextAccessor));
             }
 
+            var oneShotTimerRepository = sp.GetService<IOneShotTimerRepository>();
+            if (oneShotTimerRepository is not null)
+            {
+                toolRegistry.Register("schedule_reminder",
+                    _ => new ScheduleReminderTool(oneShotTimerRepository, diagnosticsService));
+            }
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
                 ModelProvider = sp.GetRequiredService<IModelProvider>(),

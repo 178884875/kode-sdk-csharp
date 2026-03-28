@@ -36,6 +36,7 @@ public sealed class MainSessionOptions
         "generate_image",
         "generate_speech",
         "diagnostics_query",
+        "schedule_reminder",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =

@@ -29,6 +29,25 @@ public static class ServiceCollectionExtensions
 
         services.TryAddSingleton(schedulerOptions);
         services.TryAddSingleton<IAutomationClock, SystemAutomationClock>();
+        services.TryAddSingleton<IOneShotTimerService>(provider =>
+        {
+            var timerRepository = provider.GetService<IOneShotTimerRepository>();
+            var sessionService = provider.GetService<IAutomationSessionService>();
+            var inboxRepository = provider.GetService<IInboxRepository>();
+            if (timerRepository is null || sessionService is null || inboxRepository is null)
+            {
+                return new DisabledOneShotTimerService();
+            }
+
+            return new OneShotTimerService(
+                timerRepository,
+                sessionService,
+                inboxRepository,
+                provider.GetRequiredService<IAutomationClock>(),
+                provider.GetService<IDiagnosticsService>(),
+                provider.GetService<ILogger<OneShotTimerService>>());
+        });
+
         services.TryAddSingleton<IAutomationScheduler>(provider =>
         {
             var sessionService = provider.GetService<IAutomationSessionService>();
@@ -48,6 +67,7 @@ public static class ServiceCollectionExtensions
                 provider.GetService<ISettingsRepository>(),
                 provider.GetService<IAutomationNotificationService>(),
                 provider.GetService<IMemoryConsolidationService>(),
+                provider.GetService<IOneShotTimerService>(),
                 provider.GetService<ICorrelationContextAccessor>(),
                 provider.GetService<IDiagnosticsService>(),
                 provider.GetService<ILogger<AutomationScheduler>>(),
@@ -55,6 +75,15 @@ public static class ServiceCollectionExtensions
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, AutomationSchedulerHostedService>());
         return services;
+    }
+
+    private sealed class DisabledOneShotTimerService : IOneShotTimerService
+    {
+        public Task TickAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class DisabledAutomationScheduler : IAutomationScheduler

@@ -1050,33 +1050,70 @@
 }
 
 /* ── AutomationsDesk 布局 ── */
+
+/*
+ * 高度链路（从外到内）：
+ *   kc-main-content (100vh, overflow:hidden)
+ *   → kc-desk-view (100%, flex col, overflow:hidden)
+ *   → kc-desk-content--automations (flex:1, overflow:hidden, flex col) ← 新增 modifier
+ *   → .automations-desk (flex:1, min-height:0, flex col) ← 外层 section
+ *   → .automations-desk__layout (flex:1, min-height:0, grid) ← 两列网格获得确定高度
+ *   → 每列 overflow-y:auto ← 独立滚动
+ */
+
+/* 外层 section：占满 kc-desk-content 并构成 flex 列 */
+.automations-desk {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 28px;
+}
+
+/* 标题 + 描述 + 工具栏：固定高度，不参与伸缩 */
+.automations-desk > h2,
+.automations-desk > p,
+.automations-desk > .automations-engine-banner,
+.automations-desk > .automations-desk__toolbar,
+.automations-desk > .__feedback {
+  flex-shrink: 0;
+}
+
+/* 两列布局：用 flex row 代替 grid，确保高度在纯 flex 链中可靠传播 */
 .automations-desk__layout {
-  display: grid;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-  /* Fixed row height → both panels fill it equally; each scrolls internally */
-  height: calc(100vh - 240px);
   margin-top: var(--space-4);
 }
 
-/* Left panel: flex column so list body fills remaining space */
+/* 左侧列：比右侧稍宽（约 52:48），自身是 flex 列容器 */
 .automations-desk__layout > .timeline {
-  display: flex;
-  flex-direction: column;
+  flex: 1.1;
+  min-width: 0;
+  min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: auto;
+  /* display: flex;
+  flex-direction: column;
+  overflow: hidden; */
 }
 
+/* list-body：填满左侧列剩余高度，超出滚动 */
 .automations-desk__list-body {
   flex: 1;
-  min-height: 0;        /* required for flex child to shrink below content size */
+  min-height: 0;
   overflow-y: auto;
   padding-bottom: var(--space-2);
 }
 
-/* Right panel: fills row height and scrolls */
+/* 右侧详情面板：填满右侧列高度，超出滚动 */
 .automations-desk__detail-panel {
-  height: 100%;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   box-sizing: border-box;
 }

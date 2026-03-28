@@ -503,6 +503,14 @@
   min-height: 0;
 }
 
+/* Automations: inner panels own scrolling; strip outer padding so automations-desk handles it */
+.kc-desk-content--automations {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+}
+
 /* Settings: two-panel independent scroll — no outer padding, overflow hidden */
 .kc-desk-content--split {
   overflow: hidden;

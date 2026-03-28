@@ -31,6 +31,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IChannelAccountRepository>(_ => new JsonChannelAccountRepository(workspaceRoot));
         // ThreadBindingRepository 需要单例保证内存字典唯一
         services.TryAddSingleton<IThreadBindingRepository>(_ => new JsonThreadBindingRepository(workspaceRoot));
+        services.TryAddSingleton<IOneShotTimerRepository>(_ => new JsonOneShotTimerRepository(workspaceRoot));
 
         return services;
     }
