@@ -306,7 +306,7 @@ public sealed class AnthropicProvider : IModelProvider
             }),
             ToolResultContent toolResult => new ContentBlockParam(new ToolResultBlockParam(toolResult.ToolUseId)
             {
-                Content = toolResult.Content.ToString() ?? "",
+                Content = JsonSerializer.Serialize(toolResult.Content) ?? "", // Fixed by Nietzsche: use JSON serialization instead of ToString() for anonymous types
                 IsError = toolResult.IsError
             }),
             ThinkingContent thinking => new ContentBlockParam(new TextBlockParam

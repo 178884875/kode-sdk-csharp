@@ -124,7 +124,7 @@ public sealed class OpenAIProvider : IModelProvider
             // Handle tool results separately
             foreach (var toolResult in msg.Content.OfType<ToolResultContent>())
             {
-                messages.Add(new ToolChatMessage(toolResult.ToolUseId, toolResult.Content?.ToString() ?? ""));
+                messages.Add(new ToolChatMessage(toolResult.ToolUseId, JsonSerializer.Serialize(toolResult.Content) ?? "")); // Fixed by Nietzsche: use JSON serialization instead of ToString() for anonymous types
             }
         }
 
