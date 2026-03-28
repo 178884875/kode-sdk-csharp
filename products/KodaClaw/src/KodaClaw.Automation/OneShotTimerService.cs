@@ -153,7 +153,7 @@ public sealed class OneShotTimerService : IOneShotTimerService
         var title = string.IsNullOrWhiteSpace(timer.Title)
             ? (succeeded ? "提醒已触发" : "提醒触发失败")
             : timer.Title;
-        var displaySummary = TruncateText(summary?.Trim(), 400)
+        var displaySummary = summary?.Trim()
                              ?? (succeeded ? "定时提醒已执行完成。" : "定时提醒执行失败。");
 
         var payload = JsonSerializer.Serialize(new
@@ -165,7 +165,7 @@ public sealed class OneShotTimerService : IOneShotTimerService
             firedAt = timer.FiredAt,
             succeeded,
             summary = displaySummary,
-            errorMessage = TruncateText(errorMessage, 400),
+            errorMessage = errorMessage,
             channels = timer.Channels,
         });
 
@@ -212,16 +212,6 @@ public sealed class OneShotTimerService : IOneShotTimerService
             NextRunAt: null,
             LastRunStatus: null,
             LastError: null);
-    }
-
-    private static string? TruncateText(string? value, int maxLength)
-    {
-        if (value is null || value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        return value[..maxLength].TrimEnd() + "…";
     }
 
     private void RecordDiagnosticEvent(string eventType, string level, string message)

@@ -108,7 +108,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             {
                 await RunSingleConnectionAsync(cancellationToken).ConfigureAwait(false);
                 RecordDiagnosticEvent("feishu.ws.reconnecting", "info",
-                    $"[FeishuWS] app={_appId} connection closed, reconnecting (attempt #{attempt + 1})...");
+                    $"app={_appId} connection closed, reconnecting (attempt #{attempt + 1})...");
                 retryDelay = _options.ReconnectBaseDelay;
                 attempt = 0;
             }
@@ -119,7 +119,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             catch (Exception ex)
             {
                 RecordDiagnosticEvent("feishu.ws.connection_failed", "error",
-                    $"[FeishuWS] app={_appId} connection failed (attempt #{attempt}): {ex.Message}");
+                    $"app={_appId} connection failed (attempt #{attempt}): {ex.Message}");
             }
 
             try
@@ -149,7 +149,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         // 认证通过 URL 中的 ticket 完成，无需额外 Authorization 头
         await ws.ConnectAsync(new Uri(endpoint.Url), cancellationToken).ConfigureAwait(false);
         RecordDiagnosticEvent("feishu.ws.connected", "info",
-            $"[FeishuWS] app={_appId} connected (service_id={serviceId})");
+            $"app={_appId} connected (service_id={serviceId})");
 
         var pingInterval = TimeSpan.FromSeconds(
             endpoint.PingIntervalSeconds > 0 ? endpoint.PingIntervalSeconds : 90);
@@ -206,7 +206,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             catch (Exception ex)
             {
                 RecordDiagnosticEvent("feishu.ws.heartbeat_error", "warning",
-                    $"[FeishuWS] app={_appId} heartbeat error: {ex.Message}");
+                    $"app={_appId} heartbeat error: {ex.Message}");
                 return;
             }
         }
@@ -229,20 +229,15 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
 
             if (closed || rawBytes is null) break;
 
-            RecordDiagnosticEvent("feishu.ws.frame_received", "info",
-                $"[FeishuWS] RawFrame: {rawBytes.Length} bytes | hex={BitConverter.ToString(rawBytes[..Math.Min(32, rawBytes.Length)])}");
-
             var frame = DecodeFrame(rawBytes);
             if (frame is null)
             {
                 RecordDiagnosticEvent("feishu.ws.decode_failed", "warning",
-                    "[FeishuWS] DecodeFrame returned null");
+                    $"app={_appId} decode frame returned null");
                 continue;
             }
 
             var frameType = GetHeader(frame.Headers, "type");
-            RecordDiagnosticEvent("feishu.ws.frame_decoded", "info",
-                $"[FeishuWS] Decoded: service={frame.Service} method={frame.Method} type={frameType} payloadLen={frame.Payload?.Length ?? 0}");
             if (frameType == "pong") continue;
 
             if (frame.Method == MethodData)
@@ -254,7 +249,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             {
                 // 飞书服务端推送的内部协议帧（如 method=125 的投递回执确认），无需处理
                 RecordDiagnosticEvent("feishu.ws.unknown_method", "info",
-                    $"[FeishuWS] Ignoring frame: method={frame.Method} service={frame.Service} type={frameType}");
+                    $"app={_appId} ignoring frame: method={frame.Method} service={frame.Service} type={frameType}");
             }
         }
     }
@@ -335,9 +330,6 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             fullPayload = frame.Payload;
         }
 
-        RecordDiagnosticEvent("feishu.ws.event_payload", "info",
-            $"[FeishuWS] Event payload ({fullPayload.Length}b): {Encoding.UTF8.GetString(fullPayload, 0, Math.Min(300, fullPayload.Length))}");
-
         FeishuWsEventEnvelope? envelope;
         try
         {
@@ -346,7 +338,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         catch (JsonException ex)
         {
             RecordDiagnosticEvent("feishu.ws.deserialize_failed", "warning",
-                $"[FeishuWS] Deserialize failed: {ex.Message}");
+                $"app={_appId} deserialize failed: {ex.Message}");
             return;
         }
 
@@ -358,7 +350,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
         if (eventAge > TimeSpan.FromMinutes(10))
         {
             RecordDiagnosticEvent("feishu.ws.stale_event_dropped", "info",
-                $"[FeishuWS] Dropped stale event: age={eventAge.TotalMinutes:F1}min eventId={envelope.Header?.EventId}");
+                $"app={_appId} dropped stale event: age={eventAge.TotalMinutes:F1}min eventId={envelope.Header?.EventId}");
             return;
         }
 
@@ -379,7 +371,7 @@ internal sealed class FeishuWebSocketClient : IAsyncDisposable
             catch (Exception ex)
             {
                 RecordDiagnosticEvent("feishu.ws.event_handler_error", "error",
-                    $"[FeishuWS] app={_appId} event handler error: {ex.Message}");
+                    $"app={_appId} event handler error: {ex.Message}");
             }
         }, CancellationToken.None);
     }

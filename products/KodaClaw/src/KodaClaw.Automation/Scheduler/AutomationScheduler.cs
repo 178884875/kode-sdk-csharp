@@ -290,7 +290,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 {
                     Status = AutomationRunStatus.Succeeded,
                     CompletedAt = _clock.UtcNow,
-                    Summary = TruncateText(NormalizeText(runResult.Response), 600) ?? "Automation run completed successfully.",
+                    Summary = NormalizeText(runResult.Response) ?? "Automation run completed successfully.",
                     ErrorMessage = null,
                 };
 
@@ -309,7 +309,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
             {
                 Status = AutomationRunStatus.Failed,
                 CompletedAt = _clock.UtcNow,
-                Summary = TruncateText(NormalizeText(runResult.Response), 600) ?? $"Automation run stopped: {runResult.StopReason}.",
+                Summary = NormalizeText(runResult.Response) ?? $"Automation run stopped: {runResult.StopReason}.",
                 ErrorMessage = $"Run did not complete successfully (stop reason: {runResult.StopReason}).",
             };
 
@@ -334,7 +334,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
                 Status = AutomationRunStatus.Failed,
                 CompletedAt = failedAt,
                 Summary = NormalizeText(ex.GetBaseException().Message) ?? "Automation run crashed.",
-                ErrorMessage = NormalizeText(ex.ToString()) ?? "Automation run crashed.",
+                ErrorMessage = NormalizeText(ex.GetBaseException().Message) ?? "Automation run crashed.",
             };
 
             await _runRepository.UpdateAsync(failedRun, cancellationToken);
@@ -458,10 +458,10 @@ public sealed class AutomationScheduler : IAutomationScheduler
         var now = _clock.UtcNow;
         // RunId is globally unique (GUID-based), so inboxId is always new — no need to query existing.
         var inboxId = $"automation-result-{run.RunId}";
-        var summary = TruncateText(NormalizeText(run.Summary), 400) ?? (run.Status == AutomationRunStatus.Succeeded
+        var summary = NormalizeText(run.Summary) ?? (run.Status == AutomationRunStatus.Succeeded
             ? "Automation run completed."
             : "Automation run failed.");
-        var errorMessage = TruncateText(NormalizeText(run.ErrorMessage), 400);
+        var errorMessage = NormalizeText(run.ErrorMessage);
         var payload = JsonSerializer.Serialize(new
         {
             automationId = run.AutomationId,
@@ -550,16 +550,6 @@ public sealed class AutomationScheduler : IAutomationScheduler
 
         var normalized = value.Trim();
         return normalized.Length == 0 ? null : normalized;
-    }
-
-    private static string? TruncateText(string? value, int maxLength)
-    {
-        if (value is null || value.Length <= maxLength)
-        {
-            return value;
-        }
-
-        return value[..maxLength].TrimEnd() + "…";
     }
 
     private void RecordDiagnosticEvent(string eventType, string level, string message, string? correlationId = null)
