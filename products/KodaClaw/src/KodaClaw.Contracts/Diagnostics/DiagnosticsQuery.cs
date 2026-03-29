@@ -6,6 +6,9 @@ public sealed record DiagnosticsQuery(
     string? SessionId = null,
     string? Source = null,
     string? EventType = null,
-    string? Level = null,
+    string[]? Levels = null,
     DateTimeOffset? DateFrom = null,
-    DateTimeOffset? DateTo = null);
+    DateTimeOffset? DateTo = null)
+{
+    public string? Level => Levels?.FirstOrDefault();
+}

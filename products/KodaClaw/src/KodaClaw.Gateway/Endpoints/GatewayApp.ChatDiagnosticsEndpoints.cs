@@ -153,7 +153,7 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             [FromQuery] string? source,
             [FromQuery] string? eventType,
-            [FromQuery] string? level,
+            [FromQuery] string[]? levels,
             [FromQuery] DateTimeOffset? dateFrom,
             [FromQuery] DateTimeOffset? dateTo) =>
         {
@@ -167,7 +167,7 @@ public static partial class GatewayApp
                 sessionId,
                 source,
                 eventType,
-                level,
+                levels,
                 dateFrom,
                 dateTo);
         });
@@ -181,7 +181,7 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             [FromQuery] string? source,
             [FromQuery] string? eventType,
-            [FromQuery] string? level,
+            [FromQuery] string[]? levels,
             [FromQuery] DateTimeOffset? dateFrom,
             [FromQuery] DateTimeOffset? dateTo) =>
         {
@@ -195,7 +195,7 @@ public static partial class GatewayApp
                 sessionId,
                 source,
                 eventType,
-                level,
+                levels,
                 dateFrom,
                 dateTo);
         });

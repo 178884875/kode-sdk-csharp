@@ -34,7 +34,7 @@ public static partial class GatewayApp
         string? sessionId,
         string? source,
         string? eventType,
-        string? level,
+        string[]? levels,
         DateTimeOffset? dateFrom = null,
         DateTimeOffset? dateTo = null)
     {
@@ -56,7 +56,7 @@ public static partial class GatewayApp
             SessionId: sessionId,
             Source: source,
             EventType: eventType,
-            Level: level,
+            Levels: levels,
             DateFrom: dateFrom,
             DateTo: dateTo);
 

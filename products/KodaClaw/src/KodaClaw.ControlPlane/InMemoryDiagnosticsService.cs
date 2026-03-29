@@ -51,10 +51,11 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
                     string.Equals(item.EventType, effective.EventType, StringComparison.OrdinalIgnoreCase));
             }
 
-            if (!string.IsNullOrWhiteSpace(effective.Level))
+            if (effective.Levels is { Length: > 0 })
             {
                 filtered = filtered.Where(item =>
-                    string.Equals(item.Level, effective.Level, StringComparison.OrdinalIgnoreCase));
+                    effective.Levels.Any(l =>
+                        string.Equals(item.Level, l, StringComparison.OrdinalIgnoreCase)));
             }
 
             return filtered
