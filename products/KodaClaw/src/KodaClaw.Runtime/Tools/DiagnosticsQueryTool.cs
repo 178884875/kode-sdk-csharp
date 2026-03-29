@@ -55,7 +55,7 @@ public sealed class DiagnosticsQueryTool : ToolBase<DiagnosticsQueryArgs>
             SessionId: null,
             Source: args.Source,
             EventType: null,
-            Level: args.Level,
+            Levels: args.Level is not null ? [args.Level] : null,
             DateFrom: since,
             DateTo: null);
 
