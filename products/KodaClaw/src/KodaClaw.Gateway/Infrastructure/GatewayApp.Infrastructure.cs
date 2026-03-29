@@ -205,6 +205,23 @@ public static partial class GatewayApp
         return string.Equals(token, configuredToken, StringComparison.Ordinal);
     }
 
+    private static bool TryAuthorize(HttpContext context, IConfiguration configuration, IDiagnosticsService diagnosticsService)
+    {
+        var result = TryAuthorize(context, configuration);
+        if (!result)
+        {
+            RecordDiagnosticEvent(
+                diagnosticsService,
+                context,
+                source: "gateway.auth",
+                eventType: "gateway.auth.failed",
+                level: "warning",
+                message: $"Unauthorized access to {context.Request.Method} {context.Request.Path}.");
+        }
+
+        return result;
+    }
+
     private static string? GetConfiguredGatewayToken(HttpContext context, IConfiguration configuration)
     {
         return context.RequestServices

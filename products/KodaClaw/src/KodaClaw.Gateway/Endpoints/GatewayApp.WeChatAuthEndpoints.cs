@@ -20,10 +20,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -59,10 +57,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(qrcode))
             {
@@ -115,10 +111,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(request.BotToken))
             {

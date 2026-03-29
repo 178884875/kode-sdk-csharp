@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Storage;
 
@@ -12,12 +13,14 @@ namespace KodaClaw.Storage;
 public abstract class JsonStoreBase
 {
     protected readonly JsonSerializerOptions JsonOptions;
+    protected readonly ILogger? Logger;
 
     // 用于 JSONL 单行序列化（不缩进）
     private readonly JsonSerializerOptions _compactOptions;
 
-    protected JsonStoreBase()
+    protected JsonStoreBase(ILogger? logger = null)
     {
+        Logger = logger;
         JsonOptions = new JsonSerializerOptions
         {
             WriteIndented = true,
@@ -58,8 +61,9 @@ public abstract class JsonStoreBase
             var json = await File.ReadAllTextAsync(path, ct);
             return JsonSerializer.Deserialize<T>(json, JsonOptions);
         }
-        catch
+        catch (Exception ex)
         {
+            Logger?.LogWarning(ex, "Failed to deserialize entity from {Path}", path);
             return null;
         }
     }
@@ -97,9 +101,9 @@ public abstract class JsonStoreBase
                 if (item != null && (predicate == null || predicate(item)))
                     result.Add(item);
             }
-            catch
+            catch (Exception ex)
             {
-                // 跳过损坏的文件
+                Logger?.LogWarning(ex, "Skipping corrupted file {File}", file);
             }
         }
         return result;
@@ -165,7 +169,7 @@ public abstract class JsonStoreBase
                 var item = JsonSerializer.Deserialize<T>(lines[i], JsonOptions);
                 if (item != null) result.Add(item);
             }
-            catch { /* 跳过损坏行 */ }
+            catch (Exception ex) { Logger?.LogWarning(ex, "Skipping corrupted JSONL line in {Path}", path); }
         }
         result.Reverse(); // 恢复时间顺序
         return result;
@@ -187,7 +191,7 @@ public abstract class JsonStoreBase
                 var item = JsonSerializer.Deserialize<T>(line, JsonOptions);
                 if (item != null) result.Add(item);
             }
-            catch { /* 跳过损坏行 */ }
+            catch (Exception ex) { Logger?.LogWarning(ex, "Skipping corrupted JSONL line in {Path}", path); }
         }
         return result;
     }

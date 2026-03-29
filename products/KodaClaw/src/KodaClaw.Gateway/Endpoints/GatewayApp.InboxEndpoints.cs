@@ -21,17 +21,8 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to inbox list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(status, out InboxItemStatus? parsedStatus))
             {
@@ -70,22 +61,6 @@ public static partial class GatewayApp
                     Limit: NormalizeInboxLimit(limit)),
                 cancellationToken);
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.inbox",
-                eventType: "gateway.inbox.listed",
-                level: "info",
-                message: $"Inbox query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["status"] = parsedStatus?.ToString(),
-                    ["kind"] = parsedKind?.ToString(),
-                    ["requiresAction"] = requiresAction?.ToString(),
-                    ["sessionId"] = sessionId,
-                    ["count"] = items.Count.ToString(),
-                });
-
             return Results.Ok(new InboxQueryResponse(items));
         });
 
@@ -97,17 +72,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to inbox detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var item = await inboxRepository.GetByIdAsync(id, cancellationToken);
             if (item is null)
@@ -128,20 +94,6 @@ public static partial class GatewayApp
                     Message: "Inbox item was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.inbox",
-                eventType: "gateway.inbox.fetched",
-                level: "info",
-                message: "Fetched inbox item.",
-                sessionId: item.SessionId,
-                attributes: new Dictionary<string, string?>
-                {
-                    ["inboxItemId"] = item.Id,
-                    ["status"] = item.Status.ToString(),
-                });
-
             return Results.Ok(item);
         });
 
@@ -154,15 +106,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to inbox status endpoint.");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }

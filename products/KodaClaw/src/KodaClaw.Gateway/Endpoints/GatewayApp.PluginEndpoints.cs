@@ -23,17 +23,8 @@ public static partial class GatewayApp
             [FromQuery] int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugins list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(type, out PluginType? parsedType))
             {
@@ -86,22 +77,6 @@ public static partial class GatewayApp
                     Limit: NormalizePluginsLimit(limit)),
                 cancellationToken);
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.plugins",
-                eventType: "gateway.plugins.listed",
-                level: "info",
-                message: $"Plugins query returned {payload.Items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["type"] = parsedType?.ToString(),
-                    ["trustState"] = parsedTrustState?.ToString(),
-                    ["enabled"] = enabled?.ToString(),
-                    ["runtimeState"] = parsedRuntimeState?.ToString(),
-                    ["count"] = payload.Items.Count.ToString(),
-                });
-
             return Results.Ok(payload);
         });
 
@@ -113,17 +88,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await pluginGatewayService.GetDetailAsync(id, cancellationToken);
             if (detail is null)
@@ -144,21 +110,6 @@ public static partial class GatewayApp
                     Message: "Plugin was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.plugins",
-                eventType: "gateway.plugins.fetched",
-                level: "info",
-                message: "Fetched plugin detail.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["pluginId"] = detail.Record.Id,
-                    ["trustState"] = detail.Record.TrustState.ToString(),
-                    ["enabled"] = detail.Record.Enabled.ToString(),
-                    ["runtimeState"] = detail.Record.RuntimeState.ToString(),
-                });
-
             return Results.Ok(detail);
         });
 
@@ -170,17 +121,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin install endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -242,17 +184,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin discover endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var payload = await pluginGatewayService.DiscoverAsync(cancellationToken);
             RecordDiagnosticEvent(
@@ -277,17 +210,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin trust endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await pluginGatewayService.TrustAsync(id, cancellationToken);
             if (detail is null)
@@ -331,17 +255,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin enable endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await pluginGatewayService.SetEnabledAsync(id, enabled: true, cancellationToken);
             if (detail is null)
@@ -385,17 +300,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin disable endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await pluginGatewayService.SetEnabledAsync(id, enabled: false, cancellationToken);
             if (detail is null)
@@ -440,17 +346,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin start endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -519,17 +416,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin stop endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -598,17 +486,8 @@ public static partial class GatewayApp
             [FromQuery] int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to plugin logs endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await pluginGatewayService.GetDetailAsync(id, cancellationToken);
             if (detail is null)
@@ -633,18 +512,6 @@ public static partial class GatewayApp
                 id,
                 NormalizePluginLogsLimit(limit),
                 cancellationToken);
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.plugins",
-                eventType: "gateway.plugins.logs_listed",
-                level: "info",
-                message: $"Plugin logs query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["pluginId"] = id,
-                    ["count"] = items.Count.ToString(),
-                });
             return Results.Ok(items);
         });
 

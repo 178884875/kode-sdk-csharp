@@ -21,25 +21,8 @@ public static partial class GatewayApp
             IConfiguration configuration,
             IDiagnosticsService diagnosticsService) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel connectors endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.channels",
-                eventType: "gateway.channels.connectors_listed",
-                level: "info",
-                message: "Listed available channel connectors.");
 
             return Results.Ok(new[]
             {
@@ -92,17 +75,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel accounts endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(connectorKind, out ChannelConnectorKind? parsedConnectorKind))
             {
@@ -125,18 +99,6 @@ public static partial class GatewayApp
                     Limit: NormalizeChannelsLimit(limit)),
                 cancellationToken);
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.channels",
-                eventType: "gateway.channels.accounts_listed",
-                level: "info",
-                message: $"Channel accounts query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["count"] = items.Count.ToString(),
-                });
-
             return Results.Ok(items);
         });
 
@@ -149,17 +111,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to upsert channel account endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryValidateChannelAccountRequest(request, out var validationError))
             {
@@ -246,17 +199,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel threads endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(connectorKind, out ChannelConnectorKind? parsedConnectorKind))
             {
@@ -306,18 +250,6 @@ public static partial class GatewayApp
                     TryResolveLastTurnOutcome(recentAudit)));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.channels",
-                eventType: "gateway.channels.threads_listed",
-                level: "info",
-                message: $"Channel threads query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["count"] = items.Count.ToString(),
-                });
-
             return Results.Ok(new ChannelsQueryResponse(items));
         });
 
@@ -334,17 +266,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel thread detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var detail = await LoadChannelThreadDetailAsync(
                 workspaceService,
@@ -373,20 +296,6 @@ public static partial class GatewayApp
                     Message: "Channel thread was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.channels",
-                eventType: "gateway.channels.thread_fetched",
-                level: "info",
-                message: "Fetched channel thread detail.",
-                sessionId: detail.Binding.SessionId,
-                attributes: new Dictionary<string, string?>
-                {
-                    ["bindingId"] = detail.Binding.Id,
-                    ["accountId"] = detail.Binding.AccountId,
-                });
-
             return Results.Ok(detail);
         });
 
@@ -399,10 +308,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (request.DeliveryMode is null)
             {
@@ -449,17 +356,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel audit endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var binding = await threadBindingRepository.GetByIdAsync(bindingId, cancellationToken);
             if (binding is null)
@@ -473,20 +371,6 @@ public static partial class GatewayApp
                 bindingId,
                 NormalizeChannelsLimit(limit),
                 cancellationToken);
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.channels",
-                eventType: "gateway.channels.audit_listed",
-                level: "info",
-                message: $"Fetched channel audit entries for binding '{bindingId}'.",
-                sessionId: binding.SessionId,
-                attributes: new Dictionary<string, string?>
-                {
-                    ["bindingId"] = bindingId,
-                    ["count"] = items.Count.ToString(),
-                });
 
             return Results.Ok(items);
         });
@@ -505,17 +389,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to channel webhook endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var account = await channelAccountRepository.GetByIdAsync(accountId, cancellationToken);
             if (account is null)
@@ -629,17 +504,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to patch channel account endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var existing = await channelAccountRepository.GetByIdAsync(id, cancellationToken);
             if (existing is null)
@@ -723,17 +589,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to delete channel account endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var existing = await channelAccountRepository.GetByIdAsync(id, cancellationToken);
             if (existing is null)
@@ -777,17 +634,8 @@ public static partial class GatewayApp
             IHttpClientFactory httpClientFactory,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to test telegram token endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(request.BotToken))
             {
@@ -871,17 +719,8 @@ public static partial class GatewayApp
             IHttpClientFactory httpClientFactory,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to test feishu credentials endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(request.AppId) || string.IsNullOrWhiteSpace(request.AppSecret))
             {
@@ -955,9 +794,9 @@ public static partial class GatewayApp
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // 获取应用名称失败不影响连通性验证结果
+                    System.Diagnostics.Debug.WriteLine($"[ChannelEndpoints] Failed to retrieve Feishu app name: {ex.Message}");
                 }
 
                 RecordDiagnosticEvent(

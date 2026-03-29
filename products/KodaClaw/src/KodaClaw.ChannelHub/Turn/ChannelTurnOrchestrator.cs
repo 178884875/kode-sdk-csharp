@@ -108,7 +108,10 @@ public sealed class ChannelTurnOrchestrator
                     {
                         await _deliveryDispatchService.SendNotificationAsync(account, processing.Binding, hint, cancellationToken: cancellationToken);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send approval ambiguity hint for binding {BindingId}", processing.Binding.Id);
+                    }
 
                     var hintOutcome = CreateOutcome(
                         ChannelTurnOutcomeKind.NoAction,
@@ -136,7 +139,10 @@ public sealed class ChannelTurnOrchestrator
                 await _deliveryDispatchService.SendNotificationAsync(
                     account, processing.Binding, resetConfirmation, cancellationToken: cancellationToken);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send session reset confirmation for binding {BindingId}", processing.Binding.Id);
+            }
 
             var resetOutcome = CreateOutcome(
                 ChannelTurnOutcomeKind.NoAction,
@@ -434,9 +440,9 @@ public sealed class ChannelTurnOrchestrator
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
-            // Summary write is best-effort; never let it fail the turn pipeline.
+            _logger.LogWarning(ex, "Summary write failed for binding {BindingId} (best-effort)", binding.Id);
         }
     }
 
@@ -526,7 +532,10 @@ public sealed class ChannelTurnOrchestrator
             await _deliveryDispatchService.SendNotificationAsync(
                 account, processing.Binding, confirmationText, cancellationToken: cancellationToken);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send approval confirmation for binding {BindingId}", processing.Binding.Id);
+        }
 
         var outcomeKind = intent.Action == ApprovalAction.Approve
             ? ChannelTurnOutcomeKind.Delivered

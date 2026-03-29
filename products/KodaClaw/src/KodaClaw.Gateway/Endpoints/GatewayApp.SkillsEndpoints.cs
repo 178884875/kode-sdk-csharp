@@ -17,17 +17,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to skills list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var paths = workspaceService.GetSkillsPaths();
             var appDir = Path.Combine(AppContext.BaseDirectory, "skills");
@@ -91,18 +82,6 @@ public static partial class GatewayApp
                         Compatibility: frontmatter.Compatibility));
                 }
             }
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.skills",
-                eventType: "gateway.skills.listed",
-                level: "info",
-                message: $"Skills query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["count"] = items.Count.ToString(),
-                });
 
             return Results.Ok(items);
         });

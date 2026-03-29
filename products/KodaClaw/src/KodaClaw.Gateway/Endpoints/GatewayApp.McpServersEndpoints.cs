@@ -17,13 +17,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to GET /api/mcp-servers.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var config = await workspaceService.ReadMcpConfigAsync(cancellationToken);
             return Results.Ok(config);
@@ -37,13 +32,8 @@ public static partial class GatewayApp
             WorkspaceMcpConfig body,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to PUT /api/mcp-servers.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await workspaceService.SaveMcpConfigAsync(body, cancellationToken);
             return Results.Ok(body);
@@ -57,13 +47,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to POST /api/mcp-servers/test-connection.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var result = await mcpHubService.TestConnectionAsync(name, cancellationToken);
             return Results.Ok(result);

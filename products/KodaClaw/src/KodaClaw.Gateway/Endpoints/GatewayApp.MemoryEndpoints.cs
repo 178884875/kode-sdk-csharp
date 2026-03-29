@@ -16,13 +16,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to GET /api/memory/stats.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var stats = await memoryFileService.GetStatsAsync(cancellationToken);
 
@@ -45,13 +40,8 @@ public static partial class GatewayApp
             int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to GET /api/memory/entries.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var entries = await memoryFileService.ListEntriesAsync(
                 statusFilter: string.IsNullOrWhiteSpace(status) ? null : status,
@@ -80,13 +70,8 @@ public static partial class GatewayApp
             string key,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to POST /api/memory/entries/promote.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var promoted = await memoryFileService.PromoteEntryAsync(key, cancellationToken);
             if (!promoted)

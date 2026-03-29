@@ -220,15 +220,15 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
                         _cache.Add(evt);
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 跳过损坏的行
+                    System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Skipping corrupted journal line: {ex.Message}");
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // 文件读取失败不阻塞启动
+            System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Failed to load journal file: {ex.Message}");
         }
     }
 
@@ -239,9 +239,9 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
             var line = JsonSerializer.Serialize(diagnosticEvent, JsonOptions);
             File.AppendAllText(_journalPath, line + Environment.NewLine);
         }
-        catch
+        catch (Exception ex)
         {
-            // 文件写入失败不影响内存层
+            System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Failed to write journal file: {ex.Message}");
         }
     }
 

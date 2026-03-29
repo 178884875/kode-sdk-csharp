@@ -20,17 +20,8 @@ public static partial class GatewayApp
             [FromQuery] int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to canvas list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(kind, out CanvasArtifactKind? parsedKind))
             {
@@ -59,21 +50,6 @@ public static partial class GatewayApp
                 .ThenByDescending(static artifact => artifact.CreatedAt)
                 .FirstOrDefault();
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.canvas",
-                eventType: "gateway.canvas.listed",
-                level: "info",
-                message: $"Canvas query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["kind"] = parsedKind?.ToString(),
-                    ["source"] = source,
-                    ["sessionId"] = sessionId,
-                    ["count"] = items.Count.ToString(),
-                });
-
             return Results.Ok(new CanvasQueryResponse(
                 Items: items,
                 DefaultEntryPath: defaultArtifact?.EntryPath ?? DefaultCanvasEntryPath,
@@ -87,36 +63,13 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to canvas default endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var items = await canvasRepository.ListAsync(
                 new CanvasArtifactQuery(Limit: 1),
                 cancellationToken);
             var artifact = items.FirstOrDefault();
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.canvas",
-                eventType: "gateway.canvas.default_fetched",
-                level: "info",
-                message: artifact is null
-                    ? "Canvas default entry resolved to workspace fallback."
-                    : "Canvas default entry resolved to latest artifact.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["artifactId"] = artifact?.Id,
-                });
 
             return Results.Ok(BuildCanvasEntryResponse(context, configuration, artifact));
         });
@@ -129,17 +82,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to canvas entry endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var artifact = await canvasRepository.GetByIdAsync(id, cancellationToken);
             if (artifact is null)
@@ -160,19 +104,6 @@ public static partial class GatewayApp
                     Message: "Canvas artifact was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.canvas",
-                eventType: "gateway.canvas.entry_fetched",
-                level: "info",
-                message: "Fetched canvas artifact preview entry.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["artifactId"] = artifact.Id,
-                    ["kind"] = artifact.Kind.ToString(),
-                });
-
             return Results.Ok(BuildCanvasEntryResponse(context, configuration, artifact));
         });
 
@@ -184,17 +115,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to canvas detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var artifact = await canvasRepository.GetByIdAsync(id, cancellationToken);
             if (artifact is null)
@@ -215,19 +137,6 @@ public static partial class GatewayApp
                     Message: "Canvas artifact was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.canvas",
-                eventType: "gateway.canvas.fetched",
-                level: "info",
-                message: "Fetched canvas artifact detail.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["artifactId"] = artifact.Id,
-                    ["kind"] = artifact.Kind.ToString(),
-                });
-
             return Results.Ok(artifact);
         });
 
@@ -239,17 +148,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to canvas upsert endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var existing = await canvasRepository.GetByIdAsync(request.Id, cancellationToken);
             var now = DateTimeOffset.UtcNow;

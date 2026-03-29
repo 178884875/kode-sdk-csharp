@@ -20,13 +20,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to workspace git log endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var pageLimit = limit ?? 10;
             var pageSkip = skip ?? 0;
@@ -46,13 +41,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to workspace git diff endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var diff = await gitService.GetCommitDiffAsync(hash, cancellationToken);
             return Results.Text(diff, contentType: "text/plain");
@@ -66,13 +56,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context, source: "gateway.auth",
-                    eventType: "gateway.auth.failed", level: "warning",
-                    message: "Unauthorized access to workspace git revert-file endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {

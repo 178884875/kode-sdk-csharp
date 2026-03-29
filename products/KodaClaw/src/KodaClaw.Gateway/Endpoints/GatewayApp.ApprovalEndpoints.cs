@@ -20,17 +20,8 @@ public static partial class GatewayApp
             [FromQuery] string? sessionId,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to approvals list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(status, out ApprovalStatus? parsedStatus))
             {
@@ -68,21 +59,6 @@ public static partial class GatewayApp
                     Limit: NormalizeApprovalsLimit(limit)),
                 cancellationToken);
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.approvals",
-                eventType: "gateway.approvals.listed",
-                level: "info",
-                message: $"Approvals query returned {approvals.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["status"] = parsedStatus?.ToString(),
-                    ["kind"] = parsedKind?.ToString(),
-                    ["sessionId"] = sessionId,
-                    ["count"] = approvals.Count.ToString(),
-                });
-
             return Results.Ok(new ApprovalQueryResponse(approvals));
         });
 
@@ -94,17 +70,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to approval detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var approval = await approvalRepository.GetByIdAsync(id, cancellationToken);
             if (approval is null)
@@ -124,21 +91,6 @@ public static partial class GatewayApp
                     Code: "approval.not_found",
                     Message: "Approval was not found."));
             }
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.approvals",
-                eventType: "gateway.approvals.fetched",
-                level: "info",
-                message: "Fetched approval detail.",
-                sessionId: approval.SessionId,
-                attributes: new Dictionary<string, string?>
-                {
-                    ["approvalId"] = approval.Id,
-                    ["status"] = approval.Status.ToString(),
-                    ["kind"] = approval.Kind.ToString(),
-                });
 
             return Results.Ok(approval);
         });

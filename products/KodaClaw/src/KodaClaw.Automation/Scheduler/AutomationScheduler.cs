@@ -126,7 +126,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
             }
             catch (Exception ex)
             {
-                _logger?.LogWarning(ex, "Failed to read AutomationsEnabled from settings; skipping tick.");
+                _logger?.LogDebug(ex, "Failed to read AutomationsEnabled from settings; skipping tick.");
                 RecordDiagnosticEvent("automation.settings_read_failed", "warning",
                     $"Failed to read AutomationsEnabled from settings; skipping tick: {ex.GetBaseException().Message}");
                 return 0;
@@ -326,7 +326,7 @@ public sealed class AutomationScheduler : IAutomationScheduler
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Automation run failed for definition {AutomationId}.", definition.Id);
+            _logger?.LogDebug(ex, "Automation run failed for definition {AutomationId}.", definition.Id);
 
             var failedAt = _clock.UtcNow;
             var failedRun = runState with

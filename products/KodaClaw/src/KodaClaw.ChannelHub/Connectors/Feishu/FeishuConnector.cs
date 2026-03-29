@@ -205,9 +205,9 @@ public sealed class FeishuConnector : IChannelConnector
 
                     return;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    // 飞书音频上传权限不足时降级为文本提示，不中断工具调用
+                    _logger.LogWarning(ex, "Feishu audio upload failed, falling back to text for {ReceiveId}", receiveId);
                     await _apiClient.SendTextMessageAsync(
                         tenantToken, receiveId, receiveIdType,
                         $"[语音消息发送失败，请检查飞书 App 文件上传权限]\n{draft.MessageText}",

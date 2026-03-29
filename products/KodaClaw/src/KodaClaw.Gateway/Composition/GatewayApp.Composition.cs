@@ -9,6 +9,7 @@ using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using KodaClaw.PluginHost;
 using KodaClaw.Runtime;
+using KodaClaw.Runtime.Diagnostics;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;
@@ -86,6 +87,9 @@ public static partial class GatewayApp
             options.AnthropicBaseUrl = runtimeBootstrap.AnthropicBaseUrl;
         });
 
+        // MetricsBridgeService bridges SDK Meter events to IDiagnosticsService.
+        builder.Services.AddHostedService<MetricsBridgeService>();
+
         configureServices?.Invoke(builder.Services);
     }
 
@@ -95,6 +99,7 @@ public static partial class GatewayApp
         var correlationContextAccessor = app.Services.GetRequiredService<ICorrelationContextAccessor>();
         var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
         loggerFactory.AddProvider(new DiagnosticsLoggerProvider(diagnosticsService, correlationContextAccessor));
+
 
         app.Use(async (context, next) =>
         {

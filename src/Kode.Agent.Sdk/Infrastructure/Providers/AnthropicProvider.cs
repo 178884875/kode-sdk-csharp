@@ -151,9 +151,9 @@ public sealed class AnthropicProvider : IModelProvider
                         {
                             input = JsonSerializer.Deserialize<object>(inputJson);
                         }
-                        catch
+                        catch (Exception ex)
                         {
-                            /* ignore */
+                            _logger?.LogWarning(ex, "Failed to deserialize tool input JSON for tool index {Index}", stopEvent.Index);
                         }
                     }
 

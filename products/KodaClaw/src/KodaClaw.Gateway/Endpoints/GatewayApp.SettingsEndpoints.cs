@@ -17,32 +17,10 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to settings endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var currentSettings = await settingsRepository.GetAsync(cancellationToken);
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.settings",
-                eventType: "gateway.settings.fetched",
-                level: "info",
-                message: "Fetched application settings.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["theme"] = currentSettings.Theme.ToString(),
-                    ["defaultLandingRoute"] = currentSettings.DefaultLandingRoute,
-                    ["quietHoursEnabled"] = currentSettings.QuietHoursEnabled.ToString(),
-                });
 
             return Results.Ok(currentSettings);
         });
@@ -54,17 +32,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to sandbox risk overview endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var overview = await sandboxRiskOverviewService.GetAsync(cancellationToken);
             RecordDiagnosticEvent(
@@ -97,17 +66,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to settings update endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var nextSettings = request with
             {

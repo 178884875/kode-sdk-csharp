@@ -13,21 +13,26 @@ public sealed record HeartbeatSyncResult(int Upserted, int Deleted, bool Compila
 
 public sealed class HeartbeatSyncService : IHeartbeatSyncService
 {
+    private const string DiagnosticSource = "koda.heartbeat";
+
     private readonly IWorkspaceService _workspaceService;
     private readonly IHeartbeatAutomationCompiler _compiler;
     private readonly IAutomationDefinitionRepository _definitionRepository;
     private readonly ILogger<HeartbeatSyncService>? _logger;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public HeartbeatSyncService(
         IWorkspaceService workspaceService,
         IHeartbeatAutomationCompiler compiler,
         IAutomationDefinitionRepository definitionRepository,
-        ILogger<HeartbeatSyncService>? logger = null)
+        ILogger<HeartbeatSyncService>? logger = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _workspaceService = workspaceService;
         _compiler = compiler;
         _definitionRepository = definitionRepository;
         _logger = logger;
+        _diagnosticsService = diagnosticsService;
     }
 
     public async Task<HeartbeatSyncResult> SyncAsync(CancellationToken cancellationToken = default)
@@ -63,7 +68,14 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
             }
             catch (HeartbeatCompilationException ex)
             {
-                _logger?.LogWarning(ex, "HEARTBEAT.md compilation failed: {Message}. Existing definitions are preserved.", ex.Message);
+                _logger?.LogDebug(ex, "HEARTBEAT.md compilation failed: {Message}. Existing definitions are preserved.", ex.Message);
+                _diagnosticsService?.Record(new DiagnosticEvent(
+                    Id: $"diag-{Guid.NewGuid():N}",
+                    Source: DiagnosticSource,
+                    EventType: "heartbeat.compilation_failed",
+                    Level: "warning",
+                    Message: $"HEARTBEAT.md compilation failed: {ex.Message}",
+                    Timestamp: DateTimeOffset.UtcNow));
                 return new HeartbeatSyncResult(Upserted: 0, Deleted: 0, CompilationFailed: true);
             }
         }
@@ -109,9 +121,21 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
             }
         }
 
-        _logger?.LogInformation(
+        _logger?.LogDebug(
             "HEARTBEAT.md sync complete: {Upserted} upserted, {Deleted} deleted.",
             upserted, deleted);
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: $"diag-{Guid.NewGuid():N}",
+            Source: DiagnosticSource,
+            EventType: "heartbeat.sync.completed",
+            Level: "info",
+            Message: $"HEARTBEAT.md sync complete: {upserted} upserted, {deleted} deleted.",
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: new Dictionary<string, string?>
+            {
+                ["upserted"] = upserted.ToString(),
+                ["deleted"] = deleted.ToString(),
+            }));
 
         return new HeartbeatSyncResult(Upserted: upserted, Deleted: deleted, CompilationFailed: false);
     }

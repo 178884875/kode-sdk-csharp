@@ -399,7 +399,10 @@ public sealed class PermissionManager
             if (json.TryGetProperty("command", out var c) || json.TryGetProperty("Command", out c))
                 return c.GetString();
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PermissionManager] Failed to extract bash command: {ex.Message}");
+        }
         return null;
     }
 

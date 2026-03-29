@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
+using KodaClaw.Runtime.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -76,6 +77,7 @@ public sealed class GatewayDiagnosticsIntegrationTests
             configureServices: services =>
             {
                 services.AddSingleton<IDiagnosticsService>(diagnostics);
+                RemoveMetricsBridge(services);
             });
 
         hosted.Client.DefaultRequestHeaders.Authorization =
@@ -100,6 +102,7 @@ public sealed class GatewayDiagnosticsIntegrationTests
             configureServices: services =>
             {
                 services.AddSingleton<IDiagnosticsService>(diagnostics);
+                RemoveMetricsBridge(services);
             });
 
         hosted.Client.DefaultRequestHeaders.Authorization =
@@ -124,6 +127,7 @@ public sealed class GatewayDiagnosticsIntegrationTests
             configureServices: services =>
             {
                 services.AddSingleton<IDiagnosticsService>(diagnostics);
+                RemoveMetricsBridge(services);
             });
 
         hosted.Client.DefaultRequestHeaders.Authorization =
@@ -243,6 +247,13 @@ public sealed class GatewayDiagnosticsIntegrationTests
                 Directory.Delete(Path, recursive: true);
             }
         }
+    }
+
+    private static void RemoveMetricsBridge(IServiceCollection services)
+    {
+        var descriptor = services.FirstOrDefault(d => d.ImplementationType == typeof(MetricsBridgeService));
+        if (descriptor is not null)
+            services.Remove(descriptor);
     }
 
     private static InMemoryDiagnosticsService BuildSeededDiagnosticsService(IEnumerable<DiagnosticEvent> events)

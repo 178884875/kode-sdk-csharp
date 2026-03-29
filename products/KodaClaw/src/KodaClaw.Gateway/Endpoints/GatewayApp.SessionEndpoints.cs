@@ -18,17 +18,8 @@ public static partial class GatewayApp
             [FromQuery] int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to sessions list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await workspaceService.EnsureInitializedAsync(cancellationToken);
             var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
@@ -37,19 +28,6 @@ public static partial class GatewayApp
                 appConfig.ActiveMainSessionId,
                 NormalizeSessionsLimit(limit),
                 cancellationToken);
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.sessions",
-                eventType: "gateway.sessions.listed",
-                level: "info",
-                message: $"Sessions query returned {sessions.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["count"] = sessions.Count.ToString(),
-                    ["activeMainSessionId"] = appConfig.ActiveMainSessionId,
-                });
 
             return Results.Ok(new SessionsQueryResponse(
                 sessions
@@ -70,17 +48,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to session rotate endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var previousSessionId = await mainSessionService.RotateMainSessionAsync(cancellationToken);
 
@@ -108,17 +77,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to session resume endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await workspaceService.EnsureInitializedAsync(cancellationToken);
             var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
@@ -168,17 +128,8 @@ public static partial class GatewayApp
             [FromQuery] int? skip,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to session messages endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await workspaceService.EnsureInitializedAsync(cancellationToken);
             var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
@@ -216,17 +167,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to delete session endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!id.StartsWith("main-", StringComparison.OrdinalIgnoreCase))
             {
@@ -274,17 +216,8 @@ public static partial class GatewayApp
             IModelRegistryRepository modelRegistryRepository,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to sessions detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await workspaceService.EnsureInitializedAsync(cancellationToken);
             var appConfig = await workspaceService.LoadAppConfigAsync(cancellationToken);
@@ -313,27 +246,16 @@ public static partial class GatewayApp
                     Message: "Session was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.sessions",
-                eventType: "gateway.sessions.fetched",
-                level: "info",
-                message: "Fetched session detail.",
-                sessionId: session.SessionId,
-                attributes: new Dictionary<string, string?>
-                {
-                    ["pendingApprovalCount"] = session.Status.PendingApprovalCount.ToString(),
-                    ["breakpointState"] = session.Status.BreakpointState,
-                });
-
             ModelEndpoint? chatModel = null;
             try
             {
                 chatModel = await modelRegistryRepository.ResolveDefaultForAsync(
                     ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
             }
-            catch { /* model not configured — return session without model info */ }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SessionEndpoints] Model not configured: {ex.Message}");
+            }
 
             var enrichedSession = session with
             {

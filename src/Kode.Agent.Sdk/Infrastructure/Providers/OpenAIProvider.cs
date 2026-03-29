@@ -309,7 +309,7 @@ public sealed class OpenAIProvider : IModelProvider
                 if (!string.IsNullOrEmpty(argsJson))
                 {
                     try { input = JsonSerializer.Deserialize<object>(argsJson); }
-                    catch { }
+                    catch (Exception ex) { _logger?.LogWarning(ex, "Failed to deserialize tool arguments JSON"); }
                 }
 
                 yield return new StreamChunk

@@ -52,11 +52,11 @@ public sealed class JsonChannelAuditRepositoryTests : IDisposable
         var recent = await repository.ListByBindingIdAsync("binding-main", limit: 2);
 
         recent.Should().HaveCount(2);
-        // ReadLastLinesAsync returns items in chronological order (oldest first after Reverse())
-        recent.Select(static item => item.Id).Should().Equal("audit-002", "audit-003");
-        recent[1].Should().Be(newest);
-        recent[1].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
-        recent[1].MetadataJson.Should().Be("""{"trace":"audit-003"}""");
+        // ListByBindingIdAsync returns newest-first (descending), matching SQLite ORDER BY created_at DESC
+        recent.Select(static item => item.Id).Should().Equal("audit-003", "audit-002");
+        recent[0].Should().Be(newest);
+        recent[0].DeliveryMode.Should().Be(DeliveryMode.RequireApproval);
+        recent[0].MetadataJson.Should().Be("""{"trace":"audit-003"}""");
     }
 
     [Fact]
@@ -79,8 +79,8 @@ public sealed class JsonChannelAuditRepositoryTests : IDisposable
         var items = await repository.ListByBindingIdAsync("binding-limit", limit: 10);
 
         items.Should().HaveCount(2);
-        // ReadLastLinesAsync returns items in chronological order (oldest first)
-        items.Select(static item => item.Id).Should().Equal("audit-limit-1", "audit-limit-2");
+        // ListByBindingIdAsync returns newest-first (descending)
+        items.Select(static item => item.Id).Should().Equal("audit-limit-2", "audit-limit-1");
     }
 
     [Fact]

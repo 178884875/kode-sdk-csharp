@@ -8,11 +8,17 @@ namespace KodaClaw.Workspace;
 /// </summary>
 public sealed class MemoryFileService : IMemoryFileService
 {
-    private readonly IWorkspaceService _workspaceService;
+    private const string DiagnosticSource = "koda.memory";
 
-    public MemoryFileService(IWorkspaceService workspaceService)
+    private readonly IWorkspaceService _workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
+
+    public MemoryFileService(
+        IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+        _diagnosticsService = diagnosticsService;
     }
 
     public Task<MemoryFileStats> GetStatsAsync(CancellationToken cancellationToken = default)
@@ -96,6 +102,15 @@ public sealed class MemoryFileService : IMemoryFileService
 
         // Remove source file
         File.Delete(sourcePath);
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: $"diag-{Guid.NewGuid():N}",
+            Source: DiagnosticSource,
+            EventType: "memory.entry.promoted",
+            Level: "info",
+            Message: $"Memory entry '{key}' promoted to active.",
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: new Dictionary<string, string?> { ["key"] = key }));
 
         return true;
     }

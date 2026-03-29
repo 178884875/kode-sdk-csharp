@@ -72,18 +72,18 @@ public sealed class WorkspaceTemplateContractTests
             because: "nightly consolidation must enforce a size limit to bound MEMORY.md growth");
     }
 
-    // ── Heartbeat: Weekday Memory Hygiene ────────────────────────────────────
+    // ── Heartbeat: Memory Freshness Review (Stage 5 of Nightly Consolidation) ─
 
     [Fact]
-    public void Heartbeat_weekday_memory_hygiene_uses_current_memory_paths()
+    public void Heartbeat_nightly_consolidation_includes_memory_freshness_review()
     {
-        var hygieneSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Weekday Memory Hygiene");
-        hygieneSection.Should().Contain("MEMORY.md",
-            because: "hygiene task reads from the consolidated memory file");
-        hygieneSection.Should().NotContain("memory/facts",
-            because: "memory/facts is an old directory structure no longer in use");
-        hygieneSection.Should().NotContain("memory/conversations",
-            because: "memory/conversations is an old directory structure no longer in use");
+        var consolidationSection = ExtractSection(DefaultWorkspaceTemplates.Heartbeat(), "Nightly Memory Consolidation");
+        consolidationSection.Should().Contain("Memory freshness review",
+            because: "nightly consolidation must include a stage to demote stale entries");
+        consolidationSection.Should().Contain("MEMORY.md",
+            because: "freshness review reads from the consolidated memory file");
+        consolidationSection.Should().Contain("dormant",
+            because: "stale entries should be moved to the dormant directory");
     }
 
     // ── Agents: workspace_memory_append guidance ─────────────────────────────

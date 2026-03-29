@@ -9,11 +9,17 @@ namespace KodaClaw.Workspace;
 public sealed class BootstrapService : IBootstrapService
 {
     private const string BootstrapArchiveSuffix = ".archived";
-    private readonly IWorkspaceService workspaceService;
+    private const string DiagnosticSource = "koda.workspace";
 
-    public BootstrapService(IWorkspaceService workspaceService)
+    private readonly IWorkspaceService workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
+
+    public BootstrapService(
+        IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null)
     {
         this.workspaceService = workspaceService ?? throw new ArgumentNullException(nameof(workspaceService));
+        _diagnosticsService = diagnosticsService;
     }
 
     public async Task<BootstrapCompletionResult> CompleteAsync(
@@ -40,6 +46,14 @@ public sealed class BootstrapService : IBootstrapService
         await workspaceService.SaveAppConfigAsync(updatedConfig, cancellationToken);
 
         var bootstrapFileArchived = ArchiveOrDeleteBootstrapFile(request.ArchiveBootstrapFile);
+
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: $"diag-{Guid.NewGuid():N}",
+            Source: DiagnosticSource,
+            EventType: "workspace.bootstrap.files_written",
+            Level: "info",
+            Message: "Bootstrap completed: identity, soul, and user files written.",
+            Timestamp: DateTimeOffset.UtcNow));
 
         return new BootstrapCompletionResult(
             workspaceService.RootPath,

@@ -8,6 +8,8 @@ namespace KodaClaw.Workspace;
 
 public sealed class WorkspaceService : IWorkspaceService
 {
+    private const string DiagnosticSource = "koda.workspace";
+
     private static readonly string[] RequiredDirectories =
     [
         KodaClawWorkspaceLayout.ConfigDirectory,
@@ -34,12 +36,17 @@ public sealed class WorkspaceService : IWorkspaceService
     ];
 
     private readonly IWorkspaceGitService? _git;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
-    public WorkspaceService(KodaClawWorkspaceOptions options, IWorkspaceGitService? git = null)
+    public WorkspaceService(
+        KodaClawWorkspaceOptions options,
+        IWorkspaceGitService? git = null,
+        IDiagnosticsService? diagnosticsService = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         RootPath = options.ResolveRootPath();
         _git = git;
+        _diagnosticsService = diagnosticsService;
     }
 
     public string RootPath { get; }
@@ -162,6 +169,9 @@ public sealed class WorkspaceService : IWorkspaceService
         if (_git is not null)
             await _git.EnsureGitRepoAsync(cancellationToken);
 
+        RecordDiagnostic("workspace.initialized", "info",
+            $"Workspace initialized at {RootPath}.");
+
         return await GetSnapshotAsync(cancellationToken);
     }
 
@@ -221,8 +231,11 @@ public sealed class WorkspaceService : IWorkspaceService
             var config = await JsonSerializer.DeserializeAsync<WorkspaceMcpConfig>(stream, WorkspaceJson.Default, cancellationToken);
             return config ?? new WorkspaceMcpConfig();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            RecordDiagnostic("workspace.config.parse_failed", "warning",
+                $"Failed to parse mcp.json: {ex.Message}",
+                new Dictionary<string, string?> { ["file"] = "mcp.json" });
             return new WorkspaceMcpConfig();
         }
     }
@@ -255,8 +268,11 @@ public sealed class WorkspaceService : IWorkspaceService
             var config = await JsonSerializer.DeserializeAsync<GatewayConfig>(stream, WorkspaceJson.Default, cancellationToken);
             return config ?? new GatewayConfig();
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            RecordDiagnostic("workspace.config.parse_failed", "warning",
+                $"Failed to parse gateway.json: {ex.Message}",
+                new Dictionary<string, string?> { ["file"] = "gateway.json" });
             return new GatewayConfig();
         }
     }
@@ -296,9 +312,11 @@ public sealed class WorkspaceService : IWorkspaceService
             await using var stream = File.OpenRead(path);
             deviceIdentity = await JsonSerializer.DeserializeAsync<DeviceIdentity>(stream, WorkspaceJson.Default, cancellationToken);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // Corrupt or truncated file — treat as uninitialized and let EnsureInitializedAsync rebuild it.
+            RecordDiagnostic("workspace.config.parse_failed", "warning",
+                $"Failed to parse device identity: {ex.Message}",
+                new Dictionary<string, string?> { ["file"] = "device-identity.json" });
             return null;
         }
 
@@ -452,5 +470,21 @@ public sealed class WorkspaceService : IWorkspaceService
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read);
         await JsonSerializer.SerializeAsync(stream, payload, WorkspaceJson.Default, cancellationToken);
+    }
+
+    private void RecordDiagnostic(
+        string eventType,
+        string level,
+        string message,
+        IReadOnlyDictionary<string, string?>? attributes = null)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: $"diag-{Guid.NewGuid():N}",
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: attributes));
     }
 }

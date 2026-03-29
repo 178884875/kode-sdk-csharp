@@ -20,17 +20,8 @@ public static partial class GatewayApp
             [FromQuery] int? limit,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to automations list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(source, out AutomationDefinitionSource? parsedSource))
             {
@@ -52,20 +43,6 @@ public static partial class GatewayApp
                     Source: parsedSource,
                     Limit: NormalizeAutomationDefinitionsLimit(limit)),
                 cancellationToken);
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.automations",
-                eventType: "gateway.automations.listed",
-                level: "info",
-                message: $"Automations query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["enabled"] = enabled?.ToString(),
-                    ["source"] = parsedSource?.ToString(),
-                    ["count"] = items.Count.ToString(),
-                });
 
             // Recompute NextRunAt for display: the stored value may reflect an older timezone
             // assumption or a scheduler-internal override (claim lock / failure-retry delay).
@@ -91,17 +68,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to automation detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var definition = await definitionRepository.GetByIdAsync(id, cancellationToken);
             if (definition is null)
@@ -121,20 +89,6 @@ public static partial class GatewayApp
                     Code: "automation.not_found",
                     Message: "Automation was not found."));
             }
-
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.automations",
-                eventType: "gateway.automations.fetched",
-                level: "info",
-                message: "Fetched automation detail.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["automationId"] = definition.Id,
-                    ["enabled"] = definition.Enabled.ToString(),
-                    ["source"] = definition.Source.ToString(),
-                });
 
             var displayDefinition = definition with
             {
@@ -157,17 +111,8 @@ public static partial class GatewayApp
             [FromQuery] string? status,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to automation runs endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryParseEnum(status, out AutomationRunStatus? parsedStatus))
             {
@@ -213,20 +158,6 @@ public static partial class GatewayApp
                     Limit: NormalizeAutomationRunsLimit(limit)),
                 cancellationToken);
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.automations",
-                eventType: "gateway.automations.runs_listed",
-                level: "info",
-                message: $"Automation runs query returned {items.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["automationId"] = id,
-                    ["status"] = parsedStatus?.ToString(),
-                    ["count"] = items.Count.ToString(),
-                });
-
             return Results.Ok(new AutomationRunsQueryResponse(items));
         });
 
@@ -239,17 +170,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to automation patch endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var existing = await definitionRepository.GetByIdAsync(id, cancellationToken);
             if (existing is null)
@@ -303,17 +225,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to automation trigger endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var definition = await definitionRepository.GetByIdAsync(id, cancellationToken);
             if (definition is null)

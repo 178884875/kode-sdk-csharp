@@ -3,13 +3,25 @@ using KodaClaw.Contracts;
 
 namespace KodaClaw.Workspace;
 
-public sealed class OnboardingStateService(IWorkspaceService workspaceService)
+public sealed class OnboardingStateService
 {
     private const string OnboardingStatePath = "config/onboarding.json";
+    private const string DiagnosticSource = "koda.workspace";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
 
+    private readonly IWorkspaceService _workspaceService;
+    private readonly IDiagnosticsService? _diagnosticsService;
+
+    public OnboardingStateService(
+        IWorkspaceService workspaceService,
+        IDiagnosticsService? diagnosticsService = null)
+    {
+        _workspaceService = workspaceService;
+        _diagnosticsService = diagnosticsService;
+    }
+
     private string GetAbsolutePath() =>
-        Path.Combine(workspaceService.RootPath, OnboardingStatePath);
+        Path.Combine(_workspaceService.RootPath, OnboardingStatePath);
 
     public async Task<OnboardingState> GetStateAsync(CancellationToken ct = default)
     {
@@ -26,8 +38,16 @@ public sealed class OnboardingStateService(IWorkspaceService workspaceService)
             return JsonSerializer.Deserialize<OnboardingState>(content, JsonOptions)
                 ?? new OnboardingState { StartedAt = DateTimeOffset.UtcNow };
         }
-        catch
+        catch (JsonException ex)
         {
+            RecordDiagnostic("onboarding.state.read_failed", "warning",
+                $"Failed to parse onboarding state: {ex.Message}");
+            return new OnboardingState { StartedAt = DateTimeOffset.UtcNow };
+        }
+        catch (IOException ex)
+        {
+            RecordDiagnostic("onboarding.state.read_failed", "warning",
+                $"Failed to read onboarding state file: {ex.Message}");
             return new OnboardingState { StartedAt = DateTimeOffset.UtcNow };
         }
     }
@@ -45,6 +65,7 @@ public sealed class OnboardingStateService(IWorkspaceService workspaceService)
         var state = await GetStateAsync(ct);
         var completed = state with { IsCompleted = true, CompletedAt = DateTimeOffset.UtcNow };
         await SaveStateAsync(completed, ct);
+        RecordDiagnostic("onboarding.completed", "info", "Onboarding completed.");
         return completed;
     }
 
@@ -52,6 +73,18 @@ public sealed class OnboardingStateService(IWorkspaceService workspaceService)
     {
         var reset = new OnboardingState { StartedAt = DateTimeOffset.UtcNow };
         await SaveStateAsync(reset, ct);
+        RecordDiagnostic("onboarding.reset", "info", "Onboarding state reset.");
         return reset;
+    }
+
+    private void RecordDiagnostic(string eventType, string level, string message)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: $"diag-{Guid.NewGuid():N}",
+            Source: DiagnosticSource,
+            EventType: eventType,
+            Level: level,
+            Message: message,
+            Timestamp: DateTimeOffset.UtcNow));
     }
 }

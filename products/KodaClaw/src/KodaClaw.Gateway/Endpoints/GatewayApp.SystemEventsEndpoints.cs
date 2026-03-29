@@ -17,7 +17,7 @@ public static partial class GatewayApp
             IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;

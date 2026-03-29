@@ -1,5 +1,6 @@
 using KodaClaw.Contracts;
 using LibGit2Sharp;
+using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.Workspace;
 
@@ -68,11 +69,13 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
 
     private readonly string _rootPath;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly ILogger<WorkspaceGitService> _logger;
 
-    public WorkspaceGitService(KodaClawWorkspaceOptions options)
+    public WorkspaceGitService(KodaClawWorkspaceOptions options, ILogger<WorkspaceGitService>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _rootPath = options.ResolveRootPath();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<WorkspaceGitService>.Instance;
     }
 
     public async Task EnsureGitRepoAsync(CancellationToken cancellationToken = default)
@@ -144,8 +147,9 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
             repo.Commit(message, sig, sig);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Git commit failed for workspace at {RootPath}", _rootPath);
             return false;
         }
         finally
@@ -177,8 +181,9 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
 
             return Task.FromResult<IReadOnlyList<WorkspaceGitCommit>>(commits);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to read git commits from {RootPath}", _rootPath);
             return Task.FromResult<IReadOnlyList<WorkspaceGitCommit>>([]);
         }
     }
@@ -202,8 +207,9 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
 
             return Task.FromResult(patch.Content);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to read git diff for commit {Hash}", hash);
             return Task.FromResult(string.Empty);
         }
     }
@@ -256,7 +262,7 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
         }
     }
 
-    private static void StageTrackedPaths(Repository repo)
+    private void StageTrackedPaths(Repository repo)
     {
         foreach (var trackedPath in TrackedPaths)
         {
@@ -264,9 +270,9 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
             {
                 Commands.Stage(repo, trackedPath);
             }
-            catch
+            catch (Exception ex)
             {
-                // Path may not exist (e.g. config/plugins.json on a fresh workspace). Skip it.
+                _logger.LogDebug(ex, "Skipping unresolvable tracked path {Path} during staging", trackedPath);
             }
         }
     }
@@ -336,9 +342,9 @@ public sealed class WorkspaceGitService : IWorkspaceGitService
                 $"workspace(gitignore)[system/upgrade]: upgrade .gitignore to v{GitIgnoreVersion}",
                 sig, sig);
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort: if commit fails, the file is still updated on disk.
+            _logger.LogWarning(ex, "Best-effort .gitignore upgrade commit failed for {RootPath}", _rootPath);
         }
     }
 

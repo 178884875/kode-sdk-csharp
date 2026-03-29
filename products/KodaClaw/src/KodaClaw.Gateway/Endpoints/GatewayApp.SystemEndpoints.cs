@@ -25,17 +25,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to bootstrap-state endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var snapshot = await workspaceService.EnsureInitializedAsync(cancellationToken);
             var mode = snapshot.RequiresBootstrap ? AppMode.Bootstrap : AppMode.Normal;
@@ -56,35 +47,12 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to secret migration report endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
                 var report = await reportService.GenerateAsync(cancellationToken);
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.secrets",
-                    eventType: "gateway.secrets.report_generated",
-                    level: "info",
-                    message: $"Generated secret migration report with {report.Summary.TotalCount} items.",
-                    attributes: new Dictionary<string, string?>
-                    {
-                        ["migratedCount"] = report.Summary.MigratedCount.ToString(),
-                        ["legacyFallbackCount"] = report.Summary.LegacyFallbackCount.ToString(),
-                        ["missingCount"] = report.Summary.MissingCount.ToString(),
-                        ["artifactPath"] = report.ArtifactPath,
-                    });
                 return Results.Ok(report);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -111,17 +79,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to startup repair report endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -168,17 +127,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to update state endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -225,17 +175,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to update check endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -285,17 +226,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to backup export endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {
@@ -352,17 +284,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to backup import preflight endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(request.ArchivePath))
             {
@@ -454,17 +377,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to backup import endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (string.IsNullOrWhiteSpace(request.ArchivePath))
             {
@@ -569,15 +483,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to bootstrap draft endpoint.");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }
@@ -661,17 +568,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to storage-usage endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Task.FromResult(Results.Unauthorized());
-            }
 
             var sessionsRoot = Path.Combine(workspaceService.RootPath, KodaClawWorkspaceLayout.SessionsDirectory);
             var main = ComputeSessionTypeUsage(sessionsRoot, "main-");
@@ -686,21 +584,6 @@ public static partial class GatewayApp
                 TotalSizeBytes = main.SizeBytes + auto.SizeBytes + channel.SizeBytes,
             };
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.storage",
-                eventType: "gateway.storage.usage_fetched",
-                level: "info",
-                message: "Fetched session storage usage.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["mainCount"] = main.Count.ToString(),
-                    ["autoCount"] = auto.Count.ToString(),
-                    ["channelCount"] = channel.Count.ToString(),
-                    ["totalSizeBytes"] = response.TotalSizeBytes.ToString(),
-                });
-
             return Task.FromResult(Results.Ok(response));
         });
 
@@ -712,15 +595,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to bootstrap completion endpoint.");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }

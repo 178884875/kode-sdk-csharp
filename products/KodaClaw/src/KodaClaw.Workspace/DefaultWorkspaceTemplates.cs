@@ -15,7 +15,13 @@ public static class DefaultWorkspaceTemplates
 ## Tool Mapping
 
 ### Protocol & Memory
-- `workspace_protocol_update` → Modify identity/soul/user/heartbeat (heartbeat takes effect immediately)
+- `workspace_protocol_update` → Modify workspace files by target:
+  - target=identity — Koda's persona and voice
+  - target=soul — behavioral guidelines and constraints
+  - target=user — user profile and preferences
+  - target=heartbeat — automation rules (takes effect immediately)
+  - target=memory — long-term memory (only during Nightly Consolidation)
+  - target=agents — agent protocol updates
 - `workspace_memory_append` → Write daily memories (specify priority: permanent/lasting/standard/ephemeral)
 - `workspace_read` → Read workspace files (memory/daily_memory/topics/channels/heartbeat)
 - `fs_grep` / `fs_glob` → Search and discover memory files

@@ -221,8 +221,9 @@ public sealed class LinuxSecretStore : IPlatformKeychain
             return JsonSerializer.Deserialize<Dictionary<string, string>>(json)
                    ?? new Dictionary<string, string>(StringComparer.Ordinal);
         }
-        catch
+        catch (Exception ex)
         {
+            _logger?.LogWarning(ex, "Failed to load secrets file from {Path}", _secretsFilePath);
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
     }
@@ -277,6 +278,7 @@ public sealed class LinuxSecretStore : IPlatformKeychain
         }
         catch
         {
+            // secret-tool detection is best-effort; missing binary is expected on many systems
             return false;
         }
     }

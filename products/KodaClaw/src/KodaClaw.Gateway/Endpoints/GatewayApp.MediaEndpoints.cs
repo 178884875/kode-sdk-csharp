@@ -17,13 +17,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context,
-                    source: "gateway.auth", eventType: "gateway.auth.failed",
-                    level: "warning", message: "Unauthorized access to media upload endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var form = await context.Request.ReadFormAsync(cancellationToken);
             var file = form.Files.GetFile("file");
@@ -68,13 +63,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(diagnosticsService, context,
-                    source: "gateway.auth", eventType: "gateway.auth.failed",
-                    level: "warning", message: "Unauthorized access to media meta endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var meta = await mediaStore.GetMetaAsync(id, cancellationToken);
             if (meta is null)

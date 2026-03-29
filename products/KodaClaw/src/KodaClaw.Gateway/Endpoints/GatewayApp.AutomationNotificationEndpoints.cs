@@ -20,17 +20,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to inbox push-to-channel endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var inboxItem = await inboxRepository.GetByIdAsync(id, cancellationToken);
             if (inboxItem is null)
@@ -52,7 +43,10 @@ public static partial class GatewayApp
                         automationId = prop.GetString();
                     }
                 }
-                catch (JsonException) { }
+                catch (JsonException ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[AutomationNotificationEndpoints] Failed to parse inbox payload: {ex.Message}");
+                }
             }
 
             if (string.IsNullOrWhiteSpace(automationId))

@@ -6,7 +6,9 @@ using Kode.Agent.Sdk.Core.Scheduling;
 using Kode.Agent.Sdk.Core.Todo;
 using Kode.Agent.Sdk.Core.Templates;
 using Kode.Agent.Sdk.Core.Skills;
+using Kode.Agent.Sdk.Diagnostics;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Kode.Agent.Sdk.Core.Agent;
@@ -547,6 +549,13 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     /// <inheritdoc />
     public async Task<AgentRunResult> RunAsync(string input, CancellationToken cancellationToken = default)
     {
+        using var runActivity = KodeAgentActivitySource.Source.StartActivity("agent.run");
+        runActivity?.SetTag("agent.model", _config.Model);
+        runActivity?.SetTag("agent.model", _config.Model);
+        runActivity?.SetTag("agent.max_iterations", _config.MaxIterations);
+        KodeAgentMetrics.RunsStarted.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+        var runStopwatch = Stopwatch.StartNew();
+
         TransitionState(AgentRuntimeState.Working);
         _runCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -587,6 +596,13 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 stopReason = StopReason.MaxIterations;
             }
 
+            runStopwatch.Stop();
+            KodeAgentMetrics.RunsCompleted.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds,
+                new KeyValuePair<string, object?>("model", _config.Model));
+            runActivity?.SetTag("agent.stop_reason", stopReason.ToString());
+            runActivity?.SetTag("agent.tokens.total", totalUsage.InputTokens + totalUsage.OutputTokens);
+
             return new AgentRunResult
             {
                 Success = stopReason == StopReason.EndTurn,
@@ -597,6 +613,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            runStopwatch.Stop();
+            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds,
+                new KeyValuePair<string, object?>("model", _config.Model));
+            runActivity?.SetStatus(ActivityStatusCode.Error, "Cancelled");
+
             // User-requested cancellation — silent stop, no error event.
             return new AgentRunResult
             {
@@ -606,6 +627,14 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
         catch (OperationCanceledException oce)
         {
+            KodeAgentMetrics.ModelErrors.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+            runActivity?.SetStatus(ActivityStatusCode.Error, oce.Message);
+            runActivity?.AddEvent(new ActivityEvent("exception", tags: new ActivityTagsCollection
+            {
+                { "exception.type", oce.GetType().FullName },
+                { "exception.message", oce.Message }
+            }));
+
             // Internal cancellation not triggered by the caller — most likely an HttpClient
             // request timeout (default was 100 s before we set InfiniteTimeSpan).  Treat as
             // an error so the user gets feedback instead of a silent hang.
@@ -629,6 +658,14 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
         catch (Exception ex)
         {
+            KodeAgentMetrics.ModelErrors.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+            runActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            runActivity?.AddEvent(new ActivityEvent("exception", tags: new ActivityTagsCollection
+            {
+                { "exception.type", ex.GetType().FullName },
+                { "exception.message", ex.Message }
+            }));
+
             _logger?.LogError(ex, "Error during agent run");
 
             _eventBus.EmitMonitor(new ErrorEvent
@@ -1013,7 +1050,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     /// <inheritdoc />
     public async Task<AgentStepResult> StepAsync(CancellationToken cancellationToken = default)
     {
+        using var stepActivity = KodeAgentActivitySource.Source.StartActivity("agent.step");
         var step = _stepCount;
+        stepActivity?.SetTag("step.number", step);
         var stepStartMs = NowMs();
         TouchProcessingHeartbeat();
 
@@ -1043,12 +1082,15 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             _stepCount++;
             _scheduler.NotifyStep(_stepCount);
             _todoManager?.OnStep(cancellationToken);
+            var stepDurationMs = Math.Max(0, NowMs() - stepStartMs);
             _eventBus.EmitMonitor(new StepCompleteEvent
             {
                 Type = "step_complete",
                 Step = _stepCount,
-                DurationMs = Math.Max(0, NowMs() - stepStartMs)
+                DurationMs = stepDurationMs
             });
+            KodeAgentMetrics.StepsCompleted.Add(1);
+            KodeAgentMetrics.StepDuration.Record(stepDurationMs);
             _iterationCount++;
 
             return new AgentStepResult
@@ -1097,6 +1139,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                     Summary = string.Join("\n", compression.Summary.Content.OfType<TextContent>().Select(t => t.Text)),
                     Ratio = compression.Ratio
                 });
+                KodeAgentMetrics.ContextCompressions.Add(1);
             }
         }
 
@@ -1200,13 +1243,16 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             _scheduler.NotifyStep(_stepCount);
         }
         _todoManager?.OnStep(cancellationToken);
+        var stepDuration = Math.Max(0, NowMs() - stepStartMs);
+        KodeAgentMetrics.StepsCompleted.Add(1);
+        KodeAgentMetrics.StepDuration.Record(stepDuration);
         if (doneBookmark != null)
         {
             _eventBus.EmitMonitor(new StepCompleteEvent
             {
                 Type = "step_complete",
                 Step = _stepCount,
-                DurationMs = Math.Max(0, NowMs() - stepStartMs)
+                DurationMs = stepDuration
             });
         }
         _iterationCount++;
@@ -1512,6 +1558,12 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         ModelRequest request,
         CancellationToken cancellationToken)
     {
+        using var modelActivity = KodeAgentActivitySource.Source.StartActivity("agent.model_request");
+        modelActivity?.SetTag("model", request.Model);
+        modelActivity?.SetTag("has_tools", request.Tools?.Count > 0);
+        KodeAgentMetrics.ModelRequests.Add(1, new KeyValuePair<string, object?>("model", request.Model));
+        var modelStopwatch = Stopwatch.StartNew();
+
         var step = _stepCount;
         TouchProcessingHeartbeat();
         var contentBlocks = new List<ContentBlock>();
@@ -1654,7 +1706,17 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 OutputTokens = usage.OutputTokens,
                 TotalTokens = usage.InputTokens + usage.OutputTokens
             });
+            KodeAgentMetrics.TokensInput.Add(usage.InputTokens,
+                new KeyValuePair<string, object?>("model", request.Model));
+            KodeAgentMetrics.TokensOutput.Add(usage.OutputTokens,
+                new KeyValuePair<string, object?>("model", request.Model));
+            modelActivity?.SetTag("tokens.input", usage.InputTokens);
+            modelActivity?.SetTag("tokens.output", usage.OutputTokens);
         }
+
+        modelStopwatch.Stop();
+        KodeAgentMetrics.ModelRequestDuration.Record(modelStopwatch.Elapsed.TotalMilliseconds,
+            new KeyValuePair<string, object?>("model", request.Model));
 
         return new ModelResponse
         {
@@ -1860,6 +1922,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
             _breakpointManager.TransitionTo(BreakpointState.ToolExecuting);
 
+            using var toolActivity = KodeAgentActivitySource.Source.StartActivity("agent.tool.execute");
+            toolActivity?.SetTag("tool.name", toolUse.Name);
+            toolActivity?.SetTag("tool.id", toolUse.Id);
+
             TouchProcessingHeartbeat();
             var sw = System.Diagnostics.Stopwatch.StartNew();
             ToolResult toolResult;
@@ -1903,6 +1969,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             sw.Stop();
             TouchProcessingHeartbeat();
 
+            var toolNameTag = new KeyValuePair<string, object?>("tool.name", toolUse.Name);
+            KodeAgentMetrics.ToolExecutions.Add(1, toolNameTag);
+            KodeAgentMetrics.ToolDuration.Record(sw.Elapsed.TotalMilliseconds, toolNameTag);
+            toolActivity?.SetTag("tool.duration_ms", sw.Elapsed.TotalMilliseconds);
+
             var outcome = new ToolOutcome(
                 toolUse.Id,
                 toolUse.Name,
@@ -1926,6 +1997,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             if (!postOutcome.Result.Success)
             {
                 var message = postOutcome.Result.Error ?? "Tool failed";
+                KodeAgentMetrics.ToolErrors.Add(1, toolNameTag);
+                toolActivity?.SetStatus(ActivityStatusCode.Error, message);
+
                 _eventBus.EmitProgress(new ToolErrorEvent
                 {
                     Type = "tool:error",
@@ -3305,8 +3379,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             {
                 await _dependencies.Store.SaveMessagesAsync(AgentId, _messages, cancellationToken);
             }
-            catch
+            catch (Exception ex)
             {
+                _logger?.LogWarning(ex, "Failed to persist messages after context repair");
             }
 
             _eventBus.EmitMonitor(new ContextRepairEvent

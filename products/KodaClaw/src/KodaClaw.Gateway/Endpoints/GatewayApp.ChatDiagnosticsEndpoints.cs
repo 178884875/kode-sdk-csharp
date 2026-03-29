@@ -21,15 +21,8 @@ public static partial class GatewayApp
             IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to chat stream endpoint.");
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
             }
@@ -213,17 +206,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             [FromQuery] DateTimeOffset? since) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to diagnostics stats endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             return Results.Ok(diagnosticsService.GetStats(since));
         });
@@ -235,17 +219,8 @@ public static partial class GatewayApp
             [FromQuery] DateTimeOffset? before,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to diagnostics clear endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             await diagnosticsService.ClearAsync(before, cancellationToken);
             RecordDiagnosticEvent(
@@ -270,7 +245,7 @@ public static partial class GatewayApp
             IHostApplicationLifetime appLifetime,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
+            if (!TryAuthorize(context, configuration, diagnosticsService))
             {
                 context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                 return;
@@ -310,17 +285,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to diagnostics bundle export endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             try
             {

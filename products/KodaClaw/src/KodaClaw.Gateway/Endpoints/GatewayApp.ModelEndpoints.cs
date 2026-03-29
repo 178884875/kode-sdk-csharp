@@ -16,17 +16,8 @@ public static partial class GatewayApp
             ModelPresetService modelPresetService,
             IDiagnosticsService diagnosticsService) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model presets endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var allPresets = modelPresetService.GetAll();
             return Results.Ok(allPresets);
@@ -39,17 +30,8 @@ public static partial class GatewayApp
             ModelPresetService modelPresetService,
             IDiagnosticsService diagnosticsService) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model preset detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var preset = modelPresetService.GetById(presetId);
             if (preset is null)
@@ -70,17 +52,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model test-connection endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var result = await modelConnectionTestService.TestAsync(request, cancellationToken);
             RecordDiagnosticEvent(
@@ -111,30 +84,10 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to models list endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var endpoints = await modelRegistryRepository.ListAsync(cancellationToken);
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.models",
-                eventType: "gateway.models.listed",
-                level: "info",
-                message: $"Models query returned {endpoints.Count} items.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["count"] = endpoints.Count.ToString(),
-                });
 
             return Results.Ok(new ModelsQueryResponse(endpoints));
         });
@@ -147,17 +100,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model detail endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var endpoint = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
             if (endpoint is null)
@@ -178,20 +122,6 @@ public static partial class GatewayApp
                     Message: "Model endpoint was not found."));
             }
 
-            RecordDiagnosticEvent(
-                diagnosticsService,
-                context,
-                source: "gateway.models",
-                eventType: "gateway.models.fetched",
-                level: "info",
-                message: "Fetched model endpoint detail.",
-                attributes: new Dictionary<string, string?>
-                {
-                    ["modelEndpointId"] = endpoint.Id,
-                    ["provider"] = endpoint.Provider.ToString(),
-                    ["isDefault"] = endpoint.IsDefault.ToString(),
-                });
-
             return Results.Ok(endpoint);
         });
 
@@ -204,17 +134,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model create endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             if (!TryValidateModelEndpointRequest(request, out var validatedRequest, out var error))
             {
@@ -286,17 +207,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model update endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var existing = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
             if (existing is null)
@@ -403,17 +315,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model delete endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var toDelete = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
             if (toDelete is null)
@@ -487,17 +390,8 @@ public static partial class GatewayApp
             IDiagnosticsService diagnosticsService,
             CancellationToken cancellationToken) =>
         {
-            if (!TryAuthorize(context, configuration))
-            {
-                RecordDiagnosticEvent(
-                    diagnosticsService,
-                    context,
-                    source: "gateway.auth",
-                    eventType: "gateway.auth.failed",
-                    level: "warning",
-                    message: "Unauthorized access to model default endpoint.");
+            if (!TryAuthorize(context, configuration, diagnosticsService))
                 return Results.Unauthorized();
-            }
 
             var endpoint = await modelRegistryRepository.GetByIdAsync(id, cancellationToken);
             if (endpoint is null)
