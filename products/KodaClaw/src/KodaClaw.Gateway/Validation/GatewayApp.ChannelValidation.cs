@@ -75,6 +75,7 @@ public static partial class GatewayApp
             ChannelConnectorKind.GenericWebhook => ChannelAccountState.Connected,
             ChannelConnectorKind.Telegram => existing?.State ?? ChannelAccountState.Disconnected,
             ChannelConnectorKind.Feishu => existing?.State ?? ChannelAccountState.Disconnected,
+            ChannelConnectorKind.DingTalk => existing?.State ?? ChannelAccountState.Disconnected,
             _ => existing?.State ?? ChannelAccountState.Disconnected,
         };
     }
@@ -129,7 +130,8 @@ public static partial class GatewayApp
 
         if (account.ConnectorKind is not ChannelConnectorKind.Telegram
             and not ChannelConnectorKind.Feishu
-            and not ChannelConnectorKind.WeChat)
+            and not ChannelConnectorKind.WeChat
+            and not ChannelConnectorKind.DingTalk)
         {
             await channelAccountRepository.UpsertAsync(account, cancellationToken);
             return account;
@@ -191,6 +193,8 @@ public static partial class GatewayApp
                 channelInboundGatewayService.StopFeishuAccountAsync(account.Id, cancellationToken),
             ChannelConnectorKind.WeChat =>
                 channelInboundGatewayService.StopWeChatAccountAsync(account.Id, cancellationToken),
+            ChannelConnectorKind.DingTalk =>
+                channelInboundGatewayService.StopDingTalkAccountAsync(account.Id, cancellationToken),
             _ => Task.CompletedTask,
         };
     }
@@ -208,6 +212,8 @@ public static partial class GatewayApp
                 channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
             ChannelConnectorKind.WeChat =>
                 channelInboundGatewayService.StartWeChatAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.DingTalk =>
+                channelInboundGatewayService.StartDingTalkAccountAsync(account, cancellationToken),
             _ => Task.CompletedTask,
         };
     }

@@ -62,6 +62,15 @@ public static partial class GatewayApp
                     SupportsOutbound = true,
                     ProductOwned = true,
                 },
+                new
+                {
+                    Kind = ChannelConnectorKind.DingTalk,
+                    DisplayName = "钉钉 / DingTalk",
+                    Implemented = true,
+                    SupportsInbound = true,
+                    SupportsOutbound = true,
+                    ProductOwned = true,
+                },
             });
         });
 

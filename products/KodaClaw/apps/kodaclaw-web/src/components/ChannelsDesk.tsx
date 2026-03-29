@@ -325,6 +325,9 @@ export function ChannelsDesk() {
         telegramToken: "Bot token",
         feishuAppId: "App ID",
         feishuAppSecret: "App Secret",
+        dingTalkAppKey: "App Key",
+        dingTalkAppSecret: "App Secret",
+        dingTalkRobotCode: "Robot Code",
         webhookPath: "Webhook path",
         verifyToken: "Verify Token",
         verifyCredentials: "Verify Credentials",
@@ -370,6 +373,9 @@ export function ChannelsDesk() {
   const [addFormFeishuAppId, setAddFormFeishuAppId] = useState("");
   const [addFormFeishuAppSecret, setAddFormFeishuAppSecret] = useState("");
   const [addFormFeishuTestResult, setAddFormFeishuTestResult] = useState<string | null>(null);
+  const [addFormDingTalkAppKey, setAddFormDingTalkAppKey] = useState("");
+  const [addFormDingTalkAppSecret, setAddFormDingTalkAppSecret] = useState("");
+  const [addFormDingTalkRobotCode, setAddFormDingTalkRobotCode] = useState("");
   const [addFormTesting, setAddFormTesting] = useState(false);
   const [addFormSaving, setAddFormSaving] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
@@ -658,6 +664,9 @@ export function ChannelsDesk() {
     setAddFormFeishuAppId("");
     setAddFormFeishuAppSecret("");
     setAddFormFeishuTestResult(null);
+    setAddFormDingTalkAppKey("");
+    setAddFormDingTalkAppSecret("");
+    setAddFormDingTalkRobotCode("");
     setAddFormDeliveryMode("RequireApproval");
     setAddFormTelegramTestResult(null);
     setAddFormTesting(false);
@@ -734,11 +743,18 @@ export function ChannelsDesk() {
           appId: addFormFeishuAppId.trim(),
           appSecret: addFormFeishuAppSecret.trim(),
         });
+      } else if (addFormConnectorKind === "DingTalk" && addFormDingTalkAppKey.trim()) {
+        configurationJson = JSON.stringify({
+          appKey: addFormDingTalkAppKey.trim(),
+          appSecret: addFormDingTalkAppSecret.trim(),
+          robotCode: addFormDingTalkRobotCode.trim(),
+        });
       }
 
       const defaultDisplayName =
         addFormConnectorKind === "Telegram" ? "Telegram Bot"
         : addFormConnectorKind === "Feishu" ? "飞书 Bot"
+        : addFormConnectorKind === "DingTalk" ? "钉钉 Bot"
         : "Webhook";
 
       const request: CreateChannelAccountRequest = {
@@ -825,6 +841,7 @@ export function ChannelsDesk() {
       case "WeChat": return "#07C160";
       case "Telegram": return "#0088CC";
       case "Feishu": return "#00B96B";
+      case "DingTalk": return "#3296FA";
       default: return "var(--border-medium)";
     }
   }
@@ -1033,6 +1050,7 @@ export function ChannelsDesk() {
                     >
                       <option value="Telegram">Telegram</option>
                       <option value="Feishu">飞书 / Lark</option>
+                      <option value="DingTalk">钉钉 / DingTalk</option>
                       <option value="GenericWebhook">Generic Webhook</option>
                     </Select>
                     <div className="channel-add-form__actions">
@@ -1083,6 +1101,42 @@ export function ChannelsDesk() {
                           value={addFormFeishuAppSecret}
                           onChange={(e) => setAddFormFeishuAppSecret(e.target.value)}
                           placeholder="App Secret"
+                        />
+                      </>
+                    ) : addFormConnectorKind === "DingTalk" ? (
+                      <>
+                        <label className="metric-label" htmlFor="channel-form-dingtalk-app-key">
+                          {text.addForm.dingTalkAppKey}
+                        </label>
+                        <input
+                          id="channel-form-dingtalk-app-key"
+                          className="kc-input"
+                          type="text"
+                          value={addFormDingTalkAppKey}
+                          onChange={(e) => setAddFormDingTalkAppKey(e.target.value)}
+                          placeholder="dingxxxxxxxxx"
+                        />
+                        <label className="metric-label" htmlFor="channel-form-dingtalk-app-secret">
+                          {text.addForm.dingTalkAppSecret}
+                        </label>
+                        <input
+                          id="channel-form-dingtalk-app-secret"
+                          className="kc-input"
+                          type="password"
+                          value={addFormDingTalkAppSecret}
+                          onChange={(e) => setAddFormDingTalkAppSecret(e.target.value)}
+                          placeholder="App Secret"
+                        />
+                        <label className="metric-label" htmlFor="channel-form-dingtalk-robot-code">
+                          {text.addForm.dingTalkRobotCode}
+                        </label>
+                        <input
+                          id="channel-form-dingtalk-robot-code"
+                          className="kc-input"
+                          type="text"
+                          value={addFormDingTalkRobotCode}
+                          onChange={(e) => setAddFormDingTalkRobotCode(e.target.value)}
+                          placeholder="dingxxxxxxxxx"
                         />
                       </>
                     ) : (

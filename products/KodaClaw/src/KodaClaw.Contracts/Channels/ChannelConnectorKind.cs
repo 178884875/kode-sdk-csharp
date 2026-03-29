@@ -9,4 +9,5 @@ public enum ChannelConnectorKind
     GenericWebhook = 1,
     Feishu = 2,
     WeChat = 3,
+    DingTalk = 4,
 }

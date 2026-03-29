@@ -1,4 +1,5 @@
 using System.Text.Json;
+using KodaClaw.ChannelHub.Connectors.DingTalk;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.WeChat;
@@ -17,6 +18,7 @@ public sealed class ChannelDeliveryDispatchService
     private readonly TelegramConnector _telegramConnector;
     private readonly FeishuConnector _feishuConnector;
     private readonly WeChatConnector _weChatConnector;
+    private readonly DingTalkConnector _dingTalkConnector;
     private readonly GenericWebhookConnector _genericWebhookConnector;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
@@ -26,6 +28,7 @@ public sealed class ChannelDeliveryDispatchService
         TelegramConnector telegramConnector,
         FeishuConnector feishuConnector,
         WeChatConnector weChatConnector,
+        DingTalkConnector dingTalkConnector,
         GenericWebhookConnector genericWebhookConnector,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
@@ -35,6 +38,7 @@ public sealed class ChannelDeliveryDispatchService
         _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
         _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
         _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
+        _dingTalkConnector = dingTalkConnector ?? throw new ArgumentNullException(nameof(dingTalkConnector));
         _genericWebhookConnector = genericWebhookConnector ?? throw new ArgumentNullException(nameof(genericWebhookConnector));
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
@@ -187,6 +191,9 @@ public sealed class ChannelDeliveryDispatchService
                 return;
             case ChannelConnectorKind.WeChat:
                 await _weChatConnector.SendAsync(draft, cancellationToken);
+                return;
+            case ChannelConnectorKind.DingTalk:
+                await _dingTalkConnector.SendAsync(draft, cancellationToken);
                 return;
             case ChannelConnectorKind.GenericWebhook:
                 await _genericWebhookConnector.SendAsync(draft, cancellationToken);

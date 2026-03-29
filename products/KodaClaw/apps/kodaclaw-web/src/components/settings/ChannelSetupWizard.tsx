@@ -16,6 +16,7 @@ const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
   Telegram: { emoji: '✈️', label: 'Telegram' },
   Feishu:   { emoji: '🪶', label: '飞书 / Lark' },
   WeChat:   { emoji: '💬', label: '微信' },
+  DingTalk: { emoji: '🤖', label: '钉钉 / DingTalk' },
 };
 
 export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizardProps) {
@@ -28,6 +29,11 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
   // Feishu
   const [feishuAppId, setFeishuAppId] = useState('');
   const [feishuAppSecret, setFeishuAppSecret] = useState('');
+
+  // DingTalk
+  const [dingTalkAppKey, setDingTalkAppKey] = useState('');
+  const [dingTalkAppSecret, setDingTalkAppSecret] = useState('');
+  const [dingTalkRobotCode, setDingTalkRobotCode] = useState('');
 
   const [testing, setTesting] = useState(false);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
@@ -98,6 +104,29 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       fsSuccessStep4: '点击"保存"——飞书此时会检测到 KodaClaw 已建立连接，保存成功',
       fsSuccessStep5: '在飞书搜索栏中搜索你的应用名称，打开对话，发一条消息试试！',
       fsSuccessDesc: '如果 Koda 没有回复，请检查权限管理中 im:message 权限是否已申请并发布版本。',
+      // DingTalk intro
+      dtIntroTitle: '绑定钉钉机器人',
+      dtIntroDesc: '使用钉钉企业内部应用机器人，通过 Stream 模式与 Koda 对话，无需配置回调地址',
+      dtIntroStart: '开始绑定',
+      dtInstructionsTitle: '准备钉钉凭证（共 4 步）',
+      dtStep1: '前往钉钉开放平台注册开发者账号并创建企业',
+      dtStep2: '在"应用开发 → 企业内部开发"中创建一个新应用',
+      dtStep3: '在"应用信息"中记录 App Key 和 App Secret；在"机器人"功能中记录 Robot Code',
+      dtStep4: '发布机器人版本，确保应用处于上线状态',
+      dtInstructionsNext: '凭证已准备，下一步 →',
+      dtCredTitle: '输入钉钉凭证',
+      dtAppKeyLabel: 'App Key',
+      dtAppKeyPlaceholder: 'dingxxxxxxxxx',
+      dtAppSecretLabel: 'App Secret',
+      dtAppSecretPlaceholder: 'App Secret',
+      dtRobotCodeLabel: 'Robot Code',
+      dtRobotCodePlaceholder: 'dingxxxxxxxxx',
+      dtTestBtn: '下一步 →',
+      dtSuccessTitle: '钉钉已绑定 ✓',
+      dtSuccessStep1: '在钉钉中搜索你的机器人名称',
+      dtSuccessStep2: '打开机器人对话',
+      dtSuccessStep3: '发一条消息给机器人，Koda 会自动回复',
+      dtSuccessDesc: '如果 Koda 没有回复，请检查应用是否已发布，以及机器人功能是否已开启。',
       done: '完成',
       cancel: '取消',
       back: '← 返回',
@@ -164,6 +193,29 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       fsSuccessStep4: 'Click "Save" — Feishu will detect the active KodaClaw connection and allow saving',
       fsSuccessStep5: 'In Feishu, search for your app name in the search bar, open the conversation, and send a message!',
       fsSuccessDesc: 'If Koda doesn\'t reply, check that the im:message permission is approved and a version is published.',
+      // DingTalk intro
+      dtIntroTitle: 'Connect DingTalk Bot',
+      dtIntroDesc: 'Use a DingTalk enterprise app bot in Stream mode to chat with Koda — no callback URL required.',
+      dtIntroStart: 'Get started',
+      dtInstructionsTitle: 'Prepare DingTalk credentials (4 steps)',
+      dtStep1: 'Go to open.dingtalk.com and register a developer account, then create an enterprise',
+      dtStep2: 'Create a new app under "App Development → Enterprise Internal App"',
+      dtStep3: 'Copy App Key and App Secret from "App Info"; copy Robot Code from the "Bot" feature section',
+      dtStep4: 'Publish the bot version and ensure the app is live',
+      dtInstructionsNext: 'Credentials ready — next step →',
+      dtCredTitle: 'Enter DingTalk credentials',
+      dtAppKeyLabel: 'App Key',
+      dtAppKeyPlaceholder: 'dingxxxxxxxxx',
+      dtAppSecretLabel: 'App Secret',
+      dtAppSecretPlaceholder: 'App Secret',
+      dtRobotCodeLabel: 'Robot Code',
+      dtRobotCodePlaceholder: 'dingxxxxxxxxx',
+      dtTestBtn: 'Next →',
+      dtSuccessTitle: 'DingTalk connected ✓',
+      dtSuccessStep1: 'Search for your bot name in DingTalk',
+      dtSuccessStep2: 'Open the bot conversation',
+      dtSuccessStep3: 'Send a message to the bot — Koda will reply automatically',
+      dtSuccessDesc: 'If Koda doesn\'t reply, check that the app is published and the bot feature is enabled.',
       done: 'Done',
       cancel: 'Cancel',
       back: '← Back',
@@ -172,6 +224,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
 
   const isTelegram = connectorKind === 'Telegram';
   const isWeChat = connectorKind === 'WeChat';
+  const isDingTalk = connectorKind === 'DingTalk';
 
   const handleTestTelegram = async () => {
     setTesting(true);
@@ -220,6 +273,14 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           configurationJson: JSON.stringify({ botToken }),
           inboundEnabled: true,
         });
+      } else if (isDingTalk) {
+        await createChannelAccount({
+          id: `dingtalk-${Date.now()}`,
+          connectorKind: 'DingTalk',
+          displayName: dingTalkAppKey.trim() || '钉钉 Bot',
+          configurationJson: JSON.stringify({ appKey: dingTalkAppKey.trim(), appSecret: dingTalkAppSecret.trim(), robotCode: dingTalkRobotCode.trim() }),
+          inboundEnabled: true,
+        });
       } else if (!isWeChat) {
         await createChannelAccount({
           id: `feishu-${Date.now()}`,
@@ -247,7 +308,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           <h2 className="onboarding-step-title">{text.pickTitle}</h2>
           <p className="onboarding-step-desc">{text.pickDesc}</p>
           <div className="channel-picker-grid">
-            {(['Telegram', 'Feishu', 'WeChat'] as ChannelConnectorKind[]).map(kind => (
+            {(['Telegram', 'Feishu', 'WeChat', 'DingTalk'] as ChannelConnectorKind[]).map(kind => (
               <button
                 key={kind}
                 type="button"
@@ -274,17 +335,17 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'intro' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : text.fsIntroTitle}
+            {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : isDingTalk ? text.dtIntroTitle : text.fsIntroTitle}
           </h2>
           <p className="onboarding-step-desc">
-            {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : text.fsIntroDesc}
+            {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : isDingTalk ? text.dtIntroDesc : text.fsIntroDesc}
           </p>
           <div className="wizard-btn-row">
             <button
               className="onboarding-next-btn"
               onClick={() => setPhase(isWeChat ? 'qrlogin' : 'instructions')}
             >
-              {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : text.fsIntroStart}
+              {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : isDingTalk ? text.dtIntroStart : text.fsIntroStart}
             </button>
             <button className="onboarding-skip-step-btn" onClick={() => setPhase('pick')}>
               {text.back}
@@ -297,7 +358,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'instructions' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgInstructionsTitle : text.fsInstructionsTitle}
+            {isTelegram ? text.tgInstructionsTitle : isDingTalk ? text.dtInstructionsTitle : text.fsInstructionsTitle}
           </h2>
           {isTelegram ? (
             <ol className="telegram-instructions">
@@ -305,6 +366,18 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
               <li>{text.tgStep2} <code>/newbot</code></li>
               <li>{text.tgStep3}</li>
               <li>{text.tgStep4}</li>
+            </ol>
+          ) : isDingTalk ? (
+            <ol className="telegram-instructions">
+              <li>
+                {text.dtStep1}{' '}
+                <a href="https://open.dingtalk.com" target="_blank" rel="noopener noreferrer">
+                  open.dingtalk.com ↗
+                </a>
+              </li>
+              <li>{text.dtStep2}</li>
+              <li>{text.dtStep3}</li>
+              <li>{text.dtStep4}</li>
             </ol>
           ) : (
             <ol className="telegram-instructions">
@@ -320,7 +393,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           )}
           <div className="wizard-btn-row">
             <button className="onboarding-next-btn" onClick={() => setPhase('credentials')}>
-              {isTelegram ? text.tgInstructionsNext : text.fsInstructionsNext}
+              {isTelegram ? text.tgInstructionsNext : isDingTalk ? text.dtInstructionsNext : text.fsInstructionsNext}
             </button>
             <button className="onboarding-skip-step-btn" onClick={() => setPhase('intro')}>
               {text.back}
@@ -333,7 +406,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'credentials' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgCredTitle : text.fsCredTitle}
+            {isTelegram ? text.tgCredTitle : isDingTalk ? text.dtCredTitle : text.fsCredTitle}
           </h2>
           {isTelegram ? (
             <div className="apikey-input-group">
@@ -348,6 +421,45 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
                 onChange={e => { setBotToken(e.target.value); setCredError(null); }}
               />
             </div>
+          ) : isDingTalk ? (
+            <>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-dt-app-key">{text.dtAppKeyLabel}</label>
+                <input
+                  id="csw-dt-app-key"
+                  type="text"
+                  className="apikey-input"
+                  data-testid="dingtalk-app-key-input"
+                  placeholder={text.dtAppKeyPlaceholder}
+                  value={dingTalkAppKey}
+                  onChange={e => { setDingTalkAppKey(e.target.value); setCredError(null); }}
+                />
+              </div>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-dt-app-secret">{text.dtAppSecretLabel}</label>
+                <input
+                  id="csw-dt-app-secret"
+                  type="password"
+                  className="apikey-input"
+                  data-testid="dingtalk-app-secret-input"
+                  placeholder={text.dtAppSecretPlaceholder}
+                  value={dingTalkAppSecret}
+                  onChange={e => { setDingTalkAppSecret(e.target.value); setCredError(null); }}
+                />
+              </div>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-dt-robot-code">{text.dtRobotCodeLabel}</label>
+                <input
+                  id="csw-dt-robot-code"
+                  type="text"
+                  className="apikey-input"
+                  data-testid="dingtalk-robot-code-input"
+                  placeholder={text.dtRobotCodePlaceholder}
+                  value={dingTalkRobotCode}
+                  onChange={e => { setDingTalkRobotCode(e.target.value); setCredError(null); }}
+                />
+              </div>
+            </>
           ) : (
             <>
               <div className="apikey-input-group">
@@ -378,14 +490,25 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           )}
           {credError && <div className="connection-result is-error">{credError}</div>}
           <div className="wizard-btn-row">
-            <button
-              className="test-connection-btn"
-              data-testid={isTelegram ? 'test-telegram-btn' : 'test-feishu-btn'}
-              onClick={() => void (isTelegram ? handleTestTelegram() : handleTestFeishu())}
-              disabled={testing || (isTelegram ? !botToken : !feishuAppId || !feishuAppSecret)}
-            >
-              {testing ? text.testing : (isTelegram ? text.tgTestBtn : text.fsTestBtn)}
-            </button>
+            {isDingTalk ? (
+              <button
+                className="test-connection-btn"
+                data-testid="test-dingtalk-btn"
+                onClick={() => setPhase('delivery')}
+                disabled={!dingTalkAppKey || !dingTalkAppSecret || !dingTalkRobotCode}
+              >
+                {text.dtTestBtn}
+              </button>
+            ) : (
+              <button
+                className="test-connection-btn"
+                data-testid={isTelegram ? 'test-telegram-btn' : 'test-feishu-btn'}
+                onClick={() => void (isTelegram ? handleTestTelegram() : handleTestFeishu())}
+                disabled={testing || (isTelegram ? !botToken : !feishuAppId || !feishuAppSecret)}
+              >
+                {testing ? text.testing : (isTelegram ? text.tgTestBtn : text.fsTestBtn)}
+              </button>
+            )}
             <button className="onboarding-skip-step-btn" onClick={() => setPhase('instructions')}>
               {text.back}
             </button>
@@ -454,6 +577,16 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
             <>
               <h2 className="onboarding-step-title">{text.wxSuccessTitle}</h2>
               <p className="onboarding-step-desc">{text.wxSuccessDesc}</p>
+            </>
+          ) : isDingTalk ? (
+            <>
+              <h2 className="onboarding-step-title">{text.dtSuccessTitle}</h2>
+              <ol className="telegram-instructions" style={{ marginBottom: 12 }}>
+                <li>{text.dtSuccessStep1}</li>
+                <li>{text.dtSuccessStep2}</li>
+                <li><strong>{text.dtSuccessStep3}</strong></li>
+              </ol>
+              <p className="onboarding-step-desc">{text.dtSuccessDesc}</p>
             </>
           ) : (
             <>

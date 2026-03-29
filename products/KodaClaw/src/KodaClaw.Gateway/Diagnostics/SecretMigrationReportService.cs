@@ -208,6 +208,12 @@ internal sealed class SecretMigrationReportService
                 location,
                 displayName,
                 cancellationToken),
+            ChannelConnectorKind.DingTalk => await BuildDingTalkChannelItemAsync(
+                account,
+                configuration,
+                location,
+                displayName,
+                cancellationToken),
             _ => await BuildGenericChannelCredentialItemAsync(
                 account,
                 location,
@@ -278,6 +284,46 @@ internal sealed class SecretMigrationReportService
                 literalSource: "literalConfigValue",
                 literalValue: explicitSecret,
                 note: "Explicit Feishu appSecret values remain legacy configuration and are not interpreted as secret references.");
+        }
+
+        var field = GetOptionalString(configuration, "credentialReference") is not null
+            ? "configurationJson.credentialReference"
+            : "credentialReference";
+        var reference = GetOptionalString(configuration, "credentialReference") ?? account.CredentialReference;
+        var assessment = await EvaluateReferenceValueAsync(reference, LegacySourceProbe.None, cancellationToken);
+        return new SecretMigrationItem(
+            Id: $"channel-account:{account.Id}",
+            Kind: "channelAccount",
+            DisplayName: displayName,
+            State: assessment.State,
+            Location: location,
+            Field: field,
+            ConfiguredSecretRef: assessment.ConfiguredSecretRef,
+            SecretRefExists: assessment.SecretRefExists,
+            LegacySource: assessment.LegacySource,
+            LegacySourceAvailable: assessment.LegacySourceAvailable,
+            Notes: assessment.Notes);
+    }
+
+    private async Task<SecretMigrationItem> BuildDingTalkChannelItemAsync(
+        ChannelAccount account,
+        JsonElement? configuration,
+        string location,
+        string displayName,
+        CancellationToken cancellationToken)
+    {
+        var explicitSecret = GetOptionalString(configuration, "appSecret");
+        if (explicitSecret is not null)
+        {
+            return CreateLegacyLiteralItem(
+                id: $"channel-account:{account.Id}",
+                kind: "channelAccount",
+                displayName: displayName,
+                location: location,
+                field: "configurationJson.appSecret",
+                literalSource: "literalConfigValue",
+                literalValue: explicitSecret,
+                note: "Explicit DingTalk appSecret values remain legacy configuration and are not interpreted as secret references.");
         }
 
         var field = GetOptionalString(configuration, "credentialReference") is not null
