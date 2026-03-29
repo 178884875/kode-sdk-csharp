@@ -141,7 +141,7 @@ export function DiagnosticsDesk() {
   const [stats, setStats] = useState<DiagnosticsStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
-  const [filterLevel, setFilterLevel] = useState('');
+  const [filterLevel, setFilterLevel] = useState<string[]>(['warning', 'error']);
   const [filterSource, setFilterSource] = useState('');
   const [search, setSearch] = useState('');
   const [activeCorrelationId, setActiveCorrelationId] = useState('');
@@ -209,10 +209,10 @@ export function DiagnosticsDesk() {
 
   const allSources = Array.from(new Set(events.map(e => e.source))).sort();
 
-  const hasFilter = filterLevel || filterSource || search || activeCorrelationId;
+  const hasFilter = filterLevel.length > 0 || filterSource || search || activeCorrelationId;
 
   const filtered = events.filter(e => {
-    if (filterLevel && e.level.toLowerCase() !== filterLevel) return false;
+    if (filterLevel.length > 0 && !filterLevel.includes(e.level.toLowerCase())) return false;
     if (filterSource && e.source !== filterSource) return false;
     if (activeCorrelationId && e.correlationId !== activeCorrelationId) return false;
     if (search) {
@@ -291,16 +291,19 @@ export function DiagnosticsDesk() {
         )}
 
         {/* Level filter */}
-        <select
-          className="kc-diag-select"
-          value={filterLevel}
-          onChange={e => setFilterLevel(e.target.value)}
-        >
-          <option value="">{text.allLevels}</option>
-          <option value="info">info</option>
-          <option value="warning">warning</option>
-          <option value="error">error</option>
-        </select>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {(['debug', 'info', 'warning', 'error'] as const).map(l => {
+            const active = filterLevel.includes(l);
+            const c: Record<string, [string,string,string]> = { debug: ['#f3f4f6','#374151','#d1d5db'], info: ['#dbeafe','#1e40af','#93c5fd'], warning: ['#fef3c7','#92400e','#fcd34d'], error: ['#fee2e2','#991b1b','#fca5a5'] };
+            const [bg, text, border] = active ? c[l] : ['transparent', '#9ca3af', '#e5e7eb'];
+            return (
+              <span key={l} onClick={() => setFilterLevel(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l])}
+                style={{ padding: '4px 12px', borderRadius: '14px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', userSelect: 'none', border: '1px solid ' + border, backgroundColor: bg, color: text, transition: 'all 0.15s ease' }}>
+                {l}
+              </span>
+            );
+          })}
+        </div>
 
         {/* Source filter */}
         <select

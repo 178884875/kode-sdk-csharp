@@ -96,7 +96,7 @@ export interface ParsedSseFrame {
   id?: string;
 }
 
-type QueryValue = string | number | boolean | null | undefined;
+type QueryValue = string | number | boolean | null | undefined | string[];
 
 export function buildHeaders(json = false): HeadersInit {
   const headers: Record<string, string> = {};
@@ -150,7 +150,13 @@ function buildQueryString(query?: Record<string, QueryValue>): string {
       continue;
     }
 
-    params.set(key, String(value));
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        params.append(key, item);
+      }
+    } else {
+      params.set(key, String(value));
+    }
   }
 
   const encoded = params.toString();
@@ -715,7 +721,7 @@ export async function fetchDiagnosticsRecent(
     sessionId?: string | null;
     source?: string | null;
     eventType?: string | null;
-    level?: string | null;
+    levels?: string[] | null;
   },
   signal?: AbortSignal,
 ): Promise<DiagnosticsQueryResponse> {
@@ -735,7 +741,7 @@ export async function fetchDiagnosticsTimeline(
     sessionId?: string | null;
     source?: string | null;
     eventType?: string | null;
-    level?: string | null;
+    levels?: string[] | null;
   },
   signal?: AbortSignal,
 ): Promise<DiagnosticsQueryResponse> {
