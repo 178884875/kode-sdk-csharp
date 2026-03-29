@@ -169,7 +169,7 @@ public sealed class WorkspaceService : IWorkspaceService
         if (_git is not null)
             await _git.EnsureGitRepoAsync(cancellationToken);
 
-        RecordDiagnostic("workspace.initialized", "info",
+        RecordDiagnostic("workspace.initialized", "debug",
             $"Workspace initialized at {RootPath}.");
 
         return await GetSnapshotAsync(cancellationToken);
