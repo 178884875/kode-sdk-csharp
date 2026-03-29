@@ -235,7 +235,12 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         {
             try
             {
-                sessionLock.Release();
+                if (!sessionLock.IsDisposed)
+                {
+                    try { sessionLock.Release(); }
+                    catch (ObjectDisposedException) { }
+                    catch (SemaphoreFullException) { }
+                }
             }
             catch (ObjectDisposedException) { }
             catch (SemaphoreFullException) { }
