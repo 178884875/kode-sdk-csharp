@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
@@ -35,6 +36,8 @@ public sealed class ChannelTurnOrchestrator
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
     private readonly IChannelThreadSummaryWriter? _summaryWriter;
     private readonly IChannelSendCapture? _sendCapture;
+    private readonly IModelProvider? _modelProvider;
+    private readonly ChannelSessionOptions _sessionOptions;
     private readonly ILogger<ChannelTurnOrchestrator> _logger;
     private readonly string? _dedupeFilePath;
 
@@ -52,6 +55,8 @@ public sealed class ChannelTurnOrchestrator
         ICorrelationContextAccessor? correlationContextAccessor = null,
         IChannelThreadSummaryWriter? summaryWriter = null,
         IChannelSendCapture? sendCapture = null,
+        IModelProvider? modelProvider = null,
+        ChannelSessionOptions? sessionOptions = null,
         KodaClawWorkspaceOptions? workspaceOptions = null,
         ILogger<ChannelTurnOrchestrator>? logger = null)
     {
@@ -68,6 +73,8 @@ public sealed class ChannelTurnOrchestrator
         _correlationContextAccessor = correlationContextAccessor;
         _summaryWriter = summaryWriter;
         _sendCapture = sendCapture;
+        _modelProvider = modelProvider;
+        _sessionOptions = sessionOptions ?? new ChannelSessionOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
         var workspaceRoot = workspaceOptions?.ResolveRootPath();
         _dedupeFilePath = !string.IsNullOrWhiteSpace(workspaceRoot)
@@ -255,7 +262,7 @@ public sealed class ChannelTurnOrchestrator
                 }
             }
 
-            var summary = BuildConversationSummary(envelope.Text, sentTexts);
+            var summary = await BuildConversationSummaryAsync(envelope.Text, sentTexts, cancellationToken);
 
             var outcome = CreateOutcome(
                 ChannelTurnOutcomeKind.Delivered,
@@ -462,7 +469,7 @@ public sealed class ChannelTurnOrchestrator
         }
     }
 
-    private static string BuildConversationSummary(string? inboundText, IReadOnlyList<string> sentTexts)
+    private async Task<string> BuildConversationSummaryAsync(string? inboundText, IReadOnlyList<string> sentTexts, CancellationToken cancellationToken)
     {
         var user = BuildPreview(inboundText ?? "(no text)");
         if (sentTexts.Count == 0)
@@ -471,7 +478,35 @@ public sealed class ChannelTurnOrchestrator
         }
 
         var koda = string.Join(" | ", sentTexts.Select(BuildPreview));
-        return $"user: \"{user}\" → koda: \"{koda}\"";
+        var simple = $"user: \"{user}\" → koda: \"{koda}\"";
+
+        if (!_sessionOptions.LlmSummaryEnabled || _modelProvider is null) return simple;
+
+        var combinedLength = (inboundText?.Length ?? 0) + sentTexts.Sum(t => t.Length);
+        if (combinedLength <= 200) return simple;
+
+        try
+        {
+            var prompt = $"请用一句话（不超过50字）总结以下对话内容：\n用户：{inboundText}\nKoda：{string.Join(" ", sentTexts)}";
+            var request = new ModelRequest
+            {
+                Model = _sessionOptions.Model,
+                Messages = [Message.User(prompt)],
+                MaxTokens = 200,
+            };
+            var response = await _modelProvider.CompleteAsync(request, cancellationToken);
+            var text = response.Content.OfType<TextContent>().FirstOrDefault()?.Text;
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                return text.Length > 120 ? text[..120] : text;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM summary generation failed, falling back to simple summary");
+        }
+
+        return simple;
     }
 
     private static string BuildPreview(string text)

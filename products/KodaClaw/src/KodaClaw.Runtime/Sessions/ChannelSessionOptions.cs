@@ -43,4 +43,6 @@ public sealed class ChannelSessionOptions
     /// Target number of recent lines to retain after LLM compression.
     /// </summary>
     public int SummaryCompressionTargetLines { get; init; } = 40;
+
+    public bool LlmSummaryEnabled { get; init; } = false;
 }
