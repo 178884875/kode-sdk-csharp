@@ -236,7 +236,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             sessionLock.Release();
         }
 
-        var turnLevel = runResult.StopReason == StopReason.Error ? "warning" : "info";
+        var turnLevel = runResult.StopReason == StopReason.Error ? "warning" : runResult.StopReason == StopReason.EndTurn ? "debug" : "info";
         RecordDiagnosticEvent(
             eventType: "channel_session.turn_completed",
             level: turnLevel,

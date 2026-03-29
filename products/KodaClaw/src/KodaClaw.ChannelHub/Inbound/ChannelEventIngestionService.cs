@@ -98,7 +98,7 @@ public sealed class ChannelEventIngestionService
             EventType: createdBinding
                 ? "channel.ingest.binding_created"
                 : "channel.ingest.binding_reused",
-            Level: "info",
+            Level: createdBinding ? "info" : "debug",
             Message: createdBinding
                 ? "Created channel thread binding for inbound event."
                 : "Reused channel thread binding for inbound event.",
