@@ -22,6 +22,15 @@ interface ServerTestStatus {
   result?: McpConnectionTestResult;
 }
 
+const ALL_SCOPES = ["main", "dm", "group", "automation"] as const;
+type ScopeValue = typeof ALL_SCOPES[number];
+const SCOPE_LABELS: Record<ScopeValue, string> = {
+  main: "主会话",
+  dm: "私聊",
+  group: "群聊",
+  automation: "自动化",
+};
+
 interface ServerFormState {
   name: string;
   transport: "stdio" | "streamableHttp" | "sse";
@@ -29,6 +38,7 @@ interface ServerFormState {
   args: string;
   url: string;
   headers: string;
+  sessionScopes: string[];
 }
 
 const EMPTY_FORM: ServerFormState = {
@@ -38,6 +48,7 @@ const EMPTY_FORM: ServerFormState = {
   args: "",
   url: "",
   headers: "",
+  sessionScopes: [...ALL_SCOPES],
 };
 
 /* ── Helpers ─────────────────────────────────────────── */
@@ -73,6 +84,9 @@ function entryIcon(entry: WorkspaceMcpServerEntry) {
 /** Convert an existing entry back into form fields */
 function entryToForm(name: string, entry: WorkspaceMcpServerEntry): ServerFormState {
   const isHttp = !!entry.url || isHttpTransport(entry.transport ?? "");
+  const scopes = entry.sessionScopes == null || entry.sessionScopes.length === 0
+    ? [...ALL_SCOPES]
+    : entry.sessionScopes.filter((s): s is ScopeValue => ALL_SCOPES.includes(s as ScopeValue));
   return {
     name,
     transport: isHttp
@@ -82,6 +96,7 @@ function entryToForm(name: string, entry: WorkspaceMcpServerEntry): ServerFormSt
     args: (entry.args ?? []).join(" "),
     url: entry.url ?? "",
     headers: entry.headers ? JSON.stringify(entry.headers, null, 2) : "",
+    sessionScopes: scopes,
   };
 }
 
@@ -268,6 +283,17 @@ export function McpServersDesk() {
                       )}
                     </div>
                     <div className="mcp-entry__target" title={target}>{target}</div>
+                    {entry.sessionScopes != null &&
+                      entry.sessionScopes.length > 0 &&
+                      !ALL_SCOPES.every(s => entry.sessionScopes!.includes(s)) && (
+                      <div className="mcp-entry__scopes">
+                        {entry.sessionScopes.map(s => (
+                          <span key={s} className="mcp-entry__badge mcp-entry__badge--scope">
+                            {SCOPE_LABELS[s as ScopeValue] ?? s}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Status + expand toggle */}
@@ -468,6 +494,10 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
     if (!isHttp && !form.command.trim()) { setError("stdio 类型必须填写启动命令"); return; }
     if (isHttp && !form.url.trim()) { setError("HTTP 类型必须填写服务地址 URL"); return; }
 
+    // If all scopes selected, write null (omit field); otherwise write selected scopes
+    const isAllScopes = ALL_SCOPES.every(s => form.sessionScopes.includes(s));
+    const scopesField = isAllScopes ? null : form.sessionScopes;
+
     const entry: WorkspaceMcpServerEntry = isHttp
       ? {
           transport: form.transport,
@@ -477,6 +507,7 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
           ...(isEdit && initialEntry?.enabled !== undefined
             ? { enabled: initialEntry.enabled }
             : {}),
+          sessionScopes: scopesField,
         }
       : {
           command: form.command.trim(),
@@ -484,6 +515,7 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
           ...(isEdit && initialEntry?.enabled !== undefined
             ? { enabled: initialEntry.enabled }
             : {}),
+          sessionScopes: scopesField,
         };
 
     // Build updated map: if name changed, remove old key
@@ -613,6 +645,34 @@ function ServerModal({ open, config, editName, initialEntry, onClose, onSaved }:
             </div>
           </>
         )}
+
+        {/* 生效范围 */}
+        <div className="kc-modal-form__row">
+          <div className="kc-field">
+            <label className="kc-field__label">生效范围</label>
+            <div className="kc-scope-checks">
+              {ALL_SCOPES.map(scope => {
+                const checked = form.sessionScopes.includes(scope);
+                return (
+                  <label key={scope} className="kc-scope-check">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked
+                          ? form.sessionScopes.filter(s => s !== scope)
+                          : [...form.sessionScopes, scope];
+                        setField("sessionScopes", next);
+                      }}
+                    />
+                    {SCOPE_LABELS[scope]}
+                  </label>
+                );
+              })}
+            </div>
+            <span className="kc-field__hint">选择哪些会话类型可以加载此服务器，全选等同于所有</span>
+          </div>
+        </div>
 
         {error && <p className="kc-field__error">{error}</p>}
       </div>

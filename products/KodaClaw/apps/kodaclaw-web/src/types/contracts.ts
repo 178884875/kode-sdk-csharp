@@ -1187,6 +1187,7 @@ export interface WorkspaceMcpServerEntry {
   url?: string | null;
   headers?: Record<string, string> | null;
   enabled?: boolean | null;
+  sessionScopes?: string[] | null;
 }
 
 export interface WorkspaceMcpConfig {

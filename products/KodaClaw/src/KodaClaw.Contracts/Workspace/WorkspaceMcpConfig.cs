@@ -62,4 +62,13 @@ public sealed class WorkspaceMcpServerEntry
     /// </summary>
     [JsonPropertyName("enabled")]
     public bool? Enabled { get; init; }
+
+    /// <summary>
+    /// Limits this MCP server to specific session types.
+    /// Accepted values: "main", "dm", "group", "automation".
+    /// null or absent = all session types (backward-compatible).
+    /// Empty array is treated as "all".
+    /// </summary>
+    [JsonPropertyName("sessionScopes")]
+    public IReadOnlyList<string>? SessionScopes { get; init; }
 }

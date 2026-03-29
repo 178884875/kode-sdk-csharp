@@ -486,7 +486,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         var merged = new HashSet<string>(tools, StringComparer.OrdinalIgnoreCase);
-        var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, toolRegistry, cancellationToken);
+        var sessionKind = threadType == ChannelThreadType.DirectMessage
+            ? SessionKind.ChannelDirectMessage
+            : SessionKind.ChannelGroup;
+        var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, sessionKind, toolRegistry, cancellationToken);
         foreach (var toolName in mcpResult.InjectedToolNames)
         {
             if (merged.Add(toolName))

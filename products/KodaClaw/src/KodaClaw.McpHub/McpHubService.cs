@@ -27,6 +27,7 @@ public sealed class McpHubService : IMcpHubService
 
     public async Task<McpHubInjectionResult> InjectToolsAsync(
         string sessionId,
+        SessionKind sessionKind,
         IToolRegistry toolRegistry,
         CancellationToken cancellationToken = default)
     {
@@ -81,6 +82,36 @@ public sealed class McpHubService : IMcpHubService
                     sessionId: sessionId,
                     attributes: new Dictionary<string, string?> { ["serverName"] = serverName });
                 continue;
+            }
+
+            // Session scope filtering
+            var effectiveScopes = entry.SessionScopes;
+            if (effectiveScopes is { Count: > 0 })
+            {
+                var sessionScope = sessionKind switch
+                {
+                    SessionKind.Main => "main",
+                    SessionKind.ChannelDirectMessage => "dm",
+                    SessionKind.ChannelGroup => "group",
+                    SessionKind.Automation => "automation",
+                    _ => "all",
+                };
+
+                if (!effectiveScopes.Contains("all") &&
+                    !effectiveScopes.Contains(sessionScope, StringComparer.OrdinalIgnoreCase))
+                {
+                    RecordDiagnosticEvent(
+                        eventType: "mcp_hub.server.scope_filtered",
+                        level: "info",
+                        message: $"MCP server '{serverName}' skipped for session kind '{sessionKind}' (scopes: {string.Join(",", effectiveScopes)}).",
+                        sessionId: sessionId,
+                        attributes: new Dictionary<string, string?>
+                        {
+                            ["serverName"] = serverName,
+                            ["sessionKind"] = sessionKind.ToString(),
+                        });
+                    continue;
+                }
             }
 
             var config = BuildMcpConfig(serverName, entry);

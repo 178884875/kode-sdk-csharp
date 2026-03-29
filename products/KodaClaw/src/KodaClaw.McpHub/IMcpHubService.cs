@@ -1,4 +1,5 @@
 using Kode.Agent.Sdk.Core.Abstractions;
+using KodaClaw.Contracts;
 
 namespace KodaClaw.McpHub;
 
@@ -8,9 +9,11 @@ public interface IMcpHubService
     /// Reads workspace/mcp.json, connects to each enabled MCP server, and injects
     /// their tools into the provided <paramref name="toolRegistry"/>.
     /// Single-server failures are isolated; other servers continue normally.
+    /// Servers whose sessionScopes do not include <paramref name="sessionKind"/> are skipped.
     /// </summary>
     Task<McpHubInjectionResult> InjectToolsAsync(
         string sessionId,
+        SessionKind sessionKind,
         IToolRegistry toolRegistry,
         CancellationToken cancellationToken = default);
 

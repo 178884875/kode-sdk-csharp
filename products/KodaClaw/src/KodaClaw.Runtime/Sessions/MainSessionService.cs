@@ -674,7 +674,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
 
         if (_mcpHubService is not null)
         {
-            var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, toolRegistry, cancellationToken);
+            var mcpResult = await _mcpHubService.InjectToolsAsync(sessionId, SessionKind.Main, toolRegistry, cancellationToken);
             foreach (var toolName in mcpResult.InjectedToolNames)
             {
                 if (merged.Add(toolName))

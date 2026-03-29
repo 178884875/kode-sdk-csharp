@@ -296,6 +296,40 @@
   padding: var(--space-3);
 }
 
+/* ── Session scope checkboxes ── */
+.kc-scope-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.kc-scope-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.kc-scope-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+/* Scope badges on entry card */
+.mcp-entry__scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.mcp-entry__badge--scope {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
 /* ── Spinner ── */
 @keyframes spin {
   to { transform: rotate(360deg); }

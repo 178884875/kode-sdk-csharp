@@ -279,6 +279,74 @@ public sealed class WorkspaceMcpConfigContractTests
     }
 
     [Fact]
+    public void SessionScopes_array_deserializes_correctly()
+    {
+        const string json = """
+            {
+              "mcpServers": {
+                "main-only-server": {
+                  "command": "npx",
+                  "sessionScopes": ["main", "dm"]
+                }
+              }
+            }
+            """;
+
+        var config = JsonSerializer.Deserialize<WorkspaceMcpConfig>(json, JsonOptions)!;
+
+        var entry = config.McpServers["main-only-server"];
+        entry.SessionScopes.Should().NotBeNull();
+        entry.SessionScopes.Should().Equal("main", "dm");
+    }
+
+    [Fact]
+    public void SessionScopes_null_is_backward_compat()
+    {
+        const string json = """
+            {
+              "mcpServers": {
+                "legacy-server": {
+                  "command": "npx"
+                }
+              }
+            }
+            """;
+
+        var config = JsonSerializer.Deserialize<WorkspaceMcpConfig>(json, JsonOptions)!;
+
+        // null means "not specified" — treated as all session types at runtime
+        config.McpServers["legacy-server"].SessionScopes.Should().BeNull();
+    }
+
+    [Fact]
+    public void SessionScopes_with_other_fields_round_trips()
+    {
+        var entry = new WorkspaceMcpServerEntry
+        {
+            Command = "npx",
+            Args = ["-y", "my-server@latest"],
+            Enabled = true,
+            SessionScopes = ["main", "automation"],
+        };
+
+        var config = new WorkspaceMcpConfig
+        {
+            McpServers = new Dictionary<string, WorkspaceMcpServerEntry>
+            {
+                ["scoped-server"] = entry,
+            }
+        };
+
+        var json = JsonSerializer.Serialize(config, JsonOptions);
+        var readBack = JsonSerializer.Deserialize<WorkspaceMcpConfig>(json, JsonOptions)!;
+
+        var readEntry = readBack.McpServers["scoped-server"];
+        readEntry.Command.Should().Be("npx");
+        readEntry.Enabled.Should().BeTrue();
+        readEntry.SessionScopes.Should().Equal("main", "automation");
+    }
+
+    [Fact]
     public async Task ReadMcpConfigAsync_returns_parsed_servers()
     {
         var rootPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
