@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
@@ -211,6 +212,21 @@ public sealed class ChannelTurnOrchestrator
                 envelope,
                 hasExplicitMention,
                 cancellationToken);
+
+            if (execution.RunResult.StopReason == StopReason.MaxIterations)
+            {
+                const string maxIterationsNotification = "本次对话轮次已达上限，如需继续请新发消息。";
+                try
+                {
+                    await _deliveryDispatchService.SendNotificationAsync(
+                        account, processing.Binding, maxIterationsNotification, cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to send MaxIterations notification for binding {BindingId}", processing.Binding.Id);
+                }
+            }
 
             var sentTexts = _sendCapture?.GetAndClear(processing.Binding.Id) ?? [];
 
