@@ -23,6 +23,12 @@ public interface IChannelSessionService
     /// Returns the newly assigned session ID.
     /// </summary>
     Task<string> RotateSessionAsync(ThreadBinding binding, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Attempts to interrupt the currently running agent turn for the given session.
+    /// Returns a user-facing status message describing the result.
+    /// </summary>
+    Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

@@ -423,6 +423,28 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         return newSessionId;
     }
 
+    public async Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_agents.TryGetValue(sessionId, out var agent))
+        {
+            return "当前没有正在执行的任务。";
+        }
+
+        if (agent.RuntimeState == Kode.Agent.Sdk.Core.Abstractions.AgentRuntimeState.Ready)
+        {
+            return "当前没有正在执行的任务。";
+        }
+
+        // InterruptAsync is defined on the concrete Agent class, not on IAgent interface.
+        if (agent is AgentRuntime concreteAgent)
+        {
+            await concreteAgent.InterruptAsync(cancellationToken: cancellationToken);
+            return "已发送停止信号，正在中断当前任务...";
+        }
+
+        return "当前没有正在执行的任务。";
+    }
+
     private async Task TryGenerateChannelSessionSummaryAsync(
         ThreadBinding binding,
         CancellationToken cancellationToken)

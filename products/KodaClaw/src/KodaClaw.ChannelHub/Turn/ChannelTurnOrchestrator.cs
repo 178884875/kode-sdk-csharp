@@ -162,6 +162,30 @@ public sealed class ChannelTurnOrchestrator
             return new ChannelTurnOrchestrationResult(processing, resetOutcome, ExecutedTurn: false);
         }
 
+        // /stop command: interrupt the currently running agent turn without executing a new one.
+        if (string.Equals(trimmedText, "/stop", StringComparison.OrdinalIgnoreCase))
+        {
+            var stopMessage = await _channelSessionService.StopCurrentTurnAsync(processing.Binding.SessionId, cancellationToken);
+            try
+            {
+                await _deliveryDispatchService.SendNotificationAsync(
+                    account, processing.Binding, stopMessage, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send stop confirmation for binding {BindingId}", processing.Binding.Id);
+            }
+
+            var stopOutcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                stopMessage,
+                processing,
+                envelope,
+                reasonCode: "stop_command");
+            RecordDiagnosticEvent("channel.turn.stop_command", "info", stopMessage, processing.Binding, stopOutcome);
+            return new ChannelTurnOrchestrationResult(processing, stopOutcome, ExecutedTurn: false);
+        }
+
         if (!ShouldExecuteTurn(envelope))
         {
             var outcome = CreateOutcome(
