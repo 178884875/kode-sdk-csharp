@@ -10,6 +10,9 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
     private const int HighPriorityMinCapacity = 200;
     private const int MaxTotalCapacity = 1000;
     private const int ReloadLimit = 500;
+    private const long MaxJournalSizeBytes = 50 * 1024 * 1024;
+    private const int RetentionDays = 7;
+    private const int RotationCheckIntervalSeconds = 300;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly string _journalPath;
@@ -17,6 +20,8 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
     private readonly List<DiagnosticEvent> _highPriorityCache = [];
     private readonly List<DiagnosticEvent> _lowPriorityCache = [];
     private readonly List<Channel<DiagnosticEvent>> _subscribers = [];
+    private Timer? _rotationTimer;
+    private int _rotating = 0;
 
     public FileDiagnosticsService(string workspaceRoot)
     {
@@ -24,6 +29,7 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
         _journalPath = Path.Combine(workspaceRoot, KodaClawWorkspaceLayout.DiagnosticsJournalFile);
         Directory.CreateDirectory(Path.GetDirectoryName(_journalPath)!);
         LoadFromFile();
+        _rotationTimer = new Timer(_ => RotateJournal(), null, TimeSpan.FromSeconds(RotationCheckIntervalSeconds), TimeSpan.FromSeconds(RotationCheckIntervalSeconds));
     }
 
     public void Record(DiagnosticEvent diagnosticEvent)
@@ -231,6 +237,8 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
 
     public void Dispose()
     {
+        _rotationTimer?.Dispose();
+
         lock (_gate)
         {
             foreach (var ch in _subscribers)
@@ -239,6 +247,74 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
             }
 
             _subscribers.Clear();
+        }
+    }
+
+    private void RotateJournal()
+    {
+        if (Interlocked.CompareExchange(ref _rotating, 1, 0) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!File.Exists(_journalPath))
+            {
+                return;
+            }
+
+            var fileInfo = new FileInfo(_journalPath);
+            if (fileInfo.Length <= MaxJournalSizeBytes)
+            {
+                return;
+            }
+
+            var cutoff = DateTimeOffset.UtcNow.AddDays(-RetentionDays);
+            var allLines = File.ReadAllLines(_journalPath);
+            var keep = new List<string>();
+            var archive = new List<string>();
+
+            foreach (var line in allLines)
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(line, JsonOptions);
+                    if (evt is not null && evt.Timestamp < cutoff)
+                    {
+                        archive.Add(line);
+                    }
+                    else
+                    {
+                        keep.Add(line);
+                    }
+                }
+                catch
+                {
+                    keep.Add(line);
+                }
+            }
+
+            if (archive.Count > 0)
+            {
+                var bakPath = _journalPath + ".bak";
+                File.AppendAllLines(bakPath, archive);
+            }
+
+            File.WriteAllLines(_journalPath, keep);
+        }
+        catch
+        {
+            // 异常不抛出
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _rotating, 0);
         }
     }
 
