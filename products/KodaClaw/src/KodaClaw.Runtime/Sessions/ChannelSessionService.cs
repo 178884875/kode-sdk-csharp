@@ -236,7 +236,6 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             try { sessionLock.Release(); }
             catch (ObjectDisposedException) { }
             catch (SemaphoreFullException) { }
-            catch (SemaphoreFullException) { }
         }
 
         var turnLevel = runResult.StopReason == StopReason.Error ? "warning" : runResult.StopReason == StopReason.EndTurn ? "debug" : "info";

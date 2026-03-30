@@ -79,7 +79,7 @@ public sealed class DiagnosticsServiceTests
             SessionId: "session-b",
             Source: "GATEWAY.CHAT",
             EventType: "gateway.chat.failed",
-            Level: "ERROR"));
+            Levels: ["ERROR"]));
 
         filtered.Select(item => item.Id).Should().Equal("diag-2");
     }

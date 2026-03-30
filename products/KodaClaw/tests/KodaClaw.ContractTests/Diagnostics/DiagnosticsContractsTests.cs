@@ -18,7 +18,7 @@ public sealed class DiagnosticsContractsTests
             SessionId: "session-main",
             Source: "gateway.chat",
             EventType: "gateway.chat.failed",
-            Level: "error");
+            Levels: ["error"]);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var roundTrip = JsonSerializer.Deserialize<DiagnosticsQuery>(json, JsonOptions);
@@ -29,7 +29,7 @@ public sealed class DiagnosticsContractsTests
         json.Should().Contain("\"source\":\"gateway.chat\"");
         json.Should().Contain("\"eventType\":\"gateway.chat.failed\"");
         json.Should().Contain("\"level\":\"error\"");
-        roundTrip.Should().Be(payload);
+        roundTrip.Should().BeEquivalentTo(payload);
     }
 
     [Fact]
