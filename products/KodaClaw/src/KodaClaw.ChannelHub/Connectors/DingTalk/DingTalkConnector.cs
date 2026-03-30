@@ -15,6 +15,10 @@ public sealed class DingTalkConnector : IChannelConnector
     private readonly ConcurrentDictionary<string, string> _conversationUserCache =
         new(StringComparer.Ordinal);
 
+    // conversationId → (webhookUrl, expiredAt)（用于群聊优先路径）
+    private readonly ConcurrentDictionary<string, (string Url, DateTimeOffset ExpiredAt)>
+        _conversationWebhookCache = new(StringComparer.Ordinal);
+
     private readonly IDingTalkApiClient _apiClient;
     private readonly DingTalkConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
@@ -131,7 +135,26 @@ public sealed class DingTalkConnector : IChannelConnector
         // ExternalThreadId 格式：conversationId:{id}
         var conversationId = ParseConversationId(draft.ExternalThreadId);
 
-        // 从缓存中查找接收方 userId
+        if (draft.ThreadType == ChannelThreadType.Group)
+        {
+            await SendGroupMessageInternalAsync(
+                startedAccount, conversationId, draft.MessageText, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await SendDirectMessageAsync(
+                startedAccount, conversationId, draft.MessageText, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task SendDirectMessageAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string messageText,
+        CancellationToken cancellationToken)
+    {
         if (!_conversationUserCache.TryGetValue(conversationId, out var recipientUserId)
             || string.IsNullOrWhiteSpace(recipientUserId))
         {
@@ -149,7 +172,41 @@ public sealed class DingTalkConnector : IChannelConnector
             accessToken,
             startedAccount.Configuration.RobotCode,
             [recipientUserId],
-            draft.MessageText,
+            messageText,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SendGroupMessageInternalAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string messageText,
+        CancellationToken cancellationToken)
+    {
+        var msgKey = "sampleText";
+        var msgParam = System.Text.Json.JsonSerializer.Serialize(new { content = messageText });
+
+        // 优先使用 sessionWebhook（有效期内，留 1 分钟余量）
+        if (_conversationWebhookCache.TryGetValue(conversationId, out var webhookEntry)
+            && webhookEntry.ExpiredAt > DateTimeOffset.UtcNow.AddMinutes(1))
+        {
+            await _apiClient.SendSessionWebhookMessageAsync(
+                webhookEntry.Url, msgKey, msgParam, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // fallback：orgGroupSend
+        var accessToken = await _apiClient.GetAccessTokenAsync(
+            startedAccount.Configuration.AppKey,
+            startedAccount.Configuration.AppSecret,
+            cancellationToken).ConfigureAwait(false);
+
+        await _apiClient.SendGroupMessageAsync(
+            accessToken,
+            startedAccount.Configuration.RobotCode,
+            conversationId,
+            msgKey,
+            msgParam,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -181,6 +238,15 @@ public sealed class DingTalkConnector : IChannelConnector
         if (!string.IsNullOrWhiteSpace(senderUserId))
         {
             _conversationUserCache[conversationId] = senderUserId;
+        }
+
+        // 缓存群聊 sessionWebhook（每次收到消息都刷新，有效期约 2 小时）
+        if (!string.IsNullOrWhiteSpace(eventData.SessionWebhook)
+            && eventData.SessionWebhookExpiredTime.HasValue)
+        {
+            var expiredAt = DateTimeOffset.FromUnixTimeMilliseconds(
+                eventData.SessionWebhookExpiredTime.Value);
+            _conversationWebhookCache[conversationId] = (eventData.SessionWebhook, expiredAt);
         }
 
         var channelEnvelope = TryMapToEnvelope(accountId, configuration, eventData, messageId);

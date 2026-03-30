@@ -77,6 +77,10 @@ public sealed class DingTalkStreamEventData
     [JsonPropertyName("sessionWebhook")]
     public string? SessionWebhook { get; init; }
 
+    /// <summary>群聊 sessionWebhook 过期时间（Unix 毫秒时间戳）</summary>
+    [JsonPropertyName("sessionWebhookExpiredTime")]
+    public long? SessionWebhookExpiredTime { get; init; }
+
     [JsonPropertyName("isInAtList")]
     public bool? IsInAtList { get; init; }
 

@@ -120,6 +120,54 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
             .ConfigureAwait(false);
     }
 
+    public async Task SendGroupMessageAsync(
+        string accessToken,
+        string robotCode,
+        string openConversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, "/v1.0/robot/groupMessages/send");
+        request.Headers.Add("x-acs-dingtalk-access-token", accessToken);
+        request.Content = JsonContent.Create(
+            new { robotCode, openConversationId, msgKey, msgParam },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"DingTalk SendGroupMessage failed: {(int)response.StatusCode}. Body: {body}");
+        }
+    }
+
+    public async Task SendSessionWebhookMessageAsync(
+        string webhookUrl,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default)
+    {
+        // sessionWebhook 是完整绝对 URL，直接 POST（绝对 URI 优先于 BaseAddress）
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, new Uri(webhookUrl, UriKind.Absolute));
+        request.Content = JsonContent.Create(
+            new { msgKey, msgParam },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"DingTalk SendSessionWebhook failed: {(int)response.StatusCode}. Body: {body}");
+        }
+    }
+
     private async Task SendBatchMessageAsync(
         string accessToken,
         string robotCode,

@@ -33,4 +33,20 @@ public interface IDingTalkApiClient
         string title,
         string text,
         CancellationToken cancellationToken = default);
+
+    /// <summary>群聊发送消息（orgGroupSend，sessionWebhook 过期时的 fallback）</summary>
+    Task SendGroupMessageAsync(
+        string accessToken,
+        string robotCode,
+        string openConversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>通过 sessionWebhook 直接发送消息（群聊优先路径）</summary>
+    Task SendSessionWebhookMessageAsync(
+        string webhookUrl,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default);
 }
