@@ -29,16 +29,19 @@ public sealed class ChannelSendService : IChannelSendService
         string bindingId,
         string text,
         string? mediaId = null,
+        string? metadataJson = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(bindingId))
         {
-            throw new ArgumentException("bindingId is required.", nameof(bindingId));
+            throw new ArgumentException(
+                "bindingId is required.", nameof(bindingId));
         }
 
         if (string.IsNullOrWhiteSpace(text))
         {
-            throw new ArgumentException("text is required.", nameof(text));
+            throw new ArgumentException(
+                "text is required.", nameof(text));
         }
 
         var binding = await _threadBindingRepository.GetByIdAsync(bindingId, cancellationToken)
@@ -57,7 +60,7 @@ public sealed class ChannelSendService : IChannelSendService
             }
         }
 
-        await _dispatchService.SendNotificationAsync(account, binding, text, mediaAttachments, cancellationToken);
+        await _dispatchService.SendNotificationAsync(account, binding, text, mediaAttachments, metadataJson, cancellationToken);
         _capture?.Record(bindingId, text);
 
         return new ChannelSendResult(Ok: true, BindingId: bindingId, SentAt: DateTimeOffset.UtcNow);

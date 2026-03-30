@@ -14,6 +14,9 @@ public sealed class ChannelSendArgs
 
     [ToolParameter(Description = "Optional media ID of an image to attach. The image is sent alongside the text caption.", Required = false)]
     public string? MediaId { get; init; }
+
+    [ToolParameter(Description = "Optional JSON metadata to pass to the connector layer (e.g. DingTalk ActionCard fields). Other connectors ignore this.", Required = false)]
+    public string? Metadata { get; init; }
 }
 
 public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
@@ -26,7 +29,8 @@ public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
         _sendService = sendService;
     }
 
-    public override string Name => "channel_send";
+    public override string Name =>
+        "channel_send";
 
     public override string Description =>
         "Send a message to an external channel thread (e.g. Telegram DM or group). " +
@@ -34,16 +38,18 @@ public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
         "Delivery is always immediate (AutoSend). In channel sessions, call this tool to reply to the inbound message. " +
         "In automation or main sessions, call this to proactively push updates to a connected channel.";
 
-    public override object InputSchema => JsonSchemaBuilder.BuildSchema<ChannelSendArgs>();
+    public override object InputSchema =>
+        JsonSchemaBuilder.BuildSchema<ChannelSendArgs>();
 
-    public override ToolAttributes Attributes => new() { ReadOnly = false, RequiresApproval = false };
+    public override ToolAttributes Attributes =>
+        new() { ReadOnly = false, RequiresApproval = false };
 
     protected override async Task<ToolResult> ExecuteAsync(
         ChannelSendArgs args,
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, cancellationToken);
+        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, args.Metadata, cancellationToken);
         return ToolResult.Ok(new
         {
             ok = result.Ok,
