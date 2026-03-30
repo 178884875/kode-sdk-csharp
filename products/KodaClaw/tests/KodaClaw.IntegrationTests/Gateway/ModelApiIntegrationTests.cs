@@ -170,6 +170,129 @@ public sealed class ModelApiIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
+    // ── CustomHeaders: API 校验（组 2）─────────────────────────────────────────
+
+    [Fact]
+    public async Task Create_model_with_empty_custom_header_key_should_return_bad_request()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var request = new CreateModelEndpointRequest(
+            DisplayName: "Test",
+            Provider: ModelProviderKind.OpenAICompatible,
+            ModelId: "o3",
+            BaseUrl: "https://proxy.test",
+            ApiKeyEnvironmentVariable: "KEY",
+            CustomHeaders: new Dictionary<string, string> { [""] = "value" });
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Create_model_with_empty_custom_header_value_should_return_bad_request()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var request = new CreateModelEndpointRequest(
+            DisplayName: "Test",
+            Provider: ModelProviderKind.OpenAICompatible,
+            ModelId: "o3",
+            BaseUrl: "https://proxy.test",
+            ApiKeyEnvironmentVariable: "KEY",
+            CustomHeaders: new Dictionary<string, string> { ["User-Agent"] = "   " });
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Create_model_with_too_many_custom_headers_should_return_bad_request()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var headers = Enumerable.Range(1, 11)
+            .ToDictionary(i => $"X-Header-{i}", i => $"value-{i}");
+
+        var request = new CreateModelEndpointRequest(
+            DisplayName: "Test",
+            Provider: ModelProviderKind.OpenAICompatible,
+            ModelId: "o3",
+            BaseUrl: "https://proxy.test",
+            ApiKeyEnvironmentVariable: "KEY",
+            CustomHeaders: headers);
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models", request);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    // ── CustomHeaders: POST/PUT 持久化（组 4）──────────────────────────────────
+
+    [Fact]
+    public async Task Create_model_with_custom_headers_should_persist_them()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var headers = new Dictionary<string, string> { ["User-Agent"] = "claude-code/0.1.0" };
+        var request = new CreateModelEndpointRequest(
+            DisplayName: "Custom Headers Endpoint",
+            Provider: ModelProviderKind.OpenAICompatible,
+            ModelId: "o3",
+            BaseUrl: "https://proxy.test",
+            ApiKeyEnvironmentVariable: "KEY",
+            CustomHeaders: headers);
+
+        var response = await hosted.Client.PostAsJsonAsync("/api/models", request);
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var payload = await response.Content.ReadFromJsonAsync<ModelEndpoint>();
+        payload.Should().NotBeNull();
+        payload!.CustomHeaders.Should().NotBeNull();
+        payload.CustomHeaders.Should().ContainKey("User-Agent")
+            .WhoseValue.Should().Be("claude-code/0.1.0");
+    }
+
+    [Fact]
+    public async Task Update_model_with_custom_headers_should_persist_them()
+    {
+        using var workspace = new TempWorkspaceRoot();
+        await using var hosted = await StartGatewayAsync(workspace.Path);
+        hosted.Client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", GatewayToken);
+
+        var created = await CreateModelEndpointAsync(hosted.Client, "Before update");
+
+        var headers = new Dictionary<string, string> { ["User-Agent"] = "my-agent/2.0" };
+        var request = new UpdateModelEndpointRequest(
+            DisplayName: "Updated with headers",
+            Provider: ModelProviderKind.OpenAICompatible,
+            ModelId: "o3",
+            BaseUrl: "https://proxy",
+            ApiKeyEnvironmentVariable: "MODEL_KEY",
+            CustomHeaders: headers);
+
+        var response = await hosted.Client.PutAsJsonAsync($"/api/models/{created.Id}", request);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var payload = await response.Content.ReadFromJsonAsync<ModelEndpoint>();
+        payload.Should().NotBeNull();
+        payload!.CustomHeaders.Should().NotBeNull();
+        payload.CustomHeaders.Should().ContainKey("User-Agent")
+            .WhoseValue.Should().Be("my-agent/2.0");
+    }
+
     private static Task<HostedGateway> StartGatewayAsync(
         string workspaceRoot)
     {

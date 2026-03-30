@@ -55,6 +55,65 @@ public sealed class ModelContractsTests
         roundTrip.Should().Be(payload);
     }
 
+    // ── CustomHeaders ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ModelEndpoint_without_custom_headers_defaults_to_null_for_backward_compat()
+    {
+        var json = """
+            {
+              "id": "ep-001", "displayName": "Old Endpoint",
+              "provider": "Anthropic", "modelId": "claude-3-5-haiku-20241022",
+              "enabled": true, "capabilities": 3,
+              "isDefault": false,
+              "createdAt": "2025-01-01T00:00:00Z",
+              "updatedAt": "2025-01-01T00:00:00Z"
+            }
+            """;
+
+        var endpoint = JsonSerializer.Deserialize<ModelEndpoint>(json, JsonOptions);
+
+        endpoint.Should().NotBeNull();
+        endpoint!.CustomHeaders.Should().BeNull();
+    }
+
+    [Fact]
+    public void CreateModelEndpointRequest_with_custom_headers_should_round_trip()
+    {
+        var headers = new Dictionary<string, string> { ["User-Agent"] = "claude-code/0.1.0" };
+        var request = new CreateModelEndpointRequest(
+            DisplayName: "Spoofed Agent",
+            Provider: ModelProviderKind.AnthropicCompatible,
+            ModelId: "claude-sonnet-4-6",
+            BaseUrl: "https://proxy.example.com",
+            CustomHeaders: headers);
+
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<CreateModelEndpointRequest>(json, JsonOptions);
+
+        json.Should().Contain("customHeaders");
+        json.Should().Contain("User-Agent");
+        json.Should().Contain("claude-code/0.1.0");
+        roundTrip.Should().NotBeNull();
+        roundTrip!.CustomHeaders.Should().ContainKey("User-Agent")
+            .WhoseValue.Should().Be("claude-code/0.1.0");
+    }
+
+    [Fact]
+    public void UpdateModelEndpointRequest_without_custom_headers_should_round_trip_as_null()
+    {
+        var request = new UpdateModelEndpointRequest(
+            DisplayName: "Plain endpoint",
+            Provider: ModelProviderKind.OpenAI,
+            ModelId: "gpt-4o");
+
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var roundTrip = JsonSerializer.Deserialize<UpdateModelEndpointRequest>(json, JsonOptions);
+
+        roundTrip.Should().NotBeNull();
+        roundTrip!.CustomHeaders.Should().BeNull();
+    }
+
     [Fact]
     public void Models_query_response_should_contain_items()
     {
