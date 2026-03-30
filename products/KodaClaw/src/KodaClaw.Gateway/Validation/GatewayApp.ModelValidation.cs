@@ -13,7 +13,8 @@ public static partial class GatewayApp
         ModelCapabilitySet Capabilities,
         int ContextWindowSize = 128_000,
         int MaxOutputTokens = 8192,
-        bool IsReasoning = false);
+        bool IsReasoning = false,
+        IReadOnlyDictionary<string, string>? CustomHeaders = null);
 
     private static bool TryValidateModelEndpointRequest(
         CreateModelEndpointRequest request,
@@ -32,6 +33,7 @@ public static partial class GatewayApp
             request.ContextWindowSize,
             request.MaxOutputTokens,
             request.IsReasoning,
+            request.CustomHeaders,
             out validated,
             out error);
     }
@@ -53,6 +55,7 @@ public static partial class GatewayApp
             request.ContextWindowSize,
             request.MaxOutputTokens,
             request.IsReasoning,
+            request.CustomHeaders,
             out validated,
             out error);
     }
@@ -69,6 +72,7 @@ public static partial class GatewayApp
         int contextWindowSize,
         int maxOutputTokens,
         bool isReasoning,
+        IReadOnlyDictionary<string, string>? customHeaders,
         out ValidatedModelEndpointRequest validated,
         out ErrorResponse? error)
     {
@@ -119,6 +123,38 @@ public static partial class GatewayApp
             return false;
         }
 
+        if (customHeaders is { Count: > 0 })
+        {
+            if (customHeaders.Count > 10)
+            {
+                error = new ErrorResponse(
+                    Code: "validation.model_custom_headers_too_many",
+                    Message: "Custom headers must not exceed 10 entries.");
+                return false;
+            }
+
+            foreach (var (key, value) in customHeaders)
+            {
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    error = new ErrorResponse(
+                        Code: "validation.model_custom_headers_invalid_key",
+                        Message: "Custom header keys must not be empty or whitespace.");
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    error = new ErrorResponse(
+                        Code: "validation.model_custom_headers_invalid_value",
+                        Message: "Custom header values must not be empty or whitespace.");
+                    return false;
+                }
+            }
+        }
+
+        var normalizedCustomHeaders = customHeaders is { Count: > 0 } ? customHeaders : null;
+
         validated = new ValidatedModelEndpointRequest(
             DisplayName: normalizedDisplayName,
             Provider: provider,
@@ -130,7 +166,8 @@ public static partial class GatewayApp
             Capabilities: capabilities,
             ContextWindowSize: contextWindowSize,
             MaxOutputTokens: maxOutputTokens > 0 ? maxOutputTokens : 8192,
-            IsReasoning: isReasoning);
+            IsReasoning: isReasoning,
+            CustomHeaders: normalizedCustomHeaders);
         return true;
     }
 

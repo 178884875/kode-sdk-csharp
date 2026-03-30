@@ -12,4 +12,5 @@ public sealed record CreateModelEndpointRequest(
     int ContextWindowSize = 128_000,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false,
-    string? ApiKeyValue = null);
+    string? ApiKeyValue = null,
+    IReadOnlyDictionary<string, string>? CustomHeaders = null);

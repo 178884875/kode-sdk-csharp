@@ -100,7 +100,17 @@ function extractKeyParam(toolName: string, inputPreview?: string | null): string
     if (toolName === "workspace_memory_append") {
       return typeof parsed.content === "string" ? parsed.content.slice(0, 80) : null;
     }
-  } catch { /* not JSON */ }
+  } catch {
+    // Truncated JSON fallback: try to extract key value via regex
+    if (toolName === "bash_run") {
+      const m = inputPreview.match(/^\{"command":"([\s\S]*)/);
+      if (m) return m[1].replace(/\\(["\\])/g, "$1").replace(/"[\s\S]*$/, "").slice(0, 300) || null;
+    }
+    if (["fs_read", "fs_write", "fs_edit", "fs_delete", "fs_rm", "fs_multi_edit"].includes(toolName)) {
+      const m = inputPreview.match(/["'](?:path|file_path)["']\s*:\s*["']([\s\S]*)/);
+      if (m) return m[1].replace(/["'][\s\S]*$/, "").slice(0, 200) || null;
+    }
+  }
   return inputPreview.length < 100 ? inputPreview : null;
 }
 

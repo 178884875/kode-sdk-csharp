@@ -29,13 +29,16 @@ public sealed class OpenAIProvider : IModelProvider
         _options = options;
         _logger = logger;
 
-        OpenAIClientOptions? clientOptions = null;
+        var clientOptions = new OpenAIClientOptions();
         if (!string.IsNullOrEmpty(options.BaseUrl))
+            clientOptions.Endpoint = new Uri(options.BaseUrl);
+        if (options.CustomHeaders is { Count: > 0 })
         {
-            clientOptions = new OpenAIClientOptions
+            foreach (var (key, value) in options.CustomHeaders)
             {
-                Endpoint = new Uri(options.BaseUrl)
-            };
+                if (string.Equals(key, "User-Agent", StringComparison.OrdinalIgnoreCase))
+                    clientOptions.UserAgentApplicationId = value;
+            }
         }
 
         _client = new OpenAIClient(
@@ -426,4 +429,10 @@ public class OpenAIOptions
     /// The default model to use.
     /// </summary>
     public string? DefaultModel { get; init; }
+
+    /// <summary>
+    /// Custom HTTP request headers to add to each request.
+    /// Only User-Agent is supported via UserAgentApplicationId.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
 }

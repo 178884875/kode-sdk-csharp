@@ -18,7 +18,7 @@ namespace Kode.Agent.Sdk.Infrastructure.Providers;
 /// </summary>
 public sealed class AnthropicProvider : IModelProvider
 {
-    private readonly AnthropicClient _client;
+    private readonly IAnthropicClient _client;
     private readonly AnthropicOptions _options;
     private readonly ILogger<AnthropicProvider>? _logger;
 
@@ -34,6 +34,18 @@ public sealed class AnthropicProvider : IModelProvider
             ApiKey = options.ApiKey,
             BaseUrl = options.BaseUrl ?? "https://api.anthropic.com"
         };
+
+        if (options.CustomHeaders is { Count: > 0 })
+        {
+            var httpClient = new HttpClient();
+            foreach (var (key, value) in options.CustomHeaders)
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+            _client = _client.WithOptions(opts =>
+            {
+                opts.HttpClient = httpClient;
+                return opts;
+            });
+        }
     }
 
     /// <summary>
@@ -508,4 +520,9 @@ public class AnthropicOptions
     /// Whether to enable beta features.
     /// </summary>
     public bool EnableBetaFeatures { get; init; }
+
+    /// <summary>
+    /// Custom HTTP request headers to add to each request.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? CustomHeaders { get; init; }
 }

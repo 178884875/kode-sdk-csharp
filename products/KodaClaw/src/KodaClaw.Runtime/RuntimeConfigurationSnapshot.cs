@@ -5,7 +5,8 @@ public sealed record RuntimeConfigurationSnapshot(
     string? OpenAIApiKey,
     string? OpenAIBaseUrl,
     string? AnthropicApiKey,
-    string? AnthropicBaseUrl)
+    string? AnthropicBaseUrl,
+    IReadOnlyDictionary<string, string>? CustomHeaders = null)
 {
     public static RuntimeConfigurationSnapshot FromOptions(KodaClawRuntimeOptions options)
     {

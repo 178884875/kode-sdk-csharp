@@ -149,7 +149,7 @@ public sealed class ChatSessionService : IChatSessionService
                         { } o => o.ToString(),
                         _ => null,
                     };
-                    var toolInputPreview = toolInputRaw is { Length: > 400 } ? toolInputRaw[..400] : toolInputRaw;
+                    var toolInputPreview = toolInputRaw is { Length: > 2000 } ? toolInputRaw[..2000] : toolInputRaw;
                     yield return new ChatStreamEvent(
                         Type: "tool_activity",
                         SessionId: sessionId,
@@ -170,7 +170,7 @@ public sealed class ChatSessionService : IChatSessionService
                         { } o => o.ToString(),
                         _ => null,
                     };
-                    var inputPreview = inputRaw is { Length: > 400 } ? inputRaw[..400] : inputRaw;
+                    var inputPreview = inputRaw is { Length: > 2000 } ? inputRaw[..2000] : inputRaw;
                     var approvalId = _mainSessionService.TryGetApprovalIdForCall(permRequired.Call.Id)
                         ?? $"approval-{permRequired.Call.Id}";
                     yield return new ChatStreamEvent(

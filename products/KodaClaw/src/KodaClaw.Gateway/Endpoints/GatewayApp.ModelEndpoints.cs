@@ -178,7 +178,8 @@ public static partial class GatewayApp
                 UpdatedAt: now,
                 ContextWindowSize: validatedRequest.ContextWindowSize,
                 MaxOutputTokens: validatedRequest.MaxOutputTokens,
-                IsReasoning: validatedRequest.IsReasoning);
+                IsReasoning: validatedRequest.IsReasoning,
+                CustomHeaders: validatedRequest.CustomHeaders);
 
             await modelRegistryRepository.AddAsync(endpoint, cancellationToken);
             RecordDiagnosticEvent(
@@ -278,6 +279,7 @@ public static partial class GatewayApp
                 ContextWindowSize = validatedRequest.ContextWindowSize,
                 MaxOutputTokens = validatedRequest.MaxOutputTokens,
                 IsReasoning = validatedRequest.IsReasoning,
+                CustomHeaders = validatedRequest.CustomHeaders,
                 UpdatedAt = DateTimeOffset.UtcNow,
             };
 

@@ -641,6 +641,7 @@ export interface ModelEndpoint {
   contextWindowSize?: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
+  customHeaders?: Record<string, string> | null;
 }
 
 export interface ModelsQueryResponse {
@@ -1006,6 +1007,7 @@ export interface CreateModelEndpointRequest {
   maxOutputTokens?: number;
   isReasoning?: boolean;
   apiKeyValue?: string | null;
+  customHeaders?: Record<string, string> | null;
 }
 
 export interface UpdateModelEndpointRequest {
@@ -1021,6 +1023,7 @@ export interface UpdateModelEndpointRequest {
   maxOutputTokens?: number;
   isReasoning?: boolean;
   apiKeyValue?: string | null;
+  customHeaders?: Record<string, string> | null;
 }
 
 export interface KodaClawSettings {

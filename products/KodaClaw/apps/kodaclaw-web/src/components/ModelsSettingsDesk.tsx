@@ -57,6 +57,7 @@ type ModelDraft = {
   contextWindowSize: number;
   maxOutputTokens: number;
   isReasoning: boolean;
+  customHeaders: Record<string, string>;
 };
 
 const DEFAULT_MODEL_DRAFT: ModelDraft = {
@@ -71,6 +72,7 @@ const DEFAULT_MODEL_DRAFT: ModelDraft = {
   contextWindowSize: 128000,
   maxOutputTokens: 8192,
   isReasoning: false,
+  customHeaders: {},
 };
 
 /** Format large token counts as "128K" / "200K" */
@@ -106,6 +108,7 @@ function toCreateRequest(draft: ModelDraft): CreateModelEndpointRequest {
     contextWindowSize: draft.contextWindowSize,
     maxOutputTokens: draft.maxOutputTokens,
     isReasoning: draft.isReasoning,
+    customHeaders: Object.keys(draft.customHeaders).length > 0 ? draft.customHeaders : null,
   };
 }
 
@@ -122,6 +125,7 @@ function toUpdateRequest(draft: ModelDraft): UpdateModelEndpointRequest {
     contextWindowSize: draft.contextWindowSize,
     maxOutputTokens: draft.maxOutputTokens,
     isReasoning: draft.isReasoning,
+    customHeaders: Object.keys(draft.customHeaders).length > 0 ? draft.customHeaders : null,
   };
 }
 
@@ -138,6 +142,7 @@ function toDraft(endpoint: ModelEndpoint): ModelDraft {
     contextWindowSize: endpoint.contextWindowSize ?? 128000,
     maxOutputTokens: endpoint.maxOutputTokens ?? 8192,
     isReasoning: endpoint.isReasoning ?? false,
+    customHeaders: endpoint.customHeaders ?? {},
   };
 }
 
@@ -239,6 +244,11 @@ export function ModelsSettingsDesk() {
         maxOutputTokens: "最大输出 Token",
         isReasoning: "推理模型（禁用工具调用）",
         advancedOptions: "高级选项",
+        customHeadersLabel: "自定义请求头",
+        customHeadersKeyPlaceholder: "User-Agent",
+        customHeadersValuePlaceholder: "claude-code/0.1.0",
+        addHeader: "+ 添加请求头",
+        removeHeader: "删除",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -342,6 +352,11 @@ export function ModelsSettingsDesk() {
         maxOutputTokens: "Max output tokens",
         isReasoning: "Reasoning model (no tool calls)",
         advancedOptions: "Advanced options",
+        customHeadersLabel: "Custom request headers",
+        customHeadersKeyPlaceholder: "User-Agent",
+        customHeadersValuePlaceholder: "claude-code/0.1.0",
+        addHeader: "+ Add header",
+        removeHeader: "Remove",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -852,7 +867,7 @@ export function ModelsSettingsDesk() {
                 />
               )}
             </label>
-            {/* 7. Advanced: API Key env var */}
+            {/* 7. Advanced: API Key env var + Custom Headers */}
             <details className="bootstrap-form__advanced">
               <summary className="bootstrap-form__advanced-toggle">{text.composer.advancedOptions}</summary>
               <label className="bootstrap-form__field" style={{ marginTop: 'var(--space-2)' }}>
@@ -869,6 +884,67 @@ export function ModelsSettingsDesk() {
                   }
                 />
               </label>
+              <div className="bootstrap-form__field" style={{ marginTop: 'var(--space-2)' }}>
+                <span className="bootstrap-form__label">{text.composer.customHeadersLabel}</span>
+                {Object.entries(modelDraft.customHeaders).map(([key, value]) => (
+                  <div key={key} style={{ display: 'flex', gap: 'var(--space-1)', marginBottom: 'var(--space-1)' }}>
+                    <input
+                      className="kc-input"
+                      style={{ flex: 1 }}
+                      placeholder={text.composer.customHeadersKeyPlaceholder}
+                      value={key}
+                      onChange={(event) => {
+                        const newKey = event.target.value;
+                        setModelDraft((current) => {
+                          const next = { ...current.customHeaders };
+                          delete next[key];
+                          if (newKey) next[newKey] = value;
+                          return { ...current, customHeaders: next };
+                        });
+                      }}
+                    />
+                    <input
+                      className="kc-input"
+                      style={{ flex: 1 }}
+                      placeholder={text.composer.customHeadersValuePlaceholder}
+                      value={value}
+                      onChange={(event) => {
+                        const newValue = event.target.value;
+                        setModelDraft((current) => ({
+                          ...current,
+                          customHeaders: { ...current.customHeaders, [key]: newValue },
+                        }));
+                      }}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setModelDraft((current) => {
+                          const next = { ...current.customHeaders };
+                          delete next[key];
+                          return { ...current, customHeaders: next };
+                        });
+                      }}
+                    >
+                      {text.composer.removeHeader}
+                    </Button>
+                  </div>
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  data-testid="add-custom-header"
+                  onClick={() => {
+                    setModelDraft((current) => ({
+                      ...current,
+                      customHeaders: { ...current.customHeaders, '': '' },
+                    }));
+                  }}
+                >
+                  {text.composer.addHeader}
+                </Button>
+              </div>
             </details>
             {/* 8. Test connection */}
             <div className="bootstrap-form__field">
