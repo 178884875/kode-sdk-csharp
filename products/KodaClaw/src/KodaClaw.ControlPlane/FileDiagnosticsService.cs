@@ -134,10 +134,16 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
                 .Take(q.Limit)
                 .ToList();
 
-            var allCached = _highPriorityCache.Concat(_lowPriorityCache).ToList();
-            if (q.DateFrom.HasValue && allCached.Count > 0)
+            var hasAnyCache = _highPriorityCache.Count > 0 || _lowPriorityCache.Count > 0;
+            if (q.DateFrom.HasValue && hasAnyCache)
             {
-                var oldestInCache = allCached.Min(e => e.Timestamp);
+                var oldestHigh = _highPriorityCache.Count > 0
+                    ? _highPriorityCache.Min(e => e.Timestamp)
+                    : DateTimeOffset.MaxValue;
+                var oldestLow = _lowPriorityCache.Count > 0
+                    ? _lowPriorityCache.Min(e => e.Timestamp)
+                    : DateTimeOffset.MaxValue;
+                var oldestInCache = oldestHigh < oldestLow ? oldestHigh : oldestLow;
                 if (oldestInCache > q.DateFrom.Value)
                 {
                     var fileResults = ReadFromFile(q.DateFrom.Value, oldestInCache, q.Limit);
@@ -300,9 +306,11 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
                 }
             }
 
+            var bakPath = _journalPath + ".bak";
+            RotateArchiveIfNeeded(bakPath);
+
             if (archive.Count > 0)
             {
-                var bakPath = _journalPath + ".bak";
                 File.AppendAllLines(bakPath, archive);
             }
 
@@ -318,6 +326,39 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
         }
     }
 
+    private const long MaxArchiveSizeBytes = 100 * 1024 * 1024;
+    private const int ArchiveRetentionDays = 30;
+
+    private void RotateArchiveIfNeeded(string bakPath)
+    {
+        try
+        {
+            if (!File.Exists(bakPath) || new FileInfo(bakPath).Length <= MaxArchiveSizeBytes)
+            {
+                return;
+            }
+
+            var cutoff = DateTimeOffset.UtcNow.AddDays(-ArchiveRetentionDays);
+            var keepLines = new List<string>();
+            foreach (var line in File.ReadLines(bakPath))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                try
+                {
+                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(line, JsonOptions);
+                    if (evt is not null && evt.Timestamp >= cutoff)
+                        keepLines.Add(line);
+                }
+                catch { keepLines.Add(line); }
+            }
+            File.WriteAllLines(bakPath, keepLines);
+        }
+        catch
+        {
+            // archive rotation failure is non-critical
+        }
+    }
+
     private List<DiagnosticEvent> ReadFromFile(DateTimeOffset dateFrom, DateTimeOffset cacheOldest, int limit)
     {
         if (!File.Exists(_journalPath))
@@ -327,18 +368,21 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
 
         try
         {
-            var lines = File.ReadLines(_journalPath)
-                .Where(static l => !string.IsNullOrWhiteSpace(l))
-                .ToList();
-
-            var scanLines = lines.Skip(Math.Max(0, lines.Count - Math.Min(lines.Count, 5000))).ToList();
+            // Stream through file, keep only last 5000 lines in memory via ring buffer
+            var buffer = new LinkedList<string>();
+            foreach (var line in File.ReadLines(_journalPath))
+            {
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                buffer.AddLast(line);
+                if (buffer.Count > 5000) buffer.RemoveFirst();
+            }
 
             var results = new List<DiagnosticEvent>();
-            for (var i = scanLines.Count - 1; i >= 0 && results.Count < limit; i--)
+            for (var node = buffer.Last; node != null && results.Count < limit; node = node.Previous)
             {
                 try
                 {
-                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(scanLines[i], JsonOptions);
+                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(node.Value, JsonOptions);
                     if (evt is not null && evt.Timestamp >= dateFrom && evt.Timestamp < cacheOldest)
                     {
                         results.Add(evt);
@@ -373,39 +417,39 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
             return;
         }
 
-        try
+        lock (_gate)
         {
-            var lines = File.ReadLines(_journalPath)
-                .Where(static l => !string.IsNullOrWhiteSpace(l))
-                .TakeLast(ReloadLimit)
-                .ToArray();
-
-            foreach (var line in lines)
+            try
             {
-                try
+                foreach (var line in File.ReadLines(_journalPath)
+                    .Where(static l => !string.IsNullOrWhiteSpace(l))
+                    .TakeLast(ReloadLimit))
                 {
-                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(line, JsonOptions);
-                    if (evt is not null)
+                    try
                     {
-                        if (IsHighPriority(evt.Level))
+                        var evt = JsonSerializer.Deserialize<DiagnosticEvent>(line, JsonOptions);
+                        if (evt is not null)
                         {
-                            _highPriorityCache.Add(evt);
-                        }
-                        else
-                        {
-                            _lowPriorityCache.Add(evt);
+                            if (IsHighPriority(evt.Level))
+                            {
+                                _highPriorityCache.Add(evt);
+                            }
+                            else
+                            {
+                                _lowPriorityCache.Add(evt);
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Skipping corrupted journal line: {ex.Message}");
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Skipping corrupted journal line: {ex.Message}");
+                    }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Failed to load journal file: {ex.Message}");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FileDiagnosticsService] Failed to load journal file: {ex.Message}");
+            }
         }
     }
 
