@@ -6,9 +6,11 @@ namespace KodaClaw.ControlPlane;
 
 public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposable
 {
-    private const int MaxEvents = 500;
+    private const int HighPriorityMinCapacity = 200;
+    private const int MaxTotalCapacity = 1000;
     private readonly object _gate = new();
-    private readonly List<DiagnosticEvent> _events = [];
+    private readonly List<DiagnosticEvent> _highPriorityCache = [];
+    private readonly List<DiagnosticEvent> _lowPriorityCache = [];
     private readonly List<Channel<DiagnosticEvent>> _subscribers = [];
 
     public IReadOnlyList<DiagnosticEvent> GetRecent(int limit = 50, string? correlationId = null)
@@ -26,7 +28,7 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
 
         lock (_gate)
         {
-            IEnumerable<DiagnosticEvent> filtered = _events;
+            IEnumerable<DiagnosticEvent> filtered = _highPriorityCache.Concat(_lowPriorityCache);
             if (!string.IsNullOrWhiteSpace(effective.CorrelationId))
             {
                 filtered = filtered.Where(item =>
@@ -71,10 +73,34 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
 
         lock (_gate)
         {
-            _events.Add(diagnosticEvent);
-            if (_events.Count > MaxEvents)
+            if (IsHighPriority(diagnosticEvent.Level))
             {
-                _events.RemoveRange(0, _events.Count - MaxEvents);
+                _highPriorityCache.Add(diagnosticEvent);
+            }
+            else
+            {
+                _lowPriorityCache.Add(diagnosticEvent);
+            }
+
+            var totalCount = _highPriorityCache.Count + _lowPriorityCache.Count;
+            if (totalCount > MaxTotalCapacity)
+            {
+                if (_lowPriorityCache.Count > 0)
+                {
+                    var toRemove = totalCount - MaxTotalCapacity;
+                    var removeFromLow = Math.Min(toRemove, _lowPriorityCache.Count);
+                    _lowPriorityCache.RemoveRange(0, removeFromLow);
+                }
+                else if (_highPriorityCache.Count > HighPriorityMinCapacity)
+                {
+                    var toRemove = _highPriorityCache.Count - HighPriorityMinCapacity;
+                    _highPriorityCache.RemoveRange(0, toRemove);
+                }
+            }
+            else if (_lowPriorityCache.Count == 0 && _highPriorityCache.Count > HighPriorityMinCapacity)
+            {
+                var toRemove = _highPriorityCache.Count - HighPriorityMinCapacity;
+                _highPriorityCache.RemoveRange(0, toRemove);
             }
 
             foreach (var ch in _subscribers)
@@ -88,11 +114,12 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
     {
         lock (_gate)
         {
+            IEnumerable<DiagnosticEvent> combined = _highPriorityCache.Concat(_lowPriorityCache);
             var source = since.HasValue
-                ? _events.Where(e => e.Timestamp >= since.Value).ToArray()
-                : (IReadOnlyList<DiagnosticEvent>)_events;
+                ? combined.Where(e => e.Timestamp >= since.Value).ToArray()
+                : combined.ToArray();
 
-            if (source.Count == 0)
+            if (source.Length == 0)
             {
                 return new DiagnosticsStatsResponse(0, 0, 0, [], null, null);
             }
@@ -108,7 +135,7 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
                 .ToArray();
 
             return new DiagnosticsStatsResponse(
-                TotalEvents: source.Count,
+                TotalEvents: source.Length,
                 ErrorCount: source.Count(e => string.Equals(e.Level, "error", StringComparison.OrdinalIgnoreCase)),
                 WarningCount: source.Count(e => string.Equals(e.Level, "warning", StringComparison.OrdinalIgnoreCase)),
                 BySource: bySource,
@@ -123,11 +150,13 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
         {
             if (before.HasValue)
             {
-                _events.RemoveAll(e => e.Timestamp < before.Value);
+                _highPriorityCache.RemoveAll(e => e.Timestamp < before.Value);
+                _lowPriorityCache.RemoveAll(e => e.Timestamp < before.Value);
             }
             else
             {
-                _events.Clear();
+                _highPriorityCache.Clear();
+                _lowPriorityCache.Clear();
             }
         }
 
@@ -174,5 +203,12 @@ public sealed class InMemoryDiagnosticsService : IDiagnosticsService, IDisposabl
 
             _subscribers.Clear();
         }
+    }
+
+    private static bool IsHighPriority(string? level)
+    {
+        return string.Equals(level, "error", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(level, "critical", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(level, "warning", StringComparison.OrdinalIgnoreCase);
     }
 }
