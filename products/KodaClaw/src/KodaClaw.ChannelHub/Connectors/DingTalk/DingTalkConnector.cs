@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 using KodaClaw.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,10 @@ public sealed class DingTalkConnector : IChannelConnector
     // conversationId → senderStaffId（用于单聊回复时知道对方的 userId）
     private readonly ConcurrentDictionary<string, string> _conversationUserCache =
         new(StringComparer.Ordinal);
+
+    // conversationId → (webhookUrl, expiredAt)（用于群聊优先路径）
+    private readonly ConcurrentDictionary<string, (string Url, DateTimeOffset ExpiredAt)>
+        _conversationWebhookCache = new(StringComparer.Ordinal);
 
     private readonly IDingTalkApiClient _apiClient;
     private readonly DingTalkConnectorOptions _options;
@@ -131,7 +136,27 @@ public sealed class DingTalkConnector : IChannelConnector
         // ExternalThreadId 格式：conversationId:{id}
         var conversationId = ParseConversationId(draft.ExternalThreadId);
 
-        // 从缓存中查找接收方 userId
+        if (draft.ThreadType == ChannelThreadType.Group)
+        {
+            await SendGroupMessageInternalAsync(
+                startedAccount, conversationId, draft.MessageText, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await SendDirectMessageAsync(
+                startedAccount, conversationId, draft.MessageText, draft.MetadataJson, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task SendDirectMessageAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string messageText,
+        string? metadataJson,
+        CancellationToken cancellationToken)
+    {
         if (!_conversationUserCache.TryGetValue(conversationId, out var recipientUserId)
             || string.IsNullOrWhiteSpace(recipientUserId))
         {
@@ -145,11 +170,72 @@ public sealed class DingTalkConnector : IChannelConnector
             startedAccount.Configuration.AppSecret,
             cancellationToken).ConfigureAwait(false);
 
+        var robotCode = startedAccount.Configuration.RobotCode;
+        string[] userIds = [recipientUserId];
+
+        // ActionCard 整体跳转
+        if (TryParseActionCardSingle(metadataJson, out var acTitle, out var acText, out var singleTitle, out var singleUrl))
+        {
+            await _apiClient.SendActionCardMessageAsync(
+                accessToken, robotCode, userIds, acTitle, acText, singleTitle, singleUrl, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // ActionCard 独立多按钮
+        if (TryParseActionCard6(metadataJson, out var ac6Title, out var ac6Text, out var btns))
+        {
+            await _apiClient.SendActionCard6MessageAsync(
+                accessToken, robotCode, userIds, ac6Title, ac6Text, btns, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // Markdown 检测
+        if (ContainsMarkdown(messageText))
+        {
+            await _apiClient.SendMarkdownMessageAsync(
+                accessToken, robotCode, userIds, "通知", messageText, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
         await _apiClient.SendTextMessageAsync(
+            accessToken, robotCode, userIds, messageText, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task SendGroupMessageInternalAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string messageText,
+        CancellationToken cancellationToken)
+    {
+        var msgKey = "sampleText";
+        var msgParam = System.Text.Json.JsonSerializer.Serialize(new { content = messageText });
+
+        // 优先使用 sessionWebhook（有效期内，留 1 分钟余量）
+        if (_conversationWebhookCache.TryGetValue(conversationId, out var webhookEntry)
+            && webhookEntry.ExpiredAt > DateTimeOffset.UtcNow.AddMinutes(1))
+        {
+            await _apiClient.SendSessionWebhookMessageAsync(
+                webhookEntry.Url, msgKey, msgParam, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        // fallback：orgGroupSend
+        var accessToken = await _apiClient.GetAccessTokenAsync(
+            startedAccount.Configuration.AppKey,
+            startedAccount.Configuration.AppSecret,
+            cancellationToken).ConfigureAwait(false);
+
+        await _apiClient.SendGroupMessageAsync(
             accessToken,
             startedAccount.Configuration.RobotCode,
-            [recipientUserId],
-            draft.MessageText,
+            conversationId,
+            msgKey,
+            msgParam,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -181,6 +267,15 @@ public sealed class DingTalkConnector : IChannelConnector
         if (!string.IsNullOrWhiteSpace(senderUserId))
         {
             _conversationUserCache[conversationId] = senderUserId;
+        }
+
+        // 缓存群聊 sessionWebhook（每次收到消息都刷新，有效期约 2 小时）
+        if (!string.IsNullOrWhiteSpace(eventData.SessionWebhook)
+            && eventData.SessionWebhookExpiredTime.HasValue)
+        {
+            var expiredAt = DateTimeOffset.FromUnixTimeMilliseconds(
+                eventData.SessionWebhookExpiredTime.Value);
+            _conversationWebhookCache[conversationId] = (eventData.SessionWebhook, expiredAt);
         }
 
         var channelEnvelope = TryMapToEnvelope(accountId, configuration, eventData, messageId);
@@ -277,6 +372,87 @@ public sealed class DingTalkConnector : IChannelConnector
 
         return accountId.Trim();
     }
+
+    private static bool ContainsMarkdown(string text)
+        => text.Contains("##", StringComparison.Ordinal)
+        || text.Contains("**", StringComparison.Ordinal);
+
+    private static bool TryParseActionCardSingle(
+        string? metadataJson,
+        out string title, out string text, out string singleTitle, out string singleUrl)
+    {
+        title = text = singleTitle = singleUrl = string.Empty;
+        if (string.IsNullOrWhiteSpace(metadataJson))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("msgKey", out var msgKeyEl)
+                || !string.Equals(msgKeyEl.GetString(), "sampleActionCard", StringComparison.Ordinal))
+                return false;
+            if (!root.TryGetProperty("title", out var t)
+                || !root.TryGetProperty("text", out var tx)
+                || !root.TryGetProperty("singleTitle", out var st)
+                || !root.TryGetProperty("singleURL", out var su))
+                return false;
+            title = t.GetString() ?? string.Empty;
+            text = tx.GetString() ?? string.Empty;
+            singleTitle = st.GetString() ?? string.Empty;
+            singleUrl = su.GetString() ?? string.Empty;
+            return !string.IsNullOrEmpty(title);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryParseActionCard6(
+        string? metadataJson,
+        out string title, out string text, out IReadOnlyList<DingTalkActionCardBtn> btns)
+    {
+        title = text = string.Empty;
+        btns = [];
+        if (string.IsNullOrWhiteSpace(metadataJson))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(metadataJson);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("msgKey", out var msgKeyEl)
+                || !string.Equals(msgKeyEl.GetString(), "sampleActionCard6", StringComparison.Ordinal))
+                return false;
+            if (!root.TryGetProperty("title", out var t)
+                || !root.TryGetProperty("text", out var tx)
+                || !root.TryGetProperty("btns", out var btnsEl))
+                return false;
+            title = t.GetString() ?? string.Empty;
+            text = tx.GetString() ?? string.Empty;
+            var list = new List<DingTalkActionCardBtn>();
+            foreach (var btn in btnsEl.EnumerateArray())
+            {
+                var btnTitle = btn.TryGetProperty("title", out var bt) ? bt.GetString() ?? "" : "";
+                var btnUrl = btn.TryGetProperty("actionURL", out var bu) ? bu.GetString() ?? "" : "";
+                list.Add(new DingTalkActionCardBtn(btnTitle, btnUrl));
+            }
+            btns = list;
+            return !string.IsNullOrEmpty(title) && list.Count > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // ── 测试辅助（internal，供单元测试直接注入缓存状态）────────────────────────
+
+    internal void SetConversationUserCache(string conversationId, string userId)
+        => _conversationUserCache[conversationId] = userId;
+
+    internal void SetConversationWebhookCache(
+        string conversationId, string webhookUrl, DateTimeOffset expiredAt)
+        => _conversationWebhookCache[conversationId] = (webhookUrl, expiredAt);
 
     private sealed class StartedAccount
     {

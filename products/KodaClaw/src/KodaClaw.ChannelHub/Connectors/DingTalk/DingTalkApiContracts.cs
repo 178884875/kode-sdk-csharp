@@ -77,6 +77,10 @@ public sealed class DingTalkStreamEventData
     [JsonPropertyName("sessionWebhook")]
     public string? SessionWebhook { get; init; }
 
+    /// <summary>群聊 sessionWebhook 过期时间（Unix 毫秒时间戳）</summary>
+    [JsonPropertyName("sessionWebhookExpiredTime")]
+    public long? SessionWebhookExpiredTime { get; init; }
+
     [JsonPropertyName("isInAtList")]
     public bool? IsInAtList { get; init; }
 
@@ -120,3 +124,8 @@ public sealed class DingTalkSendMessageResponse
     [JsonPropertyName("processQueryKey")]
     public string? ProcessQueryKey { get; init; }
 }
+
+// ── ActionCard 按钮 ───────────────────────────────────────────────────────
+
+/// <summary>ActionCard 独立跳转多按钮中的单个按钮</summary>
+public sealed record DingTalkActionCardBtn(string Title, string ActionUrl);

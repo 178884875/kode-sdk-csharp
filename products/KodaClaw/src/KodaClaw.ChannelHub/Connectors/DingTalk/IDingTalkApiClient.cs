@@ -33,4 +33,41 @@ public interface IDingTalkApiClient
         string title,
         string text,
         CancellationToken cancellationToken = default);
+
+    /// <summary>群聊发送消息（orgGroupSend，sessionWebhook 过期时的 fallback）</summary>
+    Task SendGroupMessageAsync(
+        string accessToken,
+        string robotCode,
+        string openConversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>通过 sessionWebhook 直接发送消息（群聊优先路径）</summary>
+    Task SendSessionWebhookMessageAsync(
+        string webhookUrl,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>单聊发送 ActionCard 整体跳转消息（msgKey=sampleActionCard）</summary>
+    Task SendActionCardMessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        string singleTitle,
+        string singleUrl,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>单聊发送 ActionCard 独立跳转多按钮消息（msgKey=sampleActionCard6）</summary>
+    Task SendActionCard6MessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        IReadOnlyList<DingTalkActionCardBtn> btns,
+        CancellationToken cancellationToken = default);
 }

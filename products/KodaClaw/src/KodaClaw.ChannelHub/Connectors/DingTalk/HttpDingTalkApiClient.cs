@@ -20,6 +20,12 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
         _httpClient = new HttpClient { BaseAddress = new Uri(BaseUrl) };
     }
 
+    /// <summary>供单元测试注入自定义 HttpClient（如 FakeHttpMessageHandler）</summary>
+    internal HttpDingTalkApiClient(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+    }
+
     public async Task<string> GetAccessTokenAsync(
         string appKey,
         string appSecret,
@@ -117,6 +123,85 @@ public sealed class HttpDingTalkApiClient : IDingTalkApiClient
     {
         var msgParam = JsonSerializer.Serialize(new { title, text }, JsonOptions);
         await SendBatchMessageAsync(accessToken, robotCode, userIds, "sampleMarkdown", msgParam, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task SendGroupMessageAsync(
+        string accessToken,
+        string robotCode,
+        string openConversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, "/v1.0/robot/groupMessages/send");
+        request.Headers.Add("x-acs-dingtalk-access-token", accessToken);
+        request.Content = JsonContent.Create(
+            new { robotCode, openConversationId, msgKey, msgParam },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"DingTalk SendGroupMessage failed: {(int)response.StatusCode}. Body: {body}");
+        }
+    }
+
+    public async Task SendSessionWebhookMessageAsync(
+        string webhookUrl,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken = default)
+    {
+        // sessionWebhook 是完整绝对 URL，直接 POST（绝对 URI 优先于 BaseAddress）
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post, new Uri(webhookUrl, UriKind.Absolute));
+        request.Content = JsonContent.Create(
+            new { msgKey, msgParam },
+            options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"DingTalk SendSessionWebhook failed: {(int)response.StatusCode}. Body: {body}");
+        }
+    }
+
+    public async Task SendActionCardMessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        string singleTitle,
+        string singleUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var msgParam = JsonSerializer.Serialize(
+            new { title, text, singleTitle, singleURL = singleUrl }, JsonOptions);
+        await SendBatchMessageAsync(accessToken, robotCode, userIds, "sampleActionCard", msgParam, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async Task SendActionCard6MessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        IReadOnlyList<DingTalkActionCardBtn> btns,
+        CancellationToken cancellationToken = default)
+    {
+        var btnsArray = btns.Select(b => new { title = b.Title, actionURL = b.ActionUrl }).ToArray();
+        var msgParam = JsonSerializer.Serialize(new { title, text, btns = btnsArray }, JsonOptions);
+        await SendBatchMessageAsync(accessToken, robotCode, userIds, "sampleActionCard6", msgParam, cancellationToken)
             .ConfigureAwait(false);
     }
 

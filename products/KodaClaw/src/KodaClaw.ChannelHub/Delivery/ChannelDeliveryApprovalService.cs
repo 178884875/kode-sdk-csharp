@@ -203,6 +203,7 @@ public sealed class ChannelDeliveryApprovalService
                 AccountId: payload.AccountId,
                 ExternalThreadId: payload.ExternalThreadId,
                 MessageText: payload.MessageText,
+                ThreadType: binding.ThreadType,
                 DeliveryMode: payload.DeliveryMode,
                 CreatedAt: now,
                 SessionId: approval.SessionId,

@@ -166,6 +166,7 @@ public sealed class ChannelDeliveryDispatchService
             AccountId: binding.AccountId,
             ExternalThreadId: binding.ExternalThreadId,
             MessageText: text,
+            ThreadType: binding.ThreadType,
             DeliveryMode: DeliveryMode.AutoSend,
             CreatedAt: DateTimeOffset.UtcNow,
             SessionId: binding.SessionId,
