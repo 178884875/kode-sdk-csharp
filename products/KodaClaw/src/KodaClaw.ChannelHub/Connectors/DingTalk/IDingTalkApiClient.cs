@@ -49,4 +49,25 @@ public interface IDingTalkApiClient
         string msgKey,
         string msgParam,
         CancellationToken cancellationToken = default);
+
+    /// <summary>单聊发送 ActionCard 整体跳转消息（msgKey=sampleActionCard）</summary>
+    Task SendActionCardMessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        string singleTitle,
+        string singleUrl,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>单聊发送 ActionCard 独立跳转多按钮消息（msgKey=sampleActionCard6）</summary>
+    Task SendActionCard6MessageAsync(
+        string accessToken,
+        string robotCode,
+        IReadOnlyList<string> userIds,
+        string title,
+        string text,
+        IReadOnlyList<DingTalkActionCardBtn> btns,
+        CancellationToken cancellationToken = default);
 }

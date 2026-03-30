@@ -124,3 +124,8 @@ public sealed class DingTalkSendMessageResponse
     [JsonPropertyName("processQueryKey")]
     public string? ProcessQueryKey { get; init; }
 }
+
+// ── ActionCard 按钮 ───────────────────────────────────────────────────────
+
+/// <summary>ActionCard 独立跳转多按钮中的单个按钮</summary>
+public sealed record DingTalkActionCardBtn(string Title, string ActionUrl);
