@@ -123,10 +123,27 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
                 filtered = filtered.Where(e => e.Timestamp <= q.DateTo.Value);
             }
 
-            return filtered
+            var memoryResults = filtered
                 .OrderByDescending(e => e.Timestamp)
                 .Take(q.Limit)
-                .ToArray();
+                .ToList();
+
+            var allCached = _highPriorityCache.Concat(_lowPriorityCache).ToList();
+            if (q.DateFrom.HasValue && allCached.Count > 0)
+            {
+                var oldestInCache = allCached.Min(e => e.Timestamp);
+                if (oldestInCache > q.DateFrom.Value)
+                {
+                    var fileResults = ReadFromFile(q.DateFrom.Value, oldestInCache, q.Limit);
+                    return memoryResults
+                        .Concat(fileResults)
+                        .OrderByDescending(e => e.Timestamp)
+                        .Take(q.Limit)
+                        .ToArray();
+                }
+            }
+
+            return memoryResults.ToArray();
         }
     }
 
@@ -222,6 +239,47 @@ public sealed class FileDiagnosticsService : IDiagnosticsService, IDisposable
             }
 
             _subscribers.Clear();
+        }
+    }
+
+    private List<DiagnosticEvent> ReadFromFile(DateTimeOffset dateFrom, DateTimeOffset cacheOldest, int limit)
+    {
+        if (!File.Exists(_journalPath))
+        {
+            return [];
+        }
+
+        try
+        {
+            var lines = File.ReadLines(_journalPath)
+                .Where(static l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
+
+            var scanLines = lines.Skip(Math.Max(0, lines.Count - Math.Min(lines.Count, 5000))).ToList();
+
+            var results = new List<DiagnosticEvent>();
+            for (var i = scanLines.Count - 1; i >= 0 && results.Count < limit; i--)
+            {
+                try
+                {
+                    var evt = JsonSerializer.Deserialize<DiagnosticEvent>(scanLines[i], JsonOptions);
+                    if (evt is not null && evt.Timestamp >= dateFrom && evt.Timestamp < cacheOldest)
+                    {
+                        results.Add(evt);
+                    }
+                }
+                catch
+                {
+                    // skip corrupted lines
+                }
+            }
+
+            results.Reverse();
+            return results;
+        }
+        catch
+        {
+            return [];
         }
     }
 
