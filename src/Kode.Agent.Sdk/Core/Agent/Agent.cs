@@ -121,10 +121,18 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         _hookManager = new HookManager();
         RegisterHooks(_hookManager, _config, dependencies);
 
+        IContextSummarizer? summarizer = dependencies.ModelProvider != null
+            ? new LlmContextSummarizer(
+                dependencies.ModelProvider,
+                _config.Model,
+                dependencies.LoggerFactory?.CreateLogger<LlmContextSummarizer>())
+            : null;
+
         _contextManager = new ContextManager(
             dependencies.Store,
             agentId,
             _config.Context,
+            summarizer,
             dependencies.LoggerFactory?.CreateLogger<ContextManager>());
 
         _systemPrompt = _config.SystemPrompt;
@@ -1108,7 +1116,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
 
         // Context compression (aligned with TS: compress before model call).
-        var usage = _contextManager.Analyze(_messages);
+        // System prompt tokens are added so compression triggers before the prompt itself
+        // crowds out all headroom from the MaxTokens budget.
+        var systemPromptTokens = ContextManager.EstimateSystemPromptTokens(_systemPrompt);
+        var usage = _contextManager.Analyze(_messages, systemPromptTokens);
         if (usage.ShouldCompress)
         {
             _eventBus.EmitMonitor(new ContextCompressionEvent
@@ -1122,13 +1133,15 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 _eventBus.GetTimelineSnapshot(),
                 _filePool,
                 _sandbox,
+                systemPromptTokens,
                 cancellationToken);
 
             if (compression != null)
             {
+                // RetainedMessages is the fully-reconstructed list:
+                // [core-memory?] + [summary stack] + [recent messages]
                 _messages.Clear();
                 _messages.AddRange(compression.RetainedMessages);
-                _messages.Insert(0, compression.Summary);
                 await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
                 await SaveStateAsync(cancellationToken);
 
@@ -1387,6 +1400,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var snapshot = await _dependencies.Store.LoadTodosAsync(AgentId, cancellationToken);
         return snapshot?.Todos ?? [];
     }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<HistoryWindow>> GetHistoryWindowsAsync(CancellationToken cancellationToken = default)
+        => _contextManager.LoadHistoryAsync(cancellationToken);
 
     /// <inheritdoc />
     public async Task SetTodosAsync(IEnumerable<TodoItem> todos, CancellationToken cancellationToken = default)

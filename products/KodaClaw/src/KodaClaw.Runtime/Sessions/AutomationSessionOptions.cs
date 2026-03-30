@@ -26,4 +26,14 @@ public sealed class AutomationSessionOptions
     public double ContextCompressionTargetRatio { get; init; } = 0.40;
 
     public int DefaultContextWindowSize { get; init; } = 128_000;
+
+    /// <summary>
+    /// Custom system prompt for context compression.
+    /// Empty string (default) uses the LlmContextSummarizer built-in prompt.
+    /// <br/>
+    /// Automation sessions benefit from a prompt that retains: task name, trigger time,
+    /// execution steps with success/failure status, output artifacts, and next scheduled run.
+    /// Set this field in appsettings or DI configuration to override.
+    /// </summary>
+    public string CompressionPrompt { get; init; } = AutomationCompressionPrompts.Default;
 }

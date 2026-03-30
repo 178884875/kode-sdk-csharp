@@ -142,6 +142,9 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         {
                             MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
                             CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                            CompressionPrompt = binding.ThreadType == ChannelThreadType.DirectMessage
+                                ? _options.DmCompressionPrompt
+                                : _options.GroupCompressionPrompt,
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -545,6 +548,9 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
                 CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                CompressionPrompt = isDirectMessage
+                    ? _options.DmCompressionPrompt
+                    : _options.GroupCompressionPrompt,
             },
         };
     }

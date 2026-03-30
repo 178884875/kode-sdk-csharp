@@ -45,4 +45,20 @@ public sealed class ChannelSessionOptions
     public int SummaryCompressionTargetLines { get; init; } = 40;
 
     public bool LlmSummaryEnabled { get; init; } = false;
+
+    /// <summary>
+    /// Compression prompt for direct-message (DM) channel sessions.
+    /// DM has owner-level trust; the summary should focus on personal task context,
+    /// workspace changes, and owner instructions — similar to the main session.
+    /// Set to empty string to fall back to the LlmContextSummarizer built-in default.
+    /// </summary>
+    public string DmCompressionPrompt { get; init; } = ChannelCompressionPrompts.Dm;
+
+    /// <summary>
+    /// Compression prompt for group channel sessions.
+    /// Group sessions are mention-triggered and multi-participant; the summary should
+    /// focus on group context, active participants, and Koda's replies — not file system state.
+    /// Set to empty string to fall back to the LlmContextSummarizer built-in default.
+    /// </summary>
+    public string GroupCompressionPrompt { get; init; } = ChannelCompressionPrompts.Group;
 }

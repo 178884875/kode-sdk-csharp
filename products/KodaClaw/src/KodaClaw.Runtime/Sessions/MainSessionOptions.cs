@@ -37,6 +37,7 @@ public sealed class MainSessionOptions
         "generate_speech",
         "diagnostics_query",
         "schedule_reminder",
+        "history_search",
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =
@@ -81,6 +82,17 @@ public sealed class MainSessionOptions
     /// Conservative default of 128k covers all modern OpenAI and Anthropic models.
     /// </summary>
     public int DefaultContextWindowSize { get; init; } = 128_000;
+
+    /// <summary>
+    /// Custom system prompt for context compression.
+    /// Empty string (default) uses the LlmContextSummarizer built-in prompt, which focuses on
+    /// task objective, completed steps, file paths, key decisions, and remaining work.
+    /// <br/>
+    /// For chat sessions the default prompt works well out of the box.
+    /// Override only when you need domain-specific compression behavior (e.g., a customer-support
+    /// product may want to emphasise ticket IDs and resolution status over file paths).
+    /// </summary>
+    public string CompressionPrompt { get; init; } = "";
 }
 
 public interface IMainSessionAgentDependenciesFactory

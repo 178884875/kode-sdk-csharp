@@ -495,6 +495,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         {
                             MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
                             CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                            CompressionPrompt = _options.CompressionPrompt,
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -740,6 +741,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             {
                 MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
                 CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                CompressionPrompt = _options.CompressionPrompt,
             },
         };
     }

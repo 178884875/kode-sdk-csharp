@@ -1,6 +1,7 @@
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Tools;
 using Kode.Agent.Tools.Builtin.FileSystem;
+using Kode.Agent.Tools.Builtin.History;
 using Kode.Agent.Tools.Builtin.Shell;
 using Kode.Agent.Tools.Builtin.Skills;
 using Kode.Agent.Tools.Builtin.Todo;
@@ -66,7 +67,10 @@ public static class ServiceCollectionExtensions
         registry.Register(new SkillListTool());
         registry.Register(new SkillActivateTool());
         registry.Register(new SkillResourceTool());
-        
+
+        // History tools
+        registry.Register(new HistorySearchTool());
+
         return registry;
     }
 }

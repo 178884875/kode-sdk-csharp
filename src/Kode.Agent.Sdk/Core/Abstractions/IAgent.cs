@@ -1,3 +1,4 @@
+using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Todo;
 using System.Text.Json.Serialization;
 
@@ -139,6 +140,13 @@ public interface IAgent : IAsyncDisposable
     /// <param name="todos">The new todo list.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task SetTodosAsync(IEnumerable<TodoItem> todos, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all compressed history windows saved for this session.
+    /// Each window represents a snapshot of the conversation at the time of a context compression.
+    /// Used by <c>history_search</c> to search across compressed history for relevant context.
+    /// </summary>
+    Task<IReadOnlyList<HistoryWindow>> GetHistoryWindowsAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -1,0 +1,186 @@
+using System.Text;
+using Microsoft.Extensions.Logging;
+
+namespace Kode.Agent.Sdk.Core.Context;
+
+/// <summary>
+/// LLM-powered summarizer using IModelProvider.CompleteAsync.
+/// Produces both a semantic summary and an updated core-memory block in one call.
+/// Falls back to StaticContextSummarizer on any failure.
+/// <br/>
+/// References:
+///   - MemGPT (arxiv 2310.08560): core-memory block always in context, updated by LLM
+///   - LLMLingua-2 (arxiv 2403.12968): importance-aware compression
+///   - Anthropic effective context engineering blog
+/// </summary>
+public class LlmContextSummarizer : IContextSummarizer
+{
+    // Input budget for removed messages fed to the LLM.
+    // 3× the old 4000-char limit; leaves ~14k tokens headroom in a 16k input context.
+    private const int MaxContextChars = 12_000;
+
+    private const string DefaultPrompt =
+        """
+        You are compressing a conversation history to save context window space.
+        Produce your response in EXACTLY this XML format and nothing else:
+
+        <summary>
+        Concise semantic summary of the removed messages (under 500 words).
+        Include: task objective, completed steps, key findings, important file paths.
+        Omit: repetitive polling, verbose command output, intermediate failed attempts.
+        </summary>
+
+        <core-memory>
+        ## Current Task
+        [One sentence describing what the user is trying to accomplish]
+
+        ## Modified Files
+        [Bullet list of important file paths that were read or written]
+
+        ## Key Decisions
+        [Bullet list of important technical or product decisions made]
+
+        ## Next Steps
+        [What still needs to be done, if known]
+        </core-memory>
+        """;
+
+    private static readonly IContextSummarizer _fallback = new StaticContextSummarizer();
+
+    private readonly IModelProvider _modelProvider;
+    private readonly string? _primaryModel;
+    private readonly ILogger<LlmContextSummarizer>? _logger;
+
+    public LlmContextSummarizer(
+        IModelProvider modelProvider,
+        string? primaryModel = null,
+        ILogger<LlmContextSummarizer>? logger = null)
+    {
+        _modelProvider = modelProvider;
+        _primaryModel = primaryModel;
+        _logger = logger;
+    }
+
+    public async Task<SummaryResult> SummarizeAsync(
+        IReadOnlyList<Message> removedMessages,
+        ContextManagerOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var model = options.CompressionModel ?? _primaryModel ?? "claude-haiku-4-5-20251001";
+            var prompt = string.IsNullOrWhiteSpace(options.CompressionPrompt)
+                ? DefaultPrompt
+                : options.CompressionPrompt;
+
+            var request = new ModelRequest
+            {
+                Model = model,
+                SystemPrompt = prompt,
+                Messages = [Message.User(BuildCompressionContext(removedMessages))],
+                MaxTokens = 1200,
+            };
+
+            var response = await _modelProvider.CompleteAsync(request, cancellationToken);
+            var raw = response.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? "";
+
+            if (string.IsNullOrWhiteSpace(raw))
+                return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+
+            return ParseResponse(raw);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "LLM summarization failed, falling back to static summary");
+            return await _fallback.SummarizeAsync(removedMessages, options, cancellationToken);
+        }
+    }
+
+    // --- response parsing ---
+
+    private static SummaryResult ParseResponse(string raw)
+    {
+        var summary = ExtractXmlSection(raw, "summary");
+        var coreMemory = ExtractXmlSection(raw, "core-memory");
+
+        // If LLM didn't follow the format, treat the whole response as summary
+        if (string.IsNullOrWhiteSpace(summary))
+            summary = raw.Trim();
+
+        return new SummaryResult(summary.Trim(), string.IsNullOrWhiteSpace(coreMemory) ? null : coreMemory.Trim());
+    }
+
+    private static string? ExtractXmlSection(string text, string tag)
+    {
+        var open = $"<{tag}>";
+        var close = $"</{tag}>";
+        var start = text.IndexOf(open, StringComparison.OrdinalIgnoreCase);
+        if (start < 0) return null;
+        start += open.Length;
+        var end = text.IndexOf(close, start, StringComparison.OrdinalIgnoreCase);
+        return end < 0 ? null : text[start..end];
+    }
+
+    // --- input construction ---
+
+    /// <summary>
+    /// Builds the compression input from removed messages.
+    /// Prioritises user messages and deduplicates consecutive polling tool calls (bash_logs).
+    /// Input is capped at <see cref="MaxContextChars"/> to keep the LLM call cheap.
+    /// </summary>
+    private static string BuildCompressionContext(IReadOnlyList<Message> removedMessages)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("=== Removed conversation history ===");
+
+        var totalToolCalls = 0;
+        string? lastPollKey = null;
+
+        foreach (var msg in removedMessages)
+        {
+            if (sb.Length > MaxContextChars) break;
+
+            if (msg.Role == MessageRole.User)
+            {
+                lastPollKey = null;
+                var text = string.Join(" ", msg.Content.OfType<TextContent>().Select(t => t.Text));
+                if (!string.IsNullOrWhiteSpace(text))
+                    sb.AppendLine($"[User]: {Preview(text, 400)}");
+            }
+            else if (msg.Role == MessageRole.Assistant)
+            {
+                var text = string.Join(" ", msg.Content.OfType<TextContent>().Select(t => t.Text));
+                if (!string.IsNullOrWhiteSpace(text))
+                    sb.AppendLine($"[Assistant]: {Preview(text, 250)}");
+
+                var tools = msg.Content.OfType<ToolUseContent>().ToList();
+                if (tools.Count > 0)
+                {
+                    totalToolCalls += tools.Count;
+                    var names = string.Join(", ", tools.Select(t => t.Name).Distinct());
+
+                    // Deduplicate consecutive identical polling calls
+                    if (tools.All(t => t.Name == "bash_logs"))
+                    {
+                        if (names == lastPollKey) continue;
+                        lastPollKey = names;
+                    }
+                    else
+                    {
+                        lastPollKey = null;
+                    }
+
+                    sb.AppendLine($"[Tools]: {names}");
+                }
+            }
+        }
+
+        if (totalToolCalls > 0)
+            sb.AppendLine($"(Total {totalToolCalls} tool calls in removed history)");
+
+        return sb.ToString();
+    }
+
+    private static string Preview(string text, int limit) =>
+        text.Length > limit ? text[..limit] + "…" : text;
+}
