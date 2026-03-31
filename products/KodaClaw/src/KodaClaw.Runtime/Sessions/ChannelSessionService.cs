@@ -423,6 +423,18 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         return newSessionId;
     }
 
+    public async Task<IDisposable> AcquireSessionLockAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var semaphore = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken);
+        return new SemaphoreReleaser(semaphore);
+    }
+
+    public string BuildPrompt(ThreadBinding binding, ChannelEventEnvelope envelope, bool hasExplicitMention)
+    {
+        return BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
+    }
+
     public async Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!_agents.TryGetValue(sessionId, out var agent))
@@ -814,4 +826,14 @@ Inbound Event:
         bool LoadUserProfile,
         bool LoadLongTermMemory,
         bool LoadRecentThreadSummary);
+
+    private sealed class SemaphoreReleaser(SemaphoreSlim semaphore) : IDisposable
+    {
+        public void Dispose()
+        {
+            try { semaphore.Release(); }
+            catch (ObjectDisposedException) { }
+            catch (SemaphoreFullException) { }
+        }
+    }
 }

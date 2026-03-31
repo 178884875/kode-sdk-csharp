@@ -155,9 +155,17 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         using var request = BuildSendMessageRequest(accessToken, receiveId, receiveIdType, "image", content);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var responseText = System.Text.Encoding.UTF8.GetString(responseBytes);
 
-        var messageId = await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
+        }
+
+        var messageId = ParseSendMessageResponseFromBytes(responseBytes, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(caption))
         {
@@ -177,7 +185,7 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         ArgumentNullException.ThrowIfNull(audio);
 
         using var form = new MultipartFormDataContent();
-        form.Add(new StringContent("audio"), "file_type");
+        form.Add(new StringContent("opus"), "file_type");
         var audioContent = new StreamContent(audio);
         audioContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
         form.Add(audioContent, "file", "speech.mp3");
@@ -217,9 +225,98 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         using var request = BuildSendMessageRequest(accessToken, receiveId, receiveIdType, "audio", content);
 
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var responseText = System.Text.Encoding.UTF8.GetString(responseBytes);
 
-        var messageId = await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
+        }
+
+        var messageId = ParseSendMessageResponseFromBytes(responseBytes, cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            await SendTextMessageAsync(accessToken, receiveId, receiveIdType, caption, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return messageId;
+    }
+
+    public async Task<string> UploadVideoFileAsync(
+        string accessToken,
+        Stream video,
+        string contentType,
+        int? durationMs = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(video);
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("mp4"), "file_type");
+        var videoContent = new StreamContent(video);
+        videoContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(videoContent, "file", "video.mp4");
+        form.Add(new StringContent("video.mp4"), "file_name");
+        if (durationMs.HasValue)
+        {
+            form.Add(new StringContent(durationMs.Value.ToString()), "duration");
+        }
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/open-apis/im/v1/files");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer", accessToken);
+        request.Content = form;
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var responseText = System.Text.Encoding.UTF8.GetString(responseBytes);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Feishu upload video failed: status={(int)response.StatusCode}, body={responseText}");
+        }
+
+        var result = JsonSerializer.Deserialize<FeishuUploadFileResponse>(responseBytes, JsonOptions);
+
+        if (result is null || result.Code != 0 || string.IsNullOrWhiteSpace(result.Data?.FileKey))
+        {
+            throw new InvalidOperationException(
+                $"Feishu upload video failed: code={result?.Code}, msg={result?.Msg}, body={responseText}");
+        }
+        return result.Data.FileKey;
+    }
+
+    public async Task<string> SendVideoMessageAsync(
+        string accessToken,
+        string receiveId,
+        string receiveIdType,
+        string fileKey,
+        string? caption,
+        CancellationToken cancellationToken = default)
+    {
+        var content = JsonSerializer.Serialize(new { file_key = fileKey }, JsonOptions);
+        using var request = BuildSendMessageRequest(accessToken, receiveId, receiveIdType, "media", content);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+        var responseText = System.Text.Encoding.UTF8.GetString(responseBytes);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"Feishu send video message failed: status={(int)response.StatusCode}, body={responseText}");
+        }
+
+        var messageId = ParseSendMessageResponseFromBytes(responseBytes, cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(caption))
         {
@@ -310,6 +407,20 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         {
             throw new InvalidOperationException(
                 $"Feishu send message failed: code={result?.Code}, msg={result?.Msg}");
+        }
+
+        return result.Data?.MessageId ?? string.Empty;
+    }
+
+    private static string ParseSendMessageResponseFromBytes(byte[] bytes, CancellationToken cancellationToken)
+    {
+        var result = JsonSerializer.Deserialize<FeishuSendMessageResponse>(bytes, JsonOptions);
+
+        if (result is null || result.Code != 0)
+        {
+            var responseText = System.Text.Encoding.UTF8.GetString(bytes);
+            throw new InvalidOperationException(
+                $"Feishu send message failed: code={result?.Code}, msg={result?.Msg}, body={responseText}");
         }
 
         return result.Data?.MessageId ?? string.Empty;

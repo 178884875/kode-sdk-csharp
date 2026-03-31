@@ -29,6 +29,16 @@ public interface IChannelSessionService
     /// Returns a user-facing status message describing the result.
     /// </summary>
     Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Expose lock acquisition for Orchestrator to coordinate concurrent access.
+    /// </summary>
+    Task<IDisposable> AcquireSessionLockAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Expose prompt building so Orchestrator can construct the inbound turn prompt.
+    /// </summary>
+    string BuildPrompt(ThreadBinding binding, ChannelEventEnvelope envelope, bool hasExplicitMention);
 }
 
 public sealed record ChannelSessionHandle(

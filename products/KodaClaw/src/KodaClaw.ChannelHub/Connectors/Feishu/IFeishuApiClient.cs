@@ -62,4 +62,21 @@ public interface IFeishuApiClient
         string fileKey,
         string? caption,
         CancellationToken cancellationToken = default);
+
+    /// <summary>上传视频文件，返回 file_key</summary>
+    Task<string> UploadVideoFileAsync(
+        string accessToken,
+        Stream video,
+        string contentType,
+        int? durationMs = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>发送视频消息（使用已上传的 file_key）</summary>
+    Task<string> SendVideoMessageAsync(
+        string accessToken,
+        string receiveId,
+        string receiveIdType,
+        string fileKey,
+        string? caption,
+        CancellationToken cancellationToken = default);
 }

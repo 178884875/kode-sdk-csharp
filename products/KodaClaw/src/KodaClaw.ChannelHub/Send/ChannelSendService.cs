@@ -56,7 +56,7 @@ public sealed class ChannelSendService : IChannelSendService
             var meta = await _mediaStore.GetMetaAsync(mediaId, cancellationToken);
             if (meta is not null)
             {
-                mediaAttachments = [new MediaReference(meta.Id, meta.ContentType)];
+                mediaAttachments = [new MediaReference(meta.Id, meta.ContentType, meta.DurationMs)];
             }
         }
 

@@ -47,6 +47,12 @@ public sealed class ChannelSessionOptions
     public bool LlmSummaryEnabled { get; init; } = false;
 
     /// <summary>
+    /// Whether to push intermediate Agent thinking text as channel progress messages during a turn.
+    /// When false (default), no progress is streamed and the final reply is delivered only after the turn completes.
+    /// </summary>
+    public bool EnableProgressStreaming { get; init; } = false;
+
+    /// <summary>
     /// Compression prompt for direct-message (DM) channel sessions.
     /// DM has owner-level trust; the summary should focus on personal task context,
     /// workspace changes, and owner instructions — similar to the main session.

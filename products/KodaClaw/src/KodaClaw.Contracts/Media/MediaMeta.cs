@@ -8,4 +8,5 @@ public record MediaMeta(
     string FileName,
     string ContentType,
     long SizeBytes,
-    DateTimeOffset StoredAt);
+    DateTimeOffset StoredAt,
+    int? DurationMs = null);

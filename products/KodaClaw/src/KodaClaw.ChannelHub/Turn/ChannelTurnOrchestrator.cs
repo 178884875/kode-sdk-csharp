@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
+using KodaClaw.ChannelHub.Turn;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using KodaClaw.Workspace;
@@ -237,12 +238,57 @@ public sealed class ChannelTurnOrchestrator
 
         try
         {
-            var execution = await _channelSessionService.RunInboundTurnAsync(
-                processing.Binding,
-                processing.Policy,
-                envelope,
-                hasExplicitMention,
-                cancellationToken);
+            var handle = await _channelSessionService.EnsureChannelSessionAsync(
+                processing.Binding, processing.Policy, cancellationToken);
+            var prompt = _channelSessionService.BuildPrompt(
+                processing.Binding, envelope, hasExplicitMention);
+
+            using var sessionLock = await _channelSessionService.AcquireSessionLockAsync(
+                handle.SessionId, cancellationToken);
+
+            AgentRunResult runResult;
+            var progressWasSent = false;
+
+            // Progress streaming: subscribe to EventBus before RunAsync so no events are missed.
+            // Controlled by ChannelSessionOptions.EnableProgressStreaming (default: off).
+            CancellationTokenSource? subscribeCts = null;
+            Task<bool>? progressTask = null;
+            if (_sessionOptions.EnableProgressStreaming)
+            {
+                subscribeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var progressEvents = handle.Agent.EventBus.SubscribeAsync(
+                    EventChannel.Progress,
+                    since: null,
+                    kinds: ["text_chunk_end", "tool:start", "done"],
+                    cancellationToken: subscribeCts.Token);
+
+                progressTask = ChannelProgressStreamer.StreamAsync(
+                    progressEvents,
+                    (text, ct) =>
+                        _deliveryDispatchService.SendNotificationAsync(
+                            account, processing.Binding, text, cancellationToken: ct),
+                    subscribeCts.Token);
+            }
+
+            try
+            {
+                runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+            }
+            finally
+            {
+                if (subscribeCts is not null)
+                {
+                    subscribeCts.Cancel();
+                    try { progressWasSent = await (progressTask ?? Task.FromResult(false)); }
+                    catch (OperationCanceledException) { progressWasSent = false; }
+                }
+            }
+            var execution = new ChannelTurnExecutionResult(
+                Session: handle,
+                RunResult: runResult,
+                RawResponse: runResult.Response ?? string.Empty,
+                Proposal: null,
+                HasExplicitMention: hasExplicitMention);
 
             if (execution.RunResult.StopReason == StopReason.MaxIterations)
             {
@@ -261,14 +307,15 @@ public sealed class ChannelTurnOrchestrator
 
             var sentTexts = _sendCapture?.GetAndClear(processing.Binding.Id) ?? [];
 
-            // Fallback：Agent 直接输出文本而没有调用 channel_send 工具时，自动投递。
-            // 常见于简单对话（如"哈哈哈"）—— LLM 倾向于直接回复而不是调用工具。
+            // Fallback：Agent 没有调用 channel_send 时，自动投递最终文本。
             _logger.LogDebug(
-                "Channel turn fallback check: sentTexts={Count} rawResponse={HasResponse} bindingId={BindingId}",
+                "Channel turn fallback check: sentTexts={Count} progressWasSent={Progress} rawResponse={HasResponse} bindingId={BindingId}",
                 sentTexts.Count,
+                progressWasSent,
                 !string.IsNullOrWhiteSpace(execution.RawResponse),
                 processing.Binding.Id);
 
+            var fallbackDeliveryFailed = false;
             if (sentTexts.Count == 0 && !string.IsNullOrWhiteSpace(execution.RawResponse))
             {
                 try
@@ -280,13 +327,36 @@ public sealed class ChannelTurnOrchestrator
                 }
                 catch (Exception ex)
                 {
+                    fallbackDeliveryFailed = true;
                     _logger.LogWarning(ex,
                         "Channel turn fallback delivery failed for binding {BindingId} account {AccountId}",
                         processing.Binding.Id, processing.Binding.AccountId);
+                    RecordDiagnosticEvent("channel.turn.fallback_delivery_failed", "error",
+                        ex.Message, processing.Binding,
+                        CreateOutcome(ChannelTurnOutcomeKind.Failed, ex.Message, processing, envelope,
+                            reasonCode: "fallback_delivery_failed"));
                 }
             }
 
-            var summary = await BuildConversationSummaryAsync(envelope.Text, sentTexts, cancellationToken);
+            // 根因 A：agent 跑完但完全没有产出任何回复（channel_send 未调用、RawResponse 为空、无进度文本）。
+            // 向用户发一条提示，避免对话无声消失。
+            if (sentTexts.Count == 0 && !progressWasSent && !fallbackDeliveryFailed)
+            {
+                const string silentFallback = "（已完成，暂无需要回复的内容。）";
+                try
+                {
+                    await _deliveryDispatchService.SendNotificationAsync(
+                        account, processing.Binding, silentFallback, cancellationToken: cancellationToken);
+                    sentTexts = [silentFallback];
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Silent fallback notification failed for binding {BindingId}", processing.Binding.Id);
+                }
+            }
+
+            var summary = await BuildConversationSummaryAsync(envelope.Text, sentTexts, progressWasSent, fallbackDeliveryFailed, cancellationToken);
 
             var outcome = CreateOutcome(
                 ChannelTurnOutcomeKind.Delivered,
@@ -493,11 +563,20 @@ public sealed class ChannelTurnOrchestrator
         }
     }
 
-    private async Task<string> BuildConversationSummaryAsync(string? inboundText, IReadOnlyList<string> sentTexts, CancellationToken cancellationToken)
+    private async Task<string> BuildConversationSummaryAsync(
+        string? inboundText,
+        IReadOnlyList<string> sentTexts,
+        bool progressWasSent,
+        bool fallbackDeliveryFailed,
+        CancellationToken cancellationToken)
     {
         var user = BuildPreview(inboundText ?? "(no text)");
         if (sentTexts.Count == 0)
         {
+            if (fallbackDeliveryFailed)
+                return $"user: \"{user}\" → koda: (delivery failed)";
+            if (progressWasSent)
+                return $"user: \"{user}\" → koda: (progress only, no final reply)";
             return $"user: \"{user}\" → koda: (no reply sent)";
         }
 

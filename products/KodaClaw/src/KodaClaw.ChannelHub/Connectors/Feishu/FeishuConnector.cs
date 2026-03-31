@@ -217,6 +217,55 @@ public sealed class FeishuConnector : IChannelConnector
             }
         }
 
+        var videoAttachment = draft.MediaAttachments?.FirstOrDefault(
+            static a => a.ContentType.StartsWith("video/", StringComparison.OrdinalIgnoreCase));
+
+        if (videoAttachment is not null && _mediaStore is not null)
+        {
+            var stream = await _mediaStore.OpenReadAsync(videoAttachment.MediaId, cancellationToken)
+                .ConfigureAwait(false);
+            if (stream is not null)
+            {
+                try
+                {
+                    await using (stream.ConfigureAwait(false))
+                    {
+                        // Get duration from media meta if available
+                    int? durationMs = videoAttachment.DurationMs;
+                    if (durationMs is null)
+                    {
+                        var meta = await _mediaStore.GetMetaAsync(videoAttachment.MediaId, cancellationToken)
+                            .ConfigureAwait(false);
+                        durationMs = meta?.DurationMs;
+                    }
+
+                    var fileKey = await _apiClient.UploadVideoFileAsync(
+                            tenantToken, stream, videoAttachment.ContentType, durationMs, cancellationToken)
+                            .ConfigureAwait(false);
+
+                        await _apiClient.SendVideoMessageAsync(
+                            tenantToken,
+                            receiveId,
+                            receiveIdType,
+                            fileKey,
+                            caption: draft.MessageText,
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Feishu video upload failed, falling back to text for {ReceiveId}", receiveId);
+                    await _apiClient.SendTextMessageAsync(
+                        tenantToken, receiveId, receiveIdType,
+                        $"[视频消息发送失败，请检查飞书App文件上传权限]\n{draft.MessageText}",
+                        cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
+
         await _apiClient.SendTextMessageAsync(
             tenantToken, receiveId, receiveIdType, draft.MessageText, cancellationToken)
             .ConfigureAwait(false);
