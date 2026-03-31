@@ -15,6 +15,7 @@ using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 
 public static partial class GatewayApp
 {
@@ -27,6 +28,22 @@ public static partial class GatewayApp
         var workspaceRoot = KodaClawWorkspaceOptions.ResolveRootPathStatic(
             builder.Configuration["KODACLAW_WORKSPACE_ROOT"]
             ?? builder.Configuration["Workspace:RootPath"]);
+
+        builder.Host.UseSerilog((ctx, cfg) =>
+        {
+            var logDir = Path.Combine(workspaceRoot, "logs");
+            Directory.CreateDirectory(logDir);
+            cfg.ReadFrom.Configuration(ctx.Configuration)
+               .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+               .WriteTo.File(
+                   Path.Combine(logDir, "gateway-.log"),
+                   rollingInterval: RollingInterval.Day,
+                   retainedFileCountLimit: 7,
+                   outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
+               .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
+               .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning);
+        });
+
         builder.Services.AddKodaClawControlPlane(workspaceRoot);
         builder.Services.AddCors(options =>
         {
