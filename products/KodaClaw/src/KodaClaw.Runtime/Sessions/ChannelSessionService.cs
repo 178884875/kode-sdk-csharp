@@ -435,34 +435,23 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         return BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
     }
 
-    public async Task<AgentSessionState?> GetSessionStateAsync(string sessionId, CancellationToken cancellationToken = default)
+    public Task<AgentSessionState?> GetSessionStateAsync(string sessionId, CancellationToken cancellationToken = default)
     {
-        if (!_sessionLocks.TryGetValue(sessionId, out var sessionLock))
+        // Lock-free read: /status only snapshots simple value-type fields
+        // (RuntimeState enum, BreakpointState enum, StepCount int). No need
+        // to contend with the turn-execution SemaphoreSlim — that causes
+        // /status to hang when a turn is running.
+        if (!_agents.TryGetValue(sessionId, out var agent))
         {
-            return null;
+            return Task.FromResult<AgentSessionState?>(null);
         }
 
-        await sessionLock.WaitAsync(cancellationToken);
-        try
-        {
-            if (!_agents.TryGetValue(sessionId, out var agent))
-            {
-                return null;
-            }
-
-            return new AgentSessionState(
-                SessionId: sessionId,
-                RuntimeState: agent.RuntimeState,
-                BreakpointState: agent.BreakpointState,
-                StepCount: agent.StepCount,
-                CurrentToolName: null);
-        }
-        finally
-        {
-            try { sessionLock.Release(); }
-            catch (ObjectDisposedException) { }
-            catch (SemaphoreFullException) { }
-        }
+        return Task.FromResult<AgentSessionState?>(new AgentSessionState(
+            SessionId: sessionId,
+            RuntimeState: agent.RuntimeState,
+            BreakpointState: agent.BreakpointState,
+            StepCount: agent.StepCount,
+            CurrentToolName: null));
     }
 
     public async Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default)
