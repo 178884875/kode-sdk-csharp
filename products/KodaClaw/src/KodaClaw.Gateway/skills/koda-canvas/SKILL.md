@@ -3,7 +3,7 @@ name: koda-canvas
 description: Canvas artifact 创作指南——Markdown/HTML/Image artifact 类型、canvas_upsert 工具用法、多 section 文档结构
 license: built-in
 compatibility: KodaClaw 1.x
-allowed-tools: canvas_upsert generate_image
+allowed-tools: canvas_upsert
 metadata:
   kind: builtin-core
   version: "1.1"
@@ -88,29 +88,6 @@ canvas_upsert(
 </body>
 </html>
 """
-)
-```
-
-## 图片生成
-
-生成图片需要两步：
-
-1. 调用 `generate_image` 生成图片，获取 `mediaId`
-2. 调用 `canvas_upsert` 以 `Image` 类型保存到 Canvas
-
-```
-# 第一步：生成图片
-generate_image(
-  prompt="一只可爱的橙色猫咪坐在书桌前，二次元风格",
-  size="1024x1024"
-)
-# → 返回 mediaId: "media-abc123"
-
-# 第二步：保存到 Canvas
-canvas_upsert(
-  title="AI 生成猫咪",
-  kind="Image",
-  content="media-abc123"
 )
 ```
 

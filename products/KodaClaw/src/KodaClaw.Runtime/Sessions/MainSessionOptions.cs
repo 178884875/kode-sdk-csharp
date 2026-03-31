@@ -33,8 +33,6 @@ public sealed class MainSessionOptions
         "workspace_read",
         "channel_send",
         "channel_list",
-        "generate_image",
-        "generate_speech",
         "diagnostics_query",
         "schedule_reminder",
         "history_search",

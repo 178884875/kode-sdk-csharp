@@ -10,8 +10,6 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IGenerationService, OpenAIImageGenerationService>();
-        services.TryAddSingleton<ISpeechService, OpenAICompatibleTtsService>();
         return services;
     }
 }

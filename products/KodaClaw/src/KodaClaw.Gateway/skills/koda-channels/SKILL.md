@@ -1,13 +1,13 @@
 ---
 name: koda-channels
-description: 渠道消息发送指南——channel_send 工具、generate_speech 语音合成、Telegram/飞书/微信格式差异、媒体附件、BindingId 获取
+description: 渠道消息发送指南——channel_send 工具、Telegram/飞书/微信格式差异、媒体附件、BindingId 获取
 license: built-in
 compatibility: KodaClaw 1.x
-allowed-tools: channel_send channel_list generate_image generate_speech
+allowed-tools: channel_send channel_list
 metadata:
   kind: builtin-core
   version: "1.1"
-  tags: "channels, telegram, feishu, wechat, messaging, tts, speech"
+  tags: "channels, telegram, feishu, wechat, messaging"
 ---
 
 # KodaClaw Channels — 渠道消息发送指南
@@ -98,71 +98,12 @@ channel_send(
 
 ## 媒体附件发送
 
-### 图片附件
-
-发送图片需要先有 `mediaId`，通过以下方式获取：
-1. 用户上传图片后系统返回 `mediaId`
-2. 通过 `generate_image` 生成图片获取 `mediaId`
-
-```
-# 先生成图片
-generate_image(prompt="产品效果图，简洁现代风格")
-# → mediaId: "media-xyz789"
-
-# 再发送到渠道
-channel_send(
-  bindingId="telegram-personal",
-  content="这是生成的产品效果图",
-  mediaId="media-xyz789"
-)
-```
+发送图片需要先有 `mediaId`（用户上传图片后系统返回），然后通过 `mediaId` 参数传入 `channel_send`。
 
 **注意**：微信个人号不支持图片发送，`mediaId` 参数在微信渠道会被忽略。
-
-### 语音消息
-
-使用 `generate_speech` 合成语音，再通过 `channel_send` 发送音频附件：
-
-```
-# 先合成语音
-generate_speech(text="今日简报：xxx", voice="female")
-# → mediaId: "media-abc123", contentType: "audio/mpeg"
-
-# 再发送到渠道
-channel_send(
-  bindingId="telegram-personal",
-  content="今日语音简报",
-  mediaId="media-abc123"
-)
-```
-
-### 各平台音频支持
-
-| 平台 | 音频支持 | 备注 |
-|------|--------|------|
-| Telegram | ✓ sendAudio | mp3 文件条目，无需格式转换 |
-| 飞书 | ✓ sendAudio | 需 App 文件上传权限；失败时降级为文字提示 |
-| 微信 | ✗ 不支持 | 需 AMR 格式转码，当前版本不支持 |
-
-## MiMo Style 标签（情感/速度控制）
-
-MiMo TTS 支持在文本中插入 style 标签控制语音效果：
-
-```
-generate_speech(
-  text="<style>速度=快,情感=高兴</style>太棒了！任务全部完成！",
-  voice="female"
-)
-```
-
-常用 style 参数：
-- `速度` — 慢 / 正常 / 快
-- `情感` — 高兴 / 伤心 / 平静 / 兴奋
-- `音色` — 结合 voice 参数指定
 
 ## 最佳实践
 
 - **针对平台调整格式**：给 Telegram 用 Markdown，给微信发纯文本
 - **控制消息长度**：超长内容优先使用 Canvas 保存，再推送摘要 + 链接说明
 - **批量发送**：多个渠道需分别调用 `channel_send`，每个 bindingId 一次调用
-- **语音场景**：睡前摘要、语音提醒、语音报告 → 先 `generate_speech` 再 `channel_send`

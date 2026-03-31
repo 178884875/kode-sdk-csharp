@@ -121,20 +121,6 @@ public static class ServiceCollectionExtensions
                     _ => new ChannelListTool(bindingRepository));
             }
 
-            var generationService = sp.GetService<KodaClaw.ModelHub.IGenerationService>();
-            if (generationService is not null)
-            {
-                toolRegistry.Register("generate_image",
-                    _ => new GenerateImageTool(generationService, workspaceService, canvasRepository, correlationContextAccessor, diagnosticsService));
-            }
-
-            var speechService = sp.GetService<KodaClaw.ModelHub.ISpeechService>();
-            if (speechService is not null)
-            {
-                toolRegistry.Register("generate_speech",
-                    _ => new GenerateSpeechTool(speechService, diagnosticsService));
-            }
-
             if (diagnosticsService is not null)
             {
                 toolRegistry.Register("diagnostics_query",

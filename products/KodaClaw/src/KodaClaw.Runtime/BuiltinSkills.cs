@@ -26,9 +26,9 @@ public static class BuiltinSkills
 
     /// <summary>
     /// Tools hidden from model schema by default; revealed only when their owning skill activates.
-    /// canvas_upsert / generate_image → koda-canvas
-    /// channel_send / channel_list / generate_speech / generate_image → koda-channels
+    /// canvas_upsert → koda-canvas
+    /// channel_send / channel_list → koda-channels
     /// </summary>
     public static readonly IReadOnlyList<string> SkillGatedTools =
-        ["canvas_upsert", "generate_image", "generate_speech", "channel_send", "channel_list"];
+        ["canvas_upsert", "channel_send", "channel_list"];
 }
