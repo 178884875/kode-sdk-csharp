@@ -364,7 +364,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var enableThinking = ReadBool(metadata, "enableThinking") ?? false;
         var thinkingBudget = ReadInt(metadata, "thinkingBudget");
         var maxToolConcurrency = ReadInt(metadata, "maxToolConcurrency") ?? 3;
-        var toolTimeoutMs = ReadInt(metadata, "toolTimeoutMs") ?? 60_000;
+        var toolTimeoutMs = ReadInt(metadata, "toolTimeoutMs") ?? 1_800_000; // 30min default, see AgentConfig.ToolTimeout
 
         return new AgentConfig
         {
@@ -385,7 +385,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             SubAgents = subagents,
             Todo = todo,
             MaxToolConcurrency = maxToolConcurrency > 0 ? maxToolConcurrency : 3,
-            ToolTimeout = TimeSpan.FromMilliseconds(toolTimeoutMs > 0 ? toolTimeoutMs : 60_000)
+            ToolTimeout = TimeSpan.FromMilliseconds(toolTimeoutMs > 0 ? toolTimeoutMs : 1_800_000) // 30min default
         };
     }
 
@@ -2137,7 +2137,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 timeoutMs.ValueKind == System.Text.Json.JsonValueKind.Number &&
                 timeoutMs.TryGetInt32(out var ms) &&
                 ms > 0 &&
-                merged.ToolTimeout == TimeSpan.FromSeconds(60))
+                merged.ToolTimeout == TimeSpan.FromMinutes(30))
             {
                 merged = merged with { ToolTimeout = TimeSpan.FromMilliseconds(ms) };
             }

@@ -102,9 +102,11 @@ public record AgentConfig
     public int MaxToolConcurrency { get; init; } = 3;
 
     /// <summary>
-    /// Tool execution timeout (default: 60s, aligned with TS toolTimeoutMs = 60000).
+    /// Tool execution timeout (default: 30min).
+    /// CLI tools like claude -p may run 2-5 minutes for complex tasks;
+    /// 60s hard-kill was too aggressive, causing premature cancellation.
     /// </summary>
-    public TimeSpan ToolTimeout { get; init; } = TimeSpan.FromSeconds(60);
+    public TimeSpan ToolTimeout { get; init; } = TimeSpan.FromMinutes(30);
 }
 
 /// <summary>
