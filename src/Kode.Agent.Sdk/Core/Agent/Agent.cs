@@ -52,7 +52,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
     private ISandbox? _sandbox;
     private AgentRuntimeState _runtimeState = AgentRuntimeState.Ready;
-    private int _stepCount;
+    private volatile int _stepCount;
     private int _iterationCount;
     private int _interrupted;
     private readonly object _stateLock = new();
@@ -70,6 +70,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     public string AgentId { get; }
     public AgentRuntimeState RuntimeState => _runtimeState;
     public BreakpointState BreakpointState => _breakpointManager.State;
+    public int StepCount => _stepCount;
     public IEventBus EventBus => _eventBus;
     public SkillsManager? SkillsManager => _skillsManager;
 

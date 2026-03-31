@@ -435,6 +435,36 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         return BuildInboundTurnPrompt(binding, envelope, hasExplicitMention);
     }
 
+    public async Task<AgentSessionState?> GetSessionStateAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_sessionLocks.TryGetValue(sessionId, out var sessionLock))
+        {
+            return null;
+        }
+
+        await sessionLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_agents.TryGetValue(sessionId, out var agent))
+            {
+                return null;
+            }
+
+            return new AgentSessionState(
+                SessionId: sessionId,
+                RuntimeState: agent.RuntimeState,
+                BreakpointState: agent.BreakpointState,
+                StepCount: agent.StepCount,
+                CurrentToolName: null);
+        }
+        finally
+        {
+            try { sessionLock.Release(); }
+            catch (ObjectDisposedException) { }
+            catch (SemaphoreFullException) { }
+        }
+    }
+
     public async Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!_agents.TryGetValue(sessionId, out var agent))

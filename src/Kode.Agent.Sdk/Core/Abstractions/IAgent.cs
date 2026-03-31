@@ -63,6 +63,11 @@ public interface IAgent : IAsyncDisposable
     BreakpointState BreakpointState { get; }
 
     /// <summary>
+    /// Gets the number of completed agent loop steps.
+    /// </summary>
+    int StepCount { get; }
+
+    /// <summary>
     /// Gets the event bus for subscribing to agent events.
     /// </summary>
     IEventBus EventBus { get; }

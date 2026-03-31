@@ -39,6 +39,13 @@ public interface IChannelSessionService
     /// Expose prompt building so Orchestrator can construct the inbound turn prompt.
     /// </summary>
     string BuildPrompt(ThreadBinding binding, ChannelEventEnvelope envelope, bool hasExplicitMention);
+
+    /// <summary>
+    /// Returns a lightweight snapshot of the agent's current runtime state for the given session.
+    /// Returns null if no agent is loaded for the session (session not yet created or already evicted).
+    /// </summary>
+    /// <param name="cancellationToken">Reserved for future asynchronous state retrieval; currently unused in the synchronous path.</param>
+    Task<AgentSessionState?> GetSessionStateAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

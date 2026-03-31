@@ -163,6 +163,32 @@ public sealed class ChannelTurnOrchestrator
             return new ChannelTurnOrchestrationResult(processing, resetOutcome, ExecutedTurn: false);
         }
 
+        // /status command: query the current agent runtime state without executing a new turn.
+        if (string.Equals(trimmedText, "/status", StringComparison.OrdinalIgnoreCase))
+        {
+            var statusMessage = FormatSessionStatusMessage(
+                await _channelSessionService.GetSessionStateAsync(processing.Binding.SessionId, cancellationToken));
+            try
+            {
+                await _deliveryDispatchService.SendNotificationAsync(
+                    account, processing.Binding, statusMessage, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send status for binding {BindingId}", processing.Binding.Id);
+            }
+
+            var statusOutcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                statusMessage,
+                processing,
+                envelope,
+                reasonCode: "status_command");
+            RecordDiagnosticEvent(
+                "channel.turn.status_command", "info", "Status command executed", processing.Binding, statusOutcome);
+            return new ChannelTurnOrchestrationResult(processing, statusOutcome, ExecutedTurn: false);
+        }
+
         // /stop command: interrupt the currently running agent turn without executing a new one.
         if (string.Equals(trimmedText, "/stop", StringComparison.OrdinalIgnoreCase))
         {
@@ -761,6 +787,47 @@ public sealed class ChannelTurnOrchestrator
     }
 
 
+
+    private static string FormatSessionStatusMessage(AgentSessionState? state)
+    {
+        if (state is null)
+        {
+            return "会话暂时不可用（可能正在初始化或轮转中），请稍后重试。";
+        }
+
+        var stateText = state.RuntimeState switch
+        {
+            AgentRuntimeState.Working => FormatWorkingState(state.BreakpointState, state.StepCount, state.CurrentToolName),
+            AgentRuntimeState.Paused => $"已暂停，已执行 {state.StepCount} 步（等待审批或外部操作）。",
+            AgentRuntimeState.Ready => "空闲，随时可以处理新消息。",
+            _ => $"当前状态未知，已执行 {state.StepCount} 步。",
+        };
+
+        return stateText;
+    }
+
+    private static string FormatWorkingState(BreakpointState bp, int stepCount, string? currentToolName = null)
+    {
+        var toolSuffix = currentToolName is not null
+            && bp is BreakpointState.ToolPending or BreakpointState.PreTool or BreakpointState.ToolExecuting
+            ? $"（{currentToolName}）"
+            : string.Empty;
+
+        var bpText = bp switch
+        {
+            BreakpointState.PreModel => "准备调用模型",
+            BreakpointState.StreamingModel => "正在生成回复",
+            BreakpointState.ToolPending => $"准备调用工具{toolSuffix}",
+            BreakpointState.AwaitingApproval => "等待审批",
+            BreakpointState.PreTool => $"即将执行工具{toolSuffix}",
+            BreakpointState.ToolExecuting => $"正在执行工具{toolSuffix}",
+            BreakpointState.PostTool => "工具执行完成，处理结果中",
+            BreakpointState.Ready => "准备中",
+            _ => bp.ToString(),
+        };
+
+        return $"正在处理中，已执行 {stepCount} 步 — 当前阶段：{bpText}";
+    }
 
     // Fixed by Nietzsche: load persisted dedup state from disk on startup.
     // Re-populates the in-memory set with recently processed message IDs so
