@@ -33,7 +33,7 @@
     <!-- Symbol Packages -->
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <EmbedAllSources>true</EmbedAllSources>
+    <EmbedAllSources Condition="'$(DebugType)' != 'none' and '$(DebugType)' != 'None'">true</EmbedAllSources>
     
     <!-- Deterministic Build -->
     <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>

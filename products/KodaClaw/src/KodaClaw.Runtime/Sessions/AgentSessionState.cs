@@ -10,4 +10,10 @@ public sealed record AgentSessionState(
     AgentRuntimeState RuntimeState,
     BreakpointState BreakpointState,
     int StepCount,
-    string? CurrentToolName);
+    string? CurrentToolName,
+    int MessageCount,
+    int PendingQueueCount,
+    int IterationCount,
+    int MaxIterations,
+    DateTimeOffset? TurnStartedAt,
+    DateTimeOffset? LastActivityAt);

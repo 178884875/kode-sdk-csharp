@@ -446,12 +446,22 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             return Task.FromResult<AgentSessionState?>(null);
         }
 
+        // Cast to concrete type to access extended status fields.
+        // All new fields use volatile / Interlocked reads — safe without locking.
+        var concreteAgent = agent as AgentRuntime;
+
         return Task.FromResult<AgentSessionState?>(new AgentSessionState(
             SessionId: sessionId,
             RuntimeState: agent.RuntimeState,
             BreakpointState: agent.BreakpointState,
             StepCount: agent.StepCount,
-            CurrentToolName: null));
+            CurrentToolName: concreteAgent?.CurrentExecutingToolName,
+            MessageCount: concreteAgent?.MessageCount ?? 0,
+            PendingQueueCount: concreteAgent?.PendingQueueCount ?? 0,
+            IterationCount: concreteAgent?.IterationCount ?? 0,
+            MaxIterations: concreteAgent?.MaxIterations ?? 0,
+            TurnStartedAt: concreteAgent?.TurnStartedAt,
+            LastActivityAt: concreteAgent?.LastActivityAt));
     }
 
     public async Task<string> StopCurrentTurnAsync(string sessionId, CancellationToken cancellationToken = default)

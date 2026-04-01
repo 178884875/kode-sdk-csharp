@@ -66,6 +66,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     private static readonly TimeSpan ProcessingTimeout = TimeSpan.FromMinutes(5);
     private readonly object _activeToolCallsLock = new();
     private readonly Dictionary<string, CancellationTokenSource> _activeToolCalls = new(StringComparer.Ordinal);
+    private long _turnStartedAtMs;   // Unix ms when Working began; 0 = no active turn
+    private long _lastActivityAtMs;  // Unix ms when last turn finished; 0 = never
 
     public string AgentId { get; }
     public AgentRuntimeState RuntimeState => _runtimeState;
@@ -73,6 +75,30 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     public int StepCount => _stepCount;
     public IEventBus EventBus => _eventBus;
     public SkillsManager? SkillsManager => _skillsManager;
+
+    // Extended status properties — all lock-free / Interlocked-safe for /status reads
+    public int MessageCount => _messages.Count;
+    public int PendingQueueCount => _messageQueue.PendingCount;
+    public int IterationCount => _iterationCount;
+    public int MaxIterations => _config.MaxIterations;
+    public DateTimeOffset? TurnStartedAt
+    {
+        get
+        {
+            var ms = Interlocked.Read(ref _turnStartedAtMs);
+            return ms > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+        }
+    }
+    public DateTimeOffset? LastActivityAt
+    {
+        get
+        {
+            var ms = Interlocked.Read(ref _lastActivityAtMs);
+            return ms > 0 ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
+        }
+    }
+    public string? CurrentExecutingToolName => _toolRunner.ActiveToolCalls
+        .FirstOrDefault(tc => tc.State == ToolCallState.Executing)?.Name;
 
     private Agent(
         string agentId,
@@ -2261,6 +2287,17 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             if (_runtimeState == newState) return;
             previous = _runtimeState;
             _runtimeState = newState;
+        }
+
+        // Track turn timing for /status command (lock-free via Interlocked)
+        if (newState == AgentRuntimeState.Working && previous == AgentRuntimeState.Ready)
+        {
+            Interlocked.Exchange(ref _turnStartedAtMs, NowMs());
+        }
+        else if (newState == AgentRuntimeState.Ready)
+        {
+            Interlocked.Exchange(ref _lastActivityAtMs, NowMs());
+            Interlocked.Exchange(ref _turnStartedAtMs, 0);
         }
 
         _eventBus.EmitMonitor(new StateChangedEvent

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
@@ -795,25 +796,23 @@ public sealed class ChannelTurnOrchestrator
             return "会话暂时不可用（可能正在初始化或轮转中），请稍后重试。";
         }
 
-        var stateText = state.RuntimeState switch
+        return state.RuntimeState switch
         {
-            AgentRuntimeState.Working => FormatWorkingState(state.BreakpointState, state.StepCount, state.CurrentToolName),
-            AgentRuntimeState.Paused => $"已暂停，已执行 {state.StepCount} 步（等待审批或外部操作）。",
-            AgentRuntimeState.Ready => "空闲，随时可以处理新消息。",
+            AgentRuntimeState.Working => FormatWorkingState(state),
+            AgentRuntimeState.Paused => FormatPausedState(state),
+            AgentRuntimeState.Ready => FormatReadyState(state),
             _ => $"当前状态未知，已执行 {state.StepCount} 步。",
         };
-
-        return stateText;
     }
 
-    private static string FormatWorkingState(BreakpointState bp, int stepCount, string? currentToolName = null)
+    private static string FormatWorkingState(AgentSessionState state)
     {
-        var toolSuffix = currentToolName is not null
-            && bp is BreakpointState.ToolPending or BreakpointState.PreTool or BreakpointState.ToolExecuting
-            ? $"（{currentToolName}）"
+        var toolSuffix = state.CurrentToolName is not null
+            && state.BreakpointState is BreakpointState.ToolPending or BreakpointState.PreTool or BreakpointState.ToolExecuting
+            ? $"（{state.CurrentToolName}）"
             : string.Empty;
 
-        var bpText = bp switch
+        var bpText = state.BreakpointState switch
         {
             BreakpointState.PreModel => "准备调用模型",
             BreakpointState.StreamingModel => "正在生成回复",
@@ -823,10 +822,86 @@ public sealed class ChannelTurnOrchestrator
             BreakpointState.ToolExecuting => $"正在执行工具{toolSuffix}",
             BreakpointState.PostTool => "工具执行完成，处理结果中",
             BreakpointState.Ready => "准备中",
-            _ => bp.ToString(),
+            _ => state.BreakpointState.ToString(),
         };
 
-        return $"正在处理中，已执行 {stepCount} 步 — 当前阶段：{bpText}";
+        var sb = new StringBuilder();
+        sb.Append($"正在处理中，已执行 {state.StepCount} 步 — 当前阶段：{bpText}");
+
+        if (state.TurnStartedAt.HasValue)
+        {
+            var elapsed = DateTimeOffset.UtcNow - state.TurnStartedAt.Value;
+            sb.Append($"（已持续 {FormatElapsed(elapsed)}）");
+        }
+
+        if (state.MaxIterations > 0)
+        {
+            sb.Append($"\n迭代进度：{state.IterationCount}/{state.MaxIterations}");
+        }
+
+        if (state.PendingQueueCount > 0)
+        {
+            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatPausedState(AgentSessionState state)
+    {
+        var toolInfo = state.CurrentToolName is not null ? $"（{state.CurrentToolName}）" : "";
+        var sb = new StringBuilder();
+        sb.Append($"已暂停，已执行 {state.StepCount} 步（等待审批{toolInfo}）");
+
+        if (state.TurnStartedAt.HasValue)
+        {
+            var elapsed = DateTimeOffset.UtcNow - state.TurnStartedAt.Value;
+            sb.Append($"，本轮已持续 {FormatElapsed(elapsed)}");
+        }
+
+        sb.Append('。');
+
+        if (state.PendingQueueCount > 0)
+        {
+            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatReadyState(AgentSessionState state)
+    {
+        var sb = new StringBuilder();
+        sb.Append("空闲，随时可以处理新消息");
+
+        if (state.LastActivityAt.HasValue)
+        {
+            var elapsed = DateTimeOffset.UtcNow - state.LastActivityAt.Value;
+            sb.Append($"（上次活跃：{FormatElapsed(elapsed)}前）");
+        }
+
+        sb.Append('。');
+
+        if (state.MessageCount > 0)
+        {
+            sb.Append($"\n本会话共 {state.MessageCount} 条消息");
+        }
+
+        if (state.PendingQueueCount > 0)
+        {
+            sb.Append($"\n排队消息：{state.PendingQueueCount} 条待处理");
+        }
+
+        return sb.ToString();
+    }
+
+    private static string FormatElapsed(TimeSpan elapsed)
+    {
+        if (elapsed.TotalHours >= 1)
+            return $"{(int)elapsed.TotalHours} 小时 {elapsed.Minutes} 分";
+        if (elapsed.TotalMinutes >= 1)
+            return $"{(int)elapsed.TotalMinutes} 分 {elapsed.Seconds} 秒";
+        return $"{elapsed.Seconds} 秒";
     }
 
     // Fixed by Nietzsche: load persisted dedup state from disk on startup.
