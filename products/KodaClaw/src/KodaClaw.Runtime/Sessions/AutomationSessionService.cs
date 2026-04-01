@@ -70,9 +70,10 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         var configuredModel = await ResolveConfiguredModelAsync(definition, cancellationToken);
         var sessionTools = await BuildSessionToolsAsync(sessionId, dependencies.ToolRegistry, cancellationToken);
         var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
+        var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
         var agent = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, sessionTools, maxIterations),
+            CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, contextWindowSize, sessionTools, maxIterations),
             dependencies,
             cancellationToken);
 
@@ -240,6 +241,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         string sessionDirectory,
         string systemPrompt,
         string model,
+        int contextWindowSize,
         IReadOnlyList<string>? tools = null,
         int? maxIterations = null)
     {
@@ -265,8 +267,8 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
             },
             Context = new ContextManagerOptions
             {
-                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
-                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = _options.CompressionPrompt,
             },
         };
@@ -302,6 +304,23 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         catch
         {
             return _options.MaxPromptCharacters;
+        }
+    }
+
+    private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.DefaultContextWindowSize;
+            var available = endpoint.ContextWindowSize - endpoint.MaxOutputTokens;
+            return available > 0 ? available : _options.DefaultContextWindowSize;
+        }
+        catch
+        {
+            return _options.DefaultContextWindowSize;
         }
     }
 

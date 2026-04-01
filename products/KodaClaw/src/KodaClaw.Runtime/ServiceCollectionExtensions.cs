@@ -28,6 +28,12 @@ public sealed class KodaClawRuntimeOptions
     public int ChannelMaxIterations { get; set; } = 15;
 
     public int AutomationMaxIterations { get; set; } = 50;
+
+    public double ContextCompressionTriggerRatio { get; set; } = 0.75;
+
+    public double ContextCompressionTargetRatio { get; set; } = 0.50;
+
+    public int DefaultContextWindowSize { get; set; } = 128_000;
 }
 
 public static class ServiceCollectionExtensions
@@ -59,6 +65,9 @@ public static class ServiceCollectionExtensions
         {
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw main assistant.",
+            ContextCompressionTriggerRatio = options.ContextCompressionTriggerRatio,
+            ContextCompressionTargetRatio = options.ContextCompressionTargetRatio,
+            DefaultContextWindowSize = options.DefaultContextWindowSize,
             MaxIterations = options.MainMaxIterations,
         });
         services.TryAddSingleton(new BootstrapDraftOptions
@@ -71,12 +80,18 @@ public static class ServiceCollectionExtensions
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw automation assistant.",
             MaxIterations = options.AutomationMaxIterations,
+            ContextCompressionTriggerRatio = options.ContextCompressionTriggerRatio,
+            ContextCompressionTargetRatio = options.ContextCompressionTargetRatio,
+            DefaultContextWindowSize = options.DefaultContextWindowSize,
         });
         services.TryAddSingleton(new ChannelSessionOptions
         {
             Model = options.DefaultModel ?? string.Empty,
             SystemPrompt = options.SystemPrompt ?? "You are KodaClaw channel assistant.",
             MaxIterations = options.ChannelMaxIterations,
+            ContextCompressionTriggerRatio = options.ContextCompressionTriggerRatio,
+            ContextCompressionTargetRatio = options.ContextCompressionTargetRatio,
+            DefaultContextWindowSize = options.DefaultContextWindowSize,
         });
         services.TryAddSingleton<IMainSessionAgentDependenciesFactory>(sp =>
         {

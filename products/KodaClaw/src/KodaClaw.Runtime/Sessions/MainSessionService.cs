@@ -467,6 +467,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
             var permissions = await ResolvePermissionsAsync(cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
+            var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
             try
             {
                 var resumed = await AgentRuntime.ResumeFromStoreAsync(
@@ -493,8 +494,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                         },
                         Context = new ContextManagerOptions
                         {
-                            MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
-                            CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                            MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                            CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                             CompressionPrompt = _options.CompressionPrompt,
                         },
                     },
@@ -537,9 +538,10 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
         var permissions = await ResolvePermissionsAsync(cancellationToken);
         var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
+        var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             sessionId,
-            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt, permissions, maxIterations),
+            CreateAgentConfig(sessionDirectory, sessionTools, configuredModel, prompt.SystemPrompt, contextWindowSize, permissions, maxIterations),
             dependencies,
             cancellationToken);
 
@@ -714,6 +716,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         IReadOnlyList<string> tools,
         string model,
         string systemPrompt,
+        int contextWindowSize,
         PermissionConfig? permissions = null,
         int? maxIterations = null)
     {
@@ -739,8 +742,8 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             },
             Context = new ContextManagerOptions
             {
-                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
-                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = _options.CompressionPrompt,
             },
         };
@@ -800,6 +803,27 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         catch
         {
             return _options.MaxPromptCharacters;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the effective context window size from the configured model endpoint.
+    /// Falls back to Options.DefaultContextWindowSize when no model registry is available.
+    /// </summary>
+    private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.DefaultContextWindowSize;
+            var available = endpoint.ContextWindowSize - endpoint.MaxOutputTokens;
+            return available > 0 ? available : _options.DefaultContextWindowSize;
+        }
+        catch
+        {
+            return _options.DefaultContextWindowSize;
         }
     }
 

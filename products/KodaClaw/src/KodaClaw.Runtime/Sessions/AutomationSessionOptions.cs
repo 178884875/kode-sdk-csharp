@@ -23,7 +23,7 @@ public sealed class AutomationSessionOptions
 
     public double ContextCompressionTriggerRatio { get; init; } = 0.75;
 
-    public double ContextCompressionTargetRatio { get; init; } = 0.40;
+    public double ContextCompressionTargetRatio { get; init; } = 0.50;
 
     public int DefaultContextWindowSize { get; init; } = 128_000;
 

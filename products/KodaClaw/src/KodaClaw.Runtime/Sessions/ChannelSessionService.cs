@@ -105,6 +105,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
+        var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
 
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
@@ -140,8 +141,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                         },
                         Context = new ContextManagerOptions
                         {
-                            MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
-                            CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                            MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                            CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                             CompressionPrompt = binding.ThreadType == ChannelThreadType.DirectMessage
                                 ? _options.DmCompressionPrompt
                                 : _options.GroupCompressionPrompt,
@@ -166,7 +167,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             {
                 var createdAfterFallback = await AgentRuntime.CreateAsync(
                     binding.SessionId,
-                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, resumeTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
+                    CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, contextWindowSize, resumeTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
                     dependencies,
                     cancellationToken);
 
@@ -189,7 +190,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
         var created = await AgentRuntime.CreateAsync(
             binding.SessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
+            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, contextWindowSize, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
             dependencies,
             cancellationToken);
 
@@ -580,6 +581,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         string sessionDirectory,
         string systemPrompt,
         string model,
+        int contextWindowSize,
         IReadOnlyList<string>? tools = null,
         bool isDirectMessage = false,
         int? maxIterations = null)
@@ -609,8 +611,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             },
             Context = new ContextManagerOptions
             {
-                MaxTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTriggerRatio),
-                CompressToTokens = (int)(_options.DefaultContextWindowSize * _options.ContextCompressionTargetRatio),
+                MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
+                CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = isDirectMessage
                     ? _options.DmCompressionPrompt
                     : _options.GroupCompressionPrompt,
@@ -639,6 +641,23 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         catch
         {
             return _options.MaxPromptCharacters;
+        }
+    }
+
+    private async Task<int> ResolveContextWindowSizeAsync(CancellationToken cancellationToken)
+    {
+        if (_modelRegistryRepository is null) return _options.DefaultContextWindowSize;
+        try
+        {
+            var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
+                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            if (endpoint is null) return _options.DefaultContextWindowSize;
+            var available = endpoint.ContextWindowSize - endpoint.MaxOutputTokens;
+            return available > 0 ? available : _options.DefaultContextWindowSize;
+        }
+        catch
+        {
+            return _options.DefaultContextWindowSize;
         }
     }
 

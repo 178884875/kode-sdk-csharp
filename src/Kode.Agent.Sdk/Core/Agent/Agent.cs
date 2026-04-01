@@ -1619,94 +1619,134 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var textStarted = false;
         var thinkingStarted = false;
 
-        await foreach (var chunk in _dependencies.ModelProvider.StreamAsync(request, cancellationToken))
+        // Retry loop: up to 3 attempts for transient provider errors (e.g. 500 / 503).
+        // We only retry when no content has been emitted to the event bus yet — otherwise
+        // partial output would be duplicated on the client side.
+        const int maxProviderAttempts = 3;
+        for (var providerAttempt = 1; providerAttempt <= maxProviderAttempts; providerAttempt++)
         {
-            // Heartbeat: any streamed chunk indicates forward progress (aligned with TS lastProcessingStart updates).
-            TouchProcessingHeartbeat();
-            switch (chunk.Type)
+            var attemptSucceeded = false;
+            try
             {
-                case StreamChunkType.TextDelta:
-                    if (chunk.TextDelta != null)
+                await foreach (var chunk in _dependencies.ModelProvider.StreamAsync(request, cancellationToken))
+                {
+                    // Heartbeat: any streamed chunk indicates forward progress (aligned with TS lastProcessingStart updates).
+                    TouchProcessingHeartbeat();
+                    switch (chunk.Type)
                     {
-                        if (!textStarted)
-                        {
-                            textStarted = true;
-                            _eventBus.EmitProgress(new TextChunkStartEvent
+                        case StreamChunkType.TextDelta:
+                            if (chunk.TextDelta != null)
                             {
-                                Type = "text_chunk_start",
-                                Step = step
-                            });
-                        }
-                        textBuilder.Append(chunk.TextDelta);
-                        _eventBus.EmitProgress(new TextChunkEvent
-                        {
-                            Type = "text_chunk",
-                            Step = step,
-                            Delta = chunk.TextDelta
-                        });
-                    }
-                    break;
-
-                case StreamChunkType.ThinkingDelta:
-                    if (chunk.ThinkingDelta != null)
-                    {
-                        if (_config.ExposeThinking == true)
-                        {
-                            if (!thinkingStarted)
-                            {
-                                thinkingStarted = true;
-                                _eventBus.EmitProgress(new ThinkChunkStartEvent
+                                if (!textStarted)
                                 {
-                                    Type = "think_chunk_start",
-                                    Step = step
+                                    textStarted = true;
+                                    _eventBus.EmitProgress(new TextChunkStartEvent
+                                    {
+                                        Type = "text_chunk_start",
+                                        Step = step
+                                    });
+                                }
+                                textBuilder.Append(chunk.TextDelta);
+                                _eventBus.EmitProgress(new TextChunkEvent
+                                {
+                                    Type = "text_chunk",
+                                    Step = step,
+                                    Delta = chunk.TextDelta
                                 });
                             }
-                            thinkingBuilder.Append(chunk.ThinkingDelta);
-                            _eventBus.EmitProgress(new ThinkChunkEvent
+                            break;
+
+                        case StreamChunkType.ThinkingDelta:
+                            if (chunk.ThinkingDelta != null)
                             {
-                                Type = "think_chunk",
-                                Step = step,
-                                Delta = chunk.ThinkingDelta
-                            });
-                        }
+                                if (_config.ExposeThinking == true)
+                                {
+                                    if (!thinkingStarted)
+                                    {
+                                        thinkingStarted = true;
+                                        _eventBus.EmitProgress(new ThinkChunkStartEvent
+                                        {
+                                            Type = "think_chunk_start",
+                                            Step = step
+                                        });
+                                    }
+                                    thinkingBuilder.Append(chunk.ThinkingDelta);
+                                    _eventBus.EmitProgress(new ThinkChunkEvent
+                                    {
+                                        Type = "think_chunk",
+                                        Step = step,
+                                        Delta = chunk.ThinkingDelta
+                                    });
+                                }
+                            }
+                            break;
+
+                        case StreamChunkType.ToolUseStart:
+                            if (chunk.ToolUse != null)
+                            {
+                                toolUseBuilders[chunk.ToolUse.Id] = (chunk.ToolUse.Name!, new System.Text.StringBuilder());
+                            }
+                            break;
+
+                        case StreamChunkType.ToolUseInputDelta:
+                            if (chunk.ToolUse != null && toolUseBuilders.TryGetValue(chunk.ToolUse.Id, out var builder))
+                            {
+                                builder.Input.Append(chunk.ToolUse.InputDelta);
+                            }
+                            break;
+
+                        case StreamChunkType.ToolUseComplete:
+                            if (chunk.ToolUse != null && toolUseBuilders.TryGetValue(chunk.ToolUse.Id, out var completedBuilder))
+                            {
+                                var inputJson = completedBuilder.Input.ToString();
+                                var input = string.IsNullOrEmpty(inputJson)
+                                    ? new { }
+                                    : System.Text.Json.JsonSerializer.Deserialize<object>(inputJson) ?? new { };
+
+                                contentBlocks.Add(new ToolUseContent
+                                {
+                                    Id = chunk.ToolUse.Id,
+                                    Name = completedBuilder.Name,
+                                    Input = input
+                                });
+                            }
+                            break;
+
+                        case StreamChunkType.MessageStop:
+                            usage = chunk.Usage;
+                            stopReason = chunk.StopReason ?? ModelStopReason.EndTurn;
+                            break;
                     }
-                    break;
+                }
+                attemptSucceeded = true;
+            }
+            catch (Exception ex) when (
+                !cancellationToken.IsCancellationRequested
+                && ex is not OperationCanceledException
+                && ex is not TaskCanceledException
+                // Only retry when nothing has been emitted to the event bus — otherwise
+                // partial content would be duplicated on the consumer side.
+                && !textStarted
+                && !thinkingStarted
+                && contentBlocks.Count == 0
+                && toolUseBuilders.Count == 0
+                && providerAttempt < maxProviderAttempts)
+            {
+                // Transient provider error before any content was produced — retry with backoff.
+                _eventBus.EmitMonitor(new ErrorEvent
+                {
+                    Type = "provider_retry",
+                    Severity = "warn",
+                    Phase = "model",
+                    Message = $"Provider error on attempt {providerAttempt}/{maxProviderAttempts}, retrying. {ex.GetBaseException().Message}"
+                });
+                var delayMs = providerAttempt == 1 ? 1000 : 2000;
+                await Task.Delay(delayMs, cancellationToken);
+            }
 
-                case StreamChunkType.ToolUseStart:
-                    if (chunk.ToolUse != null)
-                    {
-                        toolUseBuilders[chunk.ToolUse.Id] = (chunk.ToolUse.Name!, new System.Text.StringBuilder());
-                    }
-                    break;
-
-                case StreamChunkType.ToolUseInputDelta:
-                    if (chunk.ToolUse != null && toolUseBuilders.TryGetValue(chunk.ToolUse.Id, out var builder))
-                    {
-                        builder.Input.Append(chunk.ToolUse.InputDelta);
-                    }
-                    break;
-
-                case StreamChunkType.ToolUseComplete:
-                    if (chunk.ToolUse != null && toolUseBuilders.TryGetValue(chunk.ToolUse.Id, out var completedBuilder))
-                    {
-                        var inputJson = completedBuilder.Input.ToString();
-                        var input = string.IsNullOrEmpty(inputJson)
-                            ? new { }
-                            : System.Text.Json.JsonSerializer.Deserialize<object>(inputJson) ?? new { };
-
-                        contentBlocks.Add(new ToolUseContent
-                        {
-                            Id = chunk.ToolUse.Id,
-                            Name = completedBuilder.Name,
-                            Input = input
-                        });
-                    }
-                    break;
-
-                case StreamChunkType.MessageStop:
-                    usage = chunk.Usage;
-                    stopReason = chunk.StopReason ?? ModelStopReason.EndTurn;
-                    break;
+            if (attemptSucceeded)
+            {
+                break;
             }
         }
 

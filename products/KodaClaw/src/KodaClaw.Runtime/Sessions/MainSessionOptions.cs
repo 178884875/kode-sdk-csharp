@@ -73,7 +73,7 @@ public sealed class MainSessionOptions
     /// <summary>
     /// Fraction of the model's context window to compress down to.
     /// </summary>
-    public double ContextCompressionTargetRatio { get; init; } = 0.40;
+    public double ContextCompressionTargetRatio { get; init; } = 0.50;
 
     /// <summary>
     /// Assumed context window size (tokens) used to compute compression thresholds.
