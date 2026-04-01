@@ -60,7 +60,34 @@ internal sealed class WorkspaceRepairService
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
             {
-                return await PersistFailureReportAsync(ex, cancellationToken);
+                try
+                {
+                    return await PersistFailureReportAsync(ex, cancellationToken);
+                }
+                catch (Exception persistEx) when (persistEx is not OperationCanceledException and not TaskCanceledException)
+                {
+                    // Failure reporting itself failed (e.g. file still locked). Return a minimal
+                    // in-memory report so StartAsync does not throw and crash the host.
+                    RecordDiagnosticEvent(
+                        eventType: "startup_report_persist_failed",
+                        level: "error",
+                        message: $"PersistFailureReport threw after inspection failed. original={ex.GetBaseException().Message} persist={persistEx.GetBaseException().Message}");
+
+                    return CreateResponse(
+                        string.Empty,
+                        string.Empty,
+                        BuildChecklist([
+                            CreateRepairItem(
+                                id: "startup-repair-unrecoverable",
+                                severity: RepairChecklistSeverity.Blocking,
+                                state: RepairChecklistState.Pending,
+                                category: "repair",
+                                title: "Startup repair failed and could not be persisted",
+                                summary: ex.GetBaseException().Message,
+                                action: "Review diagnostics and restart the application.",
+                                evidence: ex.GetType().Name),
+                        ]));
+                }
             }
         }
         finally
@@ -80,14 +107,14 @@ internal sealed class WorkspaceRepairService
             {
                 try
                 {
-                    await using var stream = File.OpenRead(reportPath);
+                    await using var stream = new FileStream(reportPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
                     var checklist = await JsonSerializer.DeserializeAsync<RepairChecklist>(stream, JsonOptions, cancellationToken);
                     if (checklist is not null)
                     {
                         return CreateResponse(snapshot.RootPath, reportPath, checklist);
                     }
                 }
-                catch (JsonException ex)
+                catch (Exception ex) when (ex is JsonException or IOException)
                 {
                     RecordDiagnosticEvent(
                         eventType: "startup_report_invalid",
@@ -110,7 +137,32 @@ internal sealed class WorkspaceRepairService
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
             {
-                return await PersistFailureReportAsync(ex, cancellationToken);
+                try
+                {
+                    return await PersistFailureReportAsync(ex, cancellationToken);
+                }
+                catch (Exception persistEx) when (persistEx is not OperationCanceledException and not TaskCanceledException)
+                {
+                    RecordDiagnosticEvent(
+                        eventType: "startup_report_persist_failed",
+                        level: "error",
+                        message: $"PersistFailureReport threw during GetLatestReport. original={ex.GetBaseException().Message} persist={persistEx.GetBaseException().Message}");
+
+                    return CreateResponse(
+                        string.Empty,
+                        string.Empty,
+                        BuildChecklist([
+                            CreateRepairItem(
+                                id: "startup-repair-unrecoverable",
+                                severity: RepairChecklistSeverity.Blocking,
+                                state: RepairChecklistState.Pending,
+                                category: "repair",
+                                title: "Startup repair failed and could not be persisted",
+                                summary: ex.GetBaseException().Message,
+                                action: "Review diagnostics and restart the application.",
+                                evidence: ex.GetType().Name),
+                        ]));
+                }
             }
         }
         finally

@@ -183,7 +183,7 @@ public sealed class WorkspaceService : IWorkspaceService
             return new WorkspaceAppConfig();
         }
 
-        await using var stream = File.OpenRead(path);
+        await using var stream = await OpenReadAsync(path, cancellationToken);
         if (stream.Length == 0)
             return new WorkspaceAppConfig();
         var config = await JsonSerializer.DeserializeAsync<WorkspaceAppConfig>(stream, WorkspaceJson.Default, cancellationToken);
@@ -227,7 +227,7 @@ public sealed class WorkspaceService : IWorkspaceService
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = await OpenReadAsync(path, cancellationToken);
             var config = await JsonSerializer.DeserializeAsync<WorkspaceMcpConfig>(stream, WorkspaceJson.Default, cancellationToken);
             return config ?? new WorkspaceMcpConfig();
         }
@@ -262,7 +262,7 @@ public sealed class WorkspaceService : IWorkspaceService
 
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = await OpenReadAsync(path, cancellationToken);
             if (stream.Length == 0)
                 return new GatewayConfig();
             var config = await JsonSerializer.DeserializeAsync<GatewayConfig>(stream, WorkspaceJson.Default, cancellationToken);
@@ -309,7 +309,7 @@ public sealed class WorkspaceService : IWorkspaceService
         DeviceIdentity? deviceIdentity;
         try
         {
-            await using var stream = File.OpenRead(path);
+            await using var stream = await OpenReadAsync(path, cancellationToken);
             deviceIdentity = await JsonSerializer.DeserializeAsync<DeviceIdentity>(stream, WorkspaceJson.Default, cancellationToken);
         }
         catch (JsonException ex)
@@ -453,6 +453,31 @@ public sealed class WorkspaceService : IWorkspaceService
 
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, content, cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens a file for reading with <see cref="FileShare.ReadWrite"/> and retries on
+    /// <see cref="IOException"/> to tolerate transient Windows file locks (AV scanner,
+    /// concurrent Gateway process briefly holding a write handle, etc.).
+    /// </summary>
+    private static async Task<FileStream> OpenReadAsync(string path, CancellationToken cancellationToken)
+    {
+        const int maxAttempts = 5;
+        IOException? lastEx = null;
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            if (attempt > 0)
+                await Task.Delay(50 * attempt, cancellationToken);
+            try
+            {
+                return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, useAsync: true);
+            }
+            catch (IOException ex) when (attempt < maxAttempts - 1)
+            {
+                lastEx = ex;
+            }
+        }
+        throw lastEx!;
     }
 
     private static async Task WriteJsonIfMissingAsync<T>(string path, T payload, CancellationToken cancellationToken)
