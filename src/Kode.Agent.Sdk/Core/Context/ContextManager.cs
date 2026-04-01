@@ -267,7 +267,7 @@ public class ContextManager
             .Where(IsPinnedMessage)
             .Sum(EstimateMessageTokens);
         // Reserve some headroom so the new summary itself fits within CompressToTokens.
-        var regularBudget = Math.Max(0, _options.CompressToTokens - pinnedTokens - 1200);
+        var regularBudget = Math.Max(0, _options.CompressToTokens - pinnedTokens - systemPromptTokens - 1200);
 
         // ── 4. Select regular messages by importance + token budget ───────────
         var (retainedRegular, removedMessages) = SelectMessagesByBudget(
