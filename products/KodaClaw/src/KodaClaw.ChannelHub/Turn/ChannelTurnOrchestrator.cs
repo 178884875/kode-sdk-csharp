@@ -164,7 +164,7 @@ public sealed class ChannelTurnOrchestrator
         }
 
         // /status command: query the current agent runtime state without executing a new turn.
-        if (string.Equals(trimmedText, "/status", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(trimmedText, "/status", StringComparison.OrdinalIgnoreCase) || string.Equals(trimmedText, "/s", StringComparison.OrdinalIgnoreCase))
         {
             var statusMessage = FormatSessionStatusMessage(
                 await _channelSessionService.GetSessionStateAsync(processing.Binding.SessionId, cancellationToken));

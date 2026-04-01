@@ -3184,8 +3184,18 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             Mtime = mtime
         });
 
+        // Only enqueue — do NOT call FlushAsync here. FileSystemWatcher callbacks run on a
+        // thread-pool thread; flushing would call _messages.Add() on that thread while the
+        // agent's processing loop may be enumerating _messages (e.g. in ContextManager.Analyze),
+        // causing "Collection was modified; enumeration operation may not execute."
+        // The queue is drained at the start of every StepAsync (line ~1079), so the reminder
+        // will be delivered before the next model call without any cross-thread mutation.
         var reminder = $"检测到外部修改：{rel}。请重新使用 fs_read 确认文件内容，并在必要时向用户同步。";
-        _ = RemindAsync(reminder, "file", skipStandardEnding: false, CancellationToken.None);
+        _messageQueue.Send(reminder, new SendOptions
+        {
+            Kind = PendingKind.Reminder,
+            Reminder = new ReminderOptions { Category = "file", SkipStandardEnding = false }
+        });
     }
 
     private static EventChannel ParseChannels(IReadOnlyList<string>? channels)
