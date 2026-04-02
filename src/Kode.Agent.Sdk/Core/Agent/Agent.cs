@@ -582,7 +582,19 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     }
 
     /// <inheritdoc />
-    public async Task<AgentRunResult> RunAsync(string input, CancellationToken cancellationToken = default)
+        public async Task<AgentRunResult> RunAsync(string input, CancellationToken cancellationToken = default)
+    {
+        return await RunMultimodalAsync(
+            [new TextContent { Text = input }],
+            cancellationToken);
+    }
+
+    public async Task<AgentRunResult> RunAsync(IReadOnlyList<ContentBlock> parts, CancellationToken cancellationToken = default)
+    {
+        return await RunMultimodalAsync(parts, cancellationToken);
+    }
+
+    private async Task<AgentRunResult> RunMultimodalAsync(IReadOnlyList<ContentBlock> parts, CancellationToken cancellationToken = default)
     {
         using var runActivity = KodeAgentActivitySource.Source.StartActivity("agent.run");
         runActivity?.SetTag("agent.model", _config.Model);
@@ -596,7 +608,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
         try
         {
-            _messageQueue.Send(input, new SendOptions { Kind = PendingKind.User });
+            _messageQueue.Send(parts, new SendOptions { Kind = PendingKind.User });
             await _messageQueue.FlushAsync(_runCts.Token);
 
             string? finalResponse = null;

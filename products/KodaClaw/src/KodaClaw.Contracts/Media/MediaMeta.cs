@@ -9,4 +9,7 @@ public record MediaMeta(
     string ContentType,
     long SizeBytes,
     DateTimeOffset StoredAt,
-    int? DurationMs = null);
+    int? DurationMs = null,
+    bool IsPinned = false,
+    string? Source = null,
+    string? ExternalMessageId = null);

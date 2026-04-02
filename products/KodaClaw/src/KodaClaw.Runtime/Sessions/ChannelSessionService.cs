@@ -224,7 +224,9 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         await sessionLock.WaitAsync(cancellationToken);
         try
         {
-            runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+            runResult = envelope.MediaAttachments is { Count: > 0 } && _modelRegistryRepository != null
+                ? await RunMultimodalTurnAsync(handle, prompt, envelope.MediaAttachments, cancellationToken)
+                : await handle.Agent.RunAsync(prompt, cancellationToken);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not TaskCanceledException)
         {
@@ -255,6 +257,79 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             RawResponse: runResult.Response ?? string.Empty,
             Proposal: null,
             HasExplicitMention: hasExplicitMention);
+    }
+
+    /// <summary>
+    /// Runs a multimodal turn: checks if the current model supports Vision,
+    /// and if so, sends text + image content blocks; otherwise falls back to text-only prompt.
+    /// </summary>
+    private async Task<AgentRunResult> RunMultimodalTurnAsync(
+        ChannelSessionHandle handle,
+        string prompt,
+        IReadOnlyList<MediaReference> attachments,
+        CancellationToken cancellationToken)
+    {
+        var hasVision = false;
+        try
+        {
+            var endpoint = await _modelRegistryRepository!.ResolveDefaultForAsync(
+                ModelCapabilitySet.Vision, cancellationToken);
+            hasVision = endpoint != null;
+        }
+        catch
+        {
+            // Vision check failed, fall back to text-only
+        }
+
+        if (!hasVision)
+        {
+            // Model doesn't support Vision — fall back to text-only prompt with media info
+            return await handle.Agent.RunAsync(prompt, cancellationToken);
+        }
+
+        // Build multimodal content: text prompt + image(s) as base64
+        var parts = new List<ContentBlock> { new TextContent { Text = prompt } };
+
+        foreach (var attachment in attachments)
+        {
+            if (attachment.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var mediaPath = Path.Combine(_workspaceService.RootPath, "media", $"{attachment.MediaId}.bin");
+                    if (File.Exists(mediaPath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(mediaPath, cancellationToken);
+                        var base64 = Convert.ToBase64String(bytes);
+                        parts.Add(ImageContent.FromBase64(attachment.ContentType, base64));
+                    }
+                    else
+                    {
+                        parts.Add(new TextContent { Text = $"[Image {attachment.FileName ?? attachment.MediaId} not found on disk]" });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Image read failed, skip this attachment
+                    parts.Add(new TextContent { Text = $"[Image {attachment.FileName ?? attachment.MediaId} failed to load: {ex.Message}]" });
+                }
+            }
+            else
+            {
+                // Non-image attachment: just include metadata as text
+                parts.Add(new TextContent { Text = FormatSingleAttachment(attachment) });
+            }
+        }
+
+        return await handle.Agent.RunAsync(parts, cancellationToken);
+    }
+
+    private static string FormatSingleAttachment(MediaReference attachment)
+    {
+        var sizeStr = attachment.SizeBytes.HasValue
+            ? $"{attachment.SizeBytes.Value / 1024.0:F1} KB"
+            : "unknown size";
+        return $"[Media: {attachment.ContentType}, {sizeStr}, file={attachment.FileName ?? attachment.MediaId}]";
     }
 
     public async ValueTask DisposeAsync()
@@ -728,6 +803,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var messageText = string.IsNullOrWhiteSpace(envelope.Text)
             ? "(no text)"
             : envelope.Text.Trim();
+        var mediaInfo = FormatMediaAttachments(envelope.MediaAttachments);
         var threadGuidance = binding.ThreadType switch
         {
             ChannelThreadType.DirectMessage => """
@@ -767,7 +843,26 @@ Inbound Event:
 - HasExplicitMention: {{hasExplicitMention}}
 - MessageText:
 {{messageText}}
+{{mediaInfo}}
 """;
+    }
+
+    private static string FormatMediaAttachments(IReadOnlyList<MediaReference>? attachments)
+    {
+        if (attachments is null || attachments.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("- MediaAttachments:");
+        foreach (var attachment in attachments)
+        {
+            var sizeKb = attachment.SizeBytes / 1024.0;
+            sb.AppendLine($"  - [{attachment.ContentType}] {attachment.FileName} ({sizeKb:F1}KB) MediaId={attachment.MediaId}");
+        }
+
+        return sb.ToString();
     }
 
     private static void ValidateBindingAndPolicy(ThreadBinding binding, ChannelPolicy policy)

@@ -79,4 +79,16 @@ public interface IFeishuApiClient
         string fileKey,
         string? caption,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Download a media resource (image/file) from a Feishu message.
+    /// GET /open-apis/im/v1/messages/{messageId}/resources/{fileKey}?type={type}
+    /// Returns a stream that the caller must dispose.
+    /// </summary>
+    Task<Stream> DownloadResourceAsync(
+        string accessToken,
+        string messageId,
+        string fileKey,
+        string type,
+        CancellationToken cancellationToken = default);
 }

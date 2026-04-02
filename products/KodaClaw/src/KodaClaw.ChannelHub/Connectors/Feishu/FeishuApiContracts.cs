@@ -231,3 +231,9 @@ public sealed record FeishuWsEndpoint(
     int ReconnectCount,
     int ReconnectIntervalSeconds,
     int ReconnectNonceSeconds);
+
+public sealed class FeishuImageContent
+{
+    [JsonPropertyName("image_key")]
+    public string? ImageKey { get; init; }
+}

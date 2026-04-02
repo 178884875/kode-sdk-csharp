@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace KodaClaw.Contracts;
 
 public sealed record ChannelEventEnvelope(
@@ -16,4 +18,5 @@ public sealed record ChannelEventEnvelope(
     string? BindingId = null,
     string? SessionId = null,
     string? MetadataJson = null,
-    DeliveryMode? DefaultDeliveryMode = null);
+    DeliveryMode? DefaultDeliveryMode = null,
+    IReadOnlyList<MediaReference>? MediaAttachments = null);

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using KodaClaw.Contracts;
+using KodaClaw.Workspace;
 using Microsoft.Extensions.Logging;
 
 namespace KodaClaw.ChannelHub.Connectors.DingTalk;
@@ -24,6 +25,7 @@ public sealed class DingTalkConnector : IChannelConnector
     private readonly DingTalkConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
     private readonly IDiagnosticsService? _diagnosticsService;
+    private readonly IMediaStore? _mediaStore;
     private readonly ILogger<DingTalkConnector> _logger;
 
     public DingTalkConnector(
@@ -31,13 +33,15 @@ public sealed class DingTalkConnector : IChannelConnector
         IDingTalkApiClient? apiClient = null,
         DingTalkConnectorOptions? options = null,
         ISecretStore? secretStore = null,
-        IDiagnosticsService? diagnosticsService = null)
+        IDiagnosticsService? diagnosticsService = null,
+        IMediaStore? mediaStore = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _apiClient = apiClient ?? new HttpDingTalkApiClient();
         _options = options ?? new DingTalkConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
         _diagnosticsService = diagnosticsService;
+        _mediaStore = mediaStore;
     }
 
     public ChannelConnectorKind Kind => ChannelConnectorKind.DingTalk;
@@ -128,13 +132,89 @@ public sealed class DingTalkConnector : IChannelConnector
             throw new ArgumentException("DingTalk outbound draft must provide an external thread id.", nameof(draft));
         }
 
-        if (string.IsNullOrWhiteSpace(draft.MessageText))
-        {
-            throw new ArgumentException("DingTalk outbound draft message text is required.", nameof(draft));
-        }
-
         // ExternalThreadId 格式：conversationId:{id}
         var conversationId = ParseConversationId(draft.ExternalThreadId);
+
+        // 媒体附件出站：上传 → 构造 msgKey/msgParam → 发送
+        if (draft.MediaAttachments is { Count: > 0 } && _mediaStore is not null)
+        {
+            var attachment = draft.MediaAttachments[0];
+            var fallbackText = draft.MessageText;
+
+            try
+            {
+                var meta = await _mediaStore.GetMetaAsync(attachment.MediaId, cancellationToken).ConfigureAwait(false);
+                if (meta is null)
+                {
+                    _logger.LogWarning("Media {MediaId} not found in store, falling back to text", attachment.MediaId);
+                }
+                else
+                {
+                    await using var stream = await _mediaStore.OpenReadAsync(attachment.MediaId, cancellationToken).ConfigureAwait(false);
+                    if (stream is not null)
+                    {
+                        var accessToken = await _apiClient.GetAccessTokenAsync(
+                            startedAccount.Configuration.AppKey,
+                            startedAccount.Configuration.AppSecret,
+                            cancellationToken).ConfigureAwait(false);
+
+                        var dingMediaId = await _apiClient.UploadMediaAsync(
+                            accessToken,
+                            startedAccount.Configuration.RobotCode,
+                            stream,
+                            attachment.ContentType,
+                            meta.FileName,
+                            cancellationToken).ConfigureAwait(false);
+
+                        // Ensure duration is available for audio messages
+                        var audioAttachment = attachment;
+                        if (attachment.DurationMs is null && meta.DurationMs.HasValue)
+                        {
+                            audioAttachment = attachment with { DurationMs = meta.DurationMs.Value };
+                        }
+                        var (msgKey, msgParam) = BuildMediaMsgKeyAndParam(audioAttachment, dingMediaId);
+
+                        if (draft.ThreadType == ChannelThreadType.Group)
+                        {
+                            await SendMediaGroupMessageAsync(
+                                startedAccount, conversationId, msgKey, msgParam, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        else
+                        {
+                            await SendMediaDirectMessageAsync(
+                                startedAccount, conversationId, msgKey, msgParam, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send media {MediaId}, falling back to text", attachment.MediaId);
+            }
+
+            // fallback：发送纯文本
+            if (!string.IsNullOrWhiteSpace(fallbackText))
+            {
+                if (draft.ThreadType == ChannelThreadType.Group)
+                {
+                    await SendGroupMessageInternalAsync(startedAccount, conversationId, fallbackText, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    await SendDirectMessageAsync(startedAccount, conversationId, fallbackText, draft.MetadataJson, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(draft.MessageText))
+        {
+            throw new ArgumentException(
+                "DingTalk outbound draft message text is required.", nameof(draft));
+        }
 
         if (draft.ThreadType == ChannelThreadType.Group)
         {
@@ -148,6 +228,103 @@ public sealed class DingTalkConnector : IChannelConnector
                 startedAccount, conversationId, draft.MessageText, draft.MetadataJson, cancellationToken)
                 .ConfigureAwait(false);
         }
+    }
+
+    private async Task SendMediaDirectMessageAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken)
+    {
+        if (!_conversationUserCache.TryGetValue(conversationId, out var recipientUserId)
+            || string.IsNullOrWhiteSpace(recipientUserId))
+        {
+            throw new InvalidOperationException(
+                $"DingTalk cannot send media to conversation \'{conversationId}\': recipient userId not cached.");
+        }
+
+        var accessToken = await _apiClient.GetAccessTokenAsync(
+            startedAccount.Configuration.AppKey,
+            startedAccount.Configuration.AppSecret,
+            cancellationToken).ConfigureAwait(false);
+
+        string[] userIds = [recipientUserId];
+        await _apiClient.SendMediaBatchAsync(
+            accessToken,
+            startedAccount.Configuration.RobotCode,
+            userIds,
+            msgKey,
+            msgParam,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SendMediaGroupMessageAsync(
+        StartedAccount startedAccount,
+        string conversationId,
+        string msgKey,
+        string msgParam,
+        CancellationToken cancellationToken)
+    {
+        if (_conversationWebhookCache.TryGetValue(conversationId, out var webhookEntry)
+            && webhookEntry.ExpiredAt > DateTimeOffset.UtcNow.AddMinutes(1))
+        {
+            await _apiClient.SendSessionWebhookMessageAsync(
+                webhookEntry.Url, msgKey, msgParam, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var accessToken = await _apiClient.GetAccessTokenAsync(
+            startedAccount.Configuration.AppKey,
+            startedAccount.Configuration.AppSecret,
+            cancellationToken).ConfigureAwait(false);
+
+        await _apiClient.SendGroupMessageAsync(
+            accessToken,
+            startedAccount.Configuration.RobotCode,
+            conversationId,
+            msgKey,
+            msgParam,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static (string MsgKey, string MsgParam) BuildMediaMsgKeyAndParam(
+        MediaReference attachment, string dingMediaId)
+    {
+        var ct = attachment.ContentType ?? string.Empty;
+
+        if (ct.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+        {
+            var msgParam = JsonSerializer.Serialize(new { photoId = dingMediaId });
+            return ("sampleImage", msgParam);
+        }
+
+        if (ct.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+        {
+            var durationSec = attachment.DurationMs.HasValue
+                ? (int)Math.Ceiling(attachment.DurationMs.Value / 1000.0)
+                : 0;
+            var msgParam = JsonSerializer.Serialize(new { audioId = dingMediaId, duration = durationSec });
+            return ("sampleAudio", msgParam);
+        }
+
+        if (ct.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+        {
+            var durationSec = attachment.DurationMs.HasValue
+                ? (int)Math.Ceiling(attachment.DurationMs.Value / 1000.0)
+                : 0;
+            var msgParam = JsonSerializer.Serialize(new { videoId = dingMediaId, duration = durationSec });
+            return ("sampleVideo", msgParam);
+        }
+
+        // 文件或其他类型
+        var fileParam = JsonSerializer.Serialize(new
+        {
+            fileId = dingMediaId,
+            fileName = attachment.FileName ?? "file"
+        });
+        return ("sampleFile", fileParam);
     }
 
     private async Task SendDirectMessageAsync(
@@ -241,7 +418,7 @@ public sealed class DingTalkConnector : IChannelConnector
 
     // ── 事件映射 ──────────────────────────────────────────────────────────
 
-    private Task DispatchEventAsync(
+    private async Task DispatchEventAsync(
         string accountId,
         ChannelAccount account,
         DingTalkConnectorConfiguration configuration,
@@ -250,16 +427,10 @@ public sealed class DingTalkConnector : IChannelConnector
         Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
         CancellationToken cancellationToken)
     {
-        // 仅处理文本消息
-        if (!string.Equals(eventData.MsgType, "text", StringComparison.OrdinalIgnoreCase))
-        {
-            return Task.CompletedTask;
-        }
-
         var conversationId = eventData.ConversationId;
         if (string.IsNullOrWhiteSpace(conversationId))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         // 缓存 conversationId → senderStaffId（优先 senderStaffId，降级 senderId）
@@ -278,13 +449,48 @@ public sealed class DingTalkConnector : IChannelConnector
             _conversationWebhookCache[conversationId] = (eventData.SessionWebhook, expiredAt);
         }
 
-        var channelEnvelope = TryMapToEnvelope(accountId, configuration, eventData, messageId);
-        if (channelEnvelope is null)
+        ChannelEventEnvelope? channelEnvelope;
+
+        var msgType = eventData.MsgType ?? string.Empty;
+        if (string.Equals(msgType, "text", StringComparison.OrdinalIgnoreCase))
         {
-            return Task.CompletedTask;
+            channelEnvelope = TryMapToEnvelope(accountId, configuration, eventData, messageId);
+        }
+        else if (string.Equals(msgType, "picture", StringComparison.OrdinalIgnoreCase))
+        {
+            channelEnvelope = await TryMapPictureEnvelopeAsync(
+                accountId, configuration, eventData, messageId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else if (string.Equals(msgType, "audio", StringComparison.OrdinalIgnoreCase))
+        {
+            channelEnvelope = await TryMapAudioEnvelopeAsync(
+                accountId, configuration, eventData, messageId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else if (string.Equals(msgType, "video", StringComparison.OrdinalIgnoreCase))
+        {
+            channelEnvelope = await TryMapVideoEnvelopeAsync(
+                accountId, configuration, eventData, messageId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else if (string.Equals(msgType, "file", StringComparison.OrdinalIgnoreCase))
+        {
+            channelEnvelope = await TryMapFileEnvelopeAsync(
+                accountId, configuration, eventData, messageId, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            return;
         }
 
-        return onEvent(channelEnvelope, cancellationToken);
+        if (channelEnvelope is null)
+        {
+            return;
+        }
+
+        await onEvent(channelEnvelope, cancellationToken).ConfigureAwait(false);
     }
 
     private static ChannelEventEnvelope? TryMapToEnvelope(
@@ -445,7 +651,310 @@ public sealed class DingTalkConnector : IChannelConnector
         }
     }
 
+    // ── 多媒体入站处理 ────────────────────────────────────────────────────────
+
+    private async Task<ChannelEventEnvelope?> TryMapPictureEnvelopeAsync(
+        string accountId,
+        DingTalkConnectorConfiguration configuration,
+        DingTalkStreamEventData eventData,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        if (_mediaStore is null) return null;
+
+        var downloadCode = ParseDownloadCode(eventData.Content);
+        if (string.IsNullOrWhiteSpace(downloadCode)) return null;
+
+        try
+        {
+            var accessToken = await _apiClient.GetAccessTokenAsync(
+                configuration.AppKey, configuration.AppSecret, cancellationToken)
+                .ConfigureAwait(false);
+
+            var downloadUrl = await _apiClient.GetMediaDownloadUrlAsync(
+                accessToken, configuration.RobotCode, downloadCode, cancellationToken)
+                .ConfigureAwait(false);
+
+            using var stream = await _apiClient.DownloadMediaAsync(downloadUrl, cancellationToken)
+                .ConfigureAwait(false);
+
+            var storedMeta = await _mediaStore.StoreAsync(
+                stream,
+                contentType: "image/jpeg",
+                fileName: $"dingtalk-image-{messageId}.jpg",
+                source: "dingtalk-inbound",
+                externalMessageId: eventData.MsgId,
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            return BuildMediaEnvelope(accountId, configuration, eventData, messageId,
+                text: "[图片]",
+                storedMeta: storedMeta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to process inbound picture for message {MessageId}: {Message}",
+                messageId, ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<ChannelEventEnvelope?> TryMapAudioEnvelopeAsync(
+        string accountId,
+        DingTalkConnectorConfiguration configuration,
+        DingTalkStreamEventData eventData,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        if (_mediaStore is null) return null;
+
+        var downloadCode = ParseDownloadCode(eventData.Content);
+        if (string.IsNullOrWhiteSpace(downloadCode)) return null;
+
+        try
+        {
+            var accessToken = await _apiClient.GetAccessTokenAsync(
+                configuration.AppKey, configuration.AppSecret, cancellationToken)
+                .ConfigureAwait(false);
+
+            var downloadUrl = await _apiClient.GetMediaDownloadUrlAsync(
+                accessToken, configuration.RobotCode, downloadCode, cancellationToken)
+                .ConfigureAwait(false);
+
+            using var stream = await _apiClient.DownloadMediaAsync(downloadUrl, cancellationToken)
+                .ConfigureAwait(false);
+
+            var storedMeta = await _mediaStore.StoreAsync(
+                stream,
+                contentType: "audio/amr",
+                fileName: $"dingtalk-audio-{messageId}.amr",
+                source: "dingtalk-inbound",
+                externalMessageId: eventData.MsgId,
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            var recognition = ParseAudioRecognition(eventData.Content);
+            var text = string.IsNullOrWhiteSpace(recognition) ? "[音频]" : $"[音频] {recognition}";
+
+            return BuildMediaEnvelope(accountId, configuration, eventData, messageId,
+                text: text,
+                storedMeta: storedMeta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to process inbound audio for message {MessageId}: {Message}",
+                messageId, ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<ChannelEventEnvelope?> TryMapVideoEnvelopeAsync(
+        string accountId,
+        DingTalkConnectorConfiguration configuration,
+        DingTalkStreamEventData eventData,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        if (_mediaStore is null) return null;
+
+        var downloadCode = ParseDownloadCode(eventData.Content);
+        if (string.IsNullOrWhiteSpace(downloadCode)) return null;
+
+        try
+        {
+            var accessToken = await _apiClient.GetAccessTokenAsync(
+                configuration.AppKey, configuration.AppSecret, cancellationToken)
+                .ConfigureAwait(false);
+
+            var downloadUrl = await _apiClient.GetMediaDownloadUrlAsync(
+                accessToken, configuration.RobotCode, downloadCode, cancellationToken)
+                .ConfigureAwait(false);
+
+            using var stream = await _apiClient.DownloadMediaAsync(downloadUrl, cancellationToken)
+                .ConfigureAwait(false);
+
+            var storedMeta = await _mediaStore.StoreAsync(
+                stream,
+                contentType: "video/mp4",
+                fileName: $"dingtalk-video-{messageId}.mp4",
+                source: "dingtalk-inbound",
+                externalMessageId: eventData.MsgId,
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            return BuildMediaEnvelope(accountId, configuration, eventData, messageId,
+                text: "[视频]",
+                storedMeta: storedMeta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to process inbound video for message {MessageId}: {Message}",
+                messageId, ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<ChannelEventEnvelope?> TryMapFileEnvelopeAsync(
+        string accountId,
+        DingTalkConnectorConfiguration configuration,
+        DingTalkStreamEventData eventData,
+        string messageId,
+        CancellationToken cancellationToken)
+    {
+        if (_mediaStore is null) return null;
+
+        var downloadCode = ParseDownloadCode(eventData.Content);
+        if (string.IsNullOrWhiteSpace(downloadCode)) return null;
+
+        var fileName = ParseFileName(eventData.Content) ?? $"dingtalk-file-{messageId}";
+
+        try
+        {
+            var accessToken = await _apiClient.GetAccessTokenAsync(
+                configuration.AppKey, configuration.AppSecret, cancellationToken)
+                .ConfigureAwait(false);
+
+            var downloadUrl = await _apiClient.GetMediaDownloadUrlAsync(
+                accessToken, configuration.RobotCode, downloadCode, cancellationToken)
+                .ConfigureAwait(false);
+
+            using var stream = await _apiClient.DownloadMediaAsync(downloadUrl, cancellationToken)
+                .ConfigureAwait(false);
+
+            var contentType = InferContentTypeFromFileName(fileName);
+            var storedMeta = await _mediaStore.StoreAsync(
+                stream,
+                contentType: contentType,
+                fileName: fileName,
+                source: "dingtalk-inbound",
+                externalMessageId: eventData.MsgId,
+                cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            return BuildMediaEnvelope(accountId, configuration, eventData, messageId,
+                text: $"[文件: {fileName}]",
+                storedMeta: storedMeta);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to process inbound file for message {MessageId}: {Message}",
+                messageId, ex.Message);
+            return null;
+        }
+    }
+
+    private static ChannelEventEnvelope BuildMediaEnvelope(
+        string accountId,
+        DingTalkConnectorConfiguration configuration,
+        DingTalkStreamEventData eventData,
+        string messageId,
+        string text,
+        MediaMeta storedMeta)
+    {
+        var conversationId = eventData.ConversationId;
+        var externalThreadId = $"conversationId:{conversationId}";
+        var threadType = ResolveThreadType(eventData.ConversationType);
+        var occurredAt = eventData.CreateAt.HasValue
+            ? DateTimeOffset.FromUnixTimeMilliseconds(eventData.CreateAt.Value)
+            : DateTimeOffset.UtcNow;
+        var senderUserId = eventData.SenderStaffId ?? eventData.SenderId ?? string.Empty;
+
+        return new ChannelEventEnvelope(
+            EventId: $"dingtalk-{messageId}",
+            EventType: ChannelEventType.MessageReceived,
+            ConnectorKind: ChannelConnectorKind.DingTalk,
+            AccountId: accountId,
+            ExternalThreadId: externalThreadId,
+            ThreadType: threadType,
+            OccurredAt: occurredAt,
+            Sender: new ChannelIdentity(Id: senderUserId),
+            Recipient: null,
+            ExternalMessageId: eventData.MsgId,
+            Text: text,
+            DefaultDeliveryMode: configuration.DefaultDeliveryMode,
+            MediaAttachments: [
+                new MediaReference(
+                    MediaId: storedMeta.Id,
+                    ContentType: storedMeta.ContentType,
+                    FileName: storedMeta.FileName,
+                    SizeBytes: storedMeta.SizeBytes)
+            ]);
+    }
+
+    // ── Content JSON 解析辅助 ─────────────────────────────────────────────
+
+    private static string? ParseDownloadCode(JsonElement? contentJson)
+    {
+        if (contentJson is null) return null;
+        return contentJson.Value.TryGetProperty("downloadCode", out var el)
+            ? el.GetString()
+            : null;
+    }
+
+    private static string? ParseAudioRecognition(JsonElement? contentJson)
+    {
+        if (contentJson is null) return null;
+        return contentJson.Value.TryGetProperty("recognition", out var el)
+            ? el.GetString()
+            : null;
+    }
+
+    private static string? ParseVideoDuration(string? contentJson)
+    {
+        if (string.IsNullOrWhiteSpace(contentJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(contentJson);
+            return doc.RootElement.TryGetProperty("duration", out var el)
+                ? el.GetString()
+                : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static string? ParseFileName(JsonElement? contentJson)
+    {
+        if (contentJson is null) return null;
+        return contentJson.Value.TryGetProperty("fileName", out var el)
+            ? el.GetString()
+            : null;
+    }
+
+    private static string InferContentTypeFromFileName(string fileName)
+    {
+        var ext = System.IO.Path.GetExtension(fileName).TrimStart('.').ToLowerInvariant();
+        return ext switch
+        {
+            "jpg" or "jpeg" => "image/jpeg",
+            "png"           => "image/png",
+            "gif"           => "image/gif",
+            "bmp"           => "image/bmp",
+            "webp"          => "image/webp",
+            "mp3"           => "audio/mpeg",
+            "wav"           => "audio/wav",
+            "amr"           => "audio/amr",
+            "ogg"           => "audio/ogg",
+            "m4a"           => "audio/mp4",
+            "flac"          => "audio/flac",
+            "mp4"           => "video/mp4",
+            "mov"           => "video/quicktime",
+            "avi"           => "video/x-msvideo",
+            "mkv"           => "video/x-matroska",
+            "pdf"           => "application/pdf",
+            "doc" or "docx" => "application/msword",
+            "xls" or "xlsx" => "application/vnd.ms-excel",
+            "ppt" or "pptx" => "application/vnd.ms-powerpoint",
+            _               => "application/octet-stream",
+        };
+    }
+
     // ── 测试辅助（internal，供单元测试直接注入缓存状态）────────────────────────
+
+
 
     internal void SetConversationUserCache(string conversationId, string userId)
         => _conversationUserCache[conversationId] = userId;

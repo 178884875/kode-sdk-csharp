@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace KodaClaw.ChannelHub.Connectors.DingTalk;
@@ -58,6 +59,9 @@ public sealed class DingTalkStreamEventData
 
     [JsonPropertyName("senderId")]
     public string? SenderId { get; init; }
+
+    [JsonPropertyName("content")]
+    public JsonElement? Content { get; init; }
 
     [JsonPropertyName("text")]
     public DingTalkTextContent? Text { get; init; }
@@ -129,3 +133,28 @@ public sealed class DingTalkSendMessageResponse
 
 /// <summary>ActionCard 独立跳转多按钮中的单个按钮</summary>
 public sealed record DingTalkActionCardBtn(string Title, string ActionUrl);
+
+// ── 机器人下载文件 API ───────────────────────────────────────
+
+/// <summary>
+/// POST /v1.0/robot/messageFiles/download 响应
+/// https://open.dingtalk.com/document/isvapp/download-the-file-content-of-the-robot-receiving-message
+/// </summary>
+public sealed class DingTalkDownloadFileResponse
+{
+    [JsonPropertyName("downloadCode")]
+    public string? DownloadCode { get; init; }
+
+    [JsonPropertyName("downloadUrl")]
+    public string? DownloadUrl { get; init; }
+}
+
+/// <summary>
+/// POST oapi.dingtalk.com/media/upload 响应
+/// https://open.dingtalk.com/document/development/upload-media-files
+/// </summary>
+public sealed class DingTalkUploadMediaResponse
+{
+    [JsonPropertyName("media_id")]
+    public string? MediaId { get; init; }
+}

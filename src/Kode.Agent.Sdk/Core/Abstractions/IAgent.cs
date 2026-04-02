@@ -81,6 +81,14 @@ public interface IAgent : IAsyncDisposable
     Task<AgentRunResult> RunAsync(string input, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Runs the agent loop with multi-modal content (text + images) until completion or pause.
+    /// </summary>
+    /// <param name=\parts\>The content blocks (text, images, etc.) to send as user input.</param>
+    /// <param name=\cancellationToken\>Cancellation token.</param>
+    /// <returns>The final assistant response.</returns>
+    Task<AgentRunResult> RunAsync(IReadOnlyList<Kode.Agent.Sdk.Core.Types.ContentBlock> parts, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Executes a single step of the agent loop.
     /// </summary>
     /// <param name="cancellationToken">Cancellation token.</param>

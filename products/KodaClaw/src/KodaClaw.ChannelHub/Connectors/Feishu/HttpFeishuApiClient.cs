@@ -426,6 +426,38 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         return result.Data?.MessageId ?? string.Empty;
     }
 
+    public async Task<Stream> DownloadResourceAsync(
+        string accessToken,
+        string messageId,
+        string fileKey,
+        string type,
+        CancellationToken cancellationToken = default)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"/open-apis/im/v1/messages/{messageId}/resources/{fileKey}?type={type}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using var response = await _httpClient.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // Check if the error response is JSON (API error) or something else
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            throw new InvalidOperationException(
+                $"Feishu download resource failed: status={(int)response.StatusCode}, body={body}");
+        }
+
+        // Return a buffered copy of the stream since the HttpClient's internal stream
+        // may be invalidated once the response is disposed.
+        var ms = new MemoryStream();
+        await response.Content.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        ms.Position = 0;
+        return ms;
+    }
+
     private async Task<string> GetOrRefreshTokenAsync(
         string cacheKey,
         Func<CancellationToken, Task<(string Token, int ExpireSeconds)>> fetchAsync,

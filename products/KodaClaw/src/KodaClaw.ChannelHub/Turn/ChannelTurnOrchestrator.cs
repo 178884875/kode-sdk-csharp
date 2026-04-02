@@ -421,7 +421,7 @@ public sealed class ChannelTurnOrchestrator
     private static bool ShouldExecuteTurn(ChannelEventEnvelope envelope)
     {
         return envelope.EventType is ChannelEventType.MessageReceived or ChannelEventType.MessageEdited
-            && !string.IsNullOrWhiteSpace(envelope.Text);
+            && (!string.IsNullOrWhiteSpace(envelope.Text) || envelope.MediaAttachments is { Count: > 0 });
     }
 
     private static bool DetectExplicitMention(ChannelEventEnvelope envelope, ChannelAccount account)
