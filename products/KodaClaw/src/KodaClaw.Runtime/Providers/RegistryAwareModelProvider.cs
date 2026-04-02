@@ -6,7 +6,7 @@ using KodaClaw.ModelHub;
 namespace KodaClaw.Runtime;
 
 /// <summary>
-/// Registry-first IModelProvider: resolves the default TextChat|ToolCalling endpoint
+/// Registry-first IModelProvider: resolves the default Text endpoint
 /// from IModelRegistryRepository and constructs the appropriate LLM provider.
 /// Falls back to DynamicModelProvider (env-var path) when the registry is empty.
 /// </summary>
@@ -53,7 +53,7 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         try
         {
             var endpoint = await _registry.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
 
             if (endpoint is not null)
             {
@@ -76,7 +76,7 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         CancellationToken cancellationToken)
     {
         var endpoint = await _registry.ResolveDefaultForAsync(
-            ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+            ModelCapabilitySet.Text, cancellationToken);
 
         if (endpoint is not null)
         {

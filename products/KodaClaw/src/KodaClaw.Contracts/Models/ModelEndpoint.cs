@@ -16,8 +16,4 @@ public sealed record ModelEndpoint(
     int ContextWindowSize = 128_000,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false,
-    IReadOnlyDictionary<string, string>? CustomHeaders = null)
-{
-    /// <summary>向后兼容计算属性，不存入数据库。</summary>
-    public bool SupportsToolCalling => Capabilities.HasFlag(ModelCapabilitySet.ToolCalling);
-}
+    IReadOnlyDictionary<string, string>? CustomHeaders = null);

@@ -115,7 +115,7 @@ public sealed class ModelRegistrySeedServiceIntegrationTests
             ApiKeyEnvironmentVariable: "OPENAI_API_KEY",
             ApiKeySecretRef: null,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: now,
             UpdatedAt: now,

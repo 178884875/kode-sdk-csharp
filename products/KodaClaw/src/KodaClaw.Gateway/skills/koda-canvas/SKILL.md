@@ -1,20 +1,20 @@
 ---
 name: koda-canvas
-description: Canvas artifact 创作指南——Markdown/HTML/Image artifact 类型、canvas_upsert 工具用法、多 section 文档结构
+description: Canvas artifact 创作指南——Markdown/HTML artifact 类型、canvas_upsert 工具用法、多 section 文档结构
 license: built-in
 compatibility: KodaClaw 1.x
 allowed-tools: canvas_upsert
 metadata:
   kind: builtin-core
-  version: "1.1"
-  tags: "canvas, artifact, document, image"
+  version: "1.2"
+  tags: "canvas, artifact, document"
 ---
 
 # KodaClaw Canvas — Artifact 创作指南
 
 ## Canvas 是什么
 
-Canvas 是 KodaClaw 的长内容创作工作区，用于生成用户可持久查看的文档、报告、网页或图片。所有 artifact 保存在 CanvasDesk，不受对话上下文长度限制。
+Canvas 是 KodaClaw 的长内容创作工作区，用于生成用户可持久查看的文档、报告和网页。所有 artifact 保存在 CanvasDesk，不受对话上下文长度限制。
 
 ## Artifact 类型
 
@@ -22,7 +22,6 @@ Canvas 是 KodaClaw 的长内容创作工作区，用于生成用户可持久查
 |------|---------|------|---------|
 | Markdown 文档 | `Markdown` | 报告、笔记、文章 | react-markdown 渲染 |
 | HTML 页面 | `Html` | 富格式页面、仪表盘 | sandboxed iframe |
-| 图片 | `Image` | AI 生成图片 | `<img>` 标签 |
 
 ## canvas_upsert 工具用法
 
@@ -36,8 +35,8 @@ canvas_upsert(
 
 参数说明：
 - `title`（必填）：artifact 名称，显示在 CanvasDesk 列表
-- `kind`（必填）：`Markdown` | `Html` | `Image`
-- `content`（必填）：artifact 的文本内容（Image 类型填 mediaId）
+- `kind`（必填）：`Markdown` | `Html`
+- `content`（必填）：artifact 的文本内容
 
 ## 多 Section Markdown 文档
 
@@ -104,4 +103,4 @@ canvas_upsert(
 | 会议纪要 | `Markdown` | `2026-03-25 产品会议纪要` |
 | 数据报告 | `Html` | `Q1 销售数据报告` |
 | 项目计划 | `Markdown` | `功能 X 开发计划` |
-| 品牌素材 | `Image` | `产品 Logo 方案 1` |
+| 可视化仪表盘 | `Html` | `实时销售大盘` |

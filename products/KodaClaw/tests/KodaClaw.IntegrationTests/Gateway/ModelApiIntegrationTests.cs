@@ -95,7 +95,7 @@ public sealed class ModelApiIntegrationTests
             ModelId: "claude-3.1",
             BaseUrl: "https://anthropic.proxy.test",
             ApiKeySecretRef: "keychain:models:claude-3.1",
-            Capabilities: ModelCapabilitySet.TextChat);
+            Capabilities: ModelCapabilitySet.Text);
 
         var response = await hosted.Client.PutAsJsonAsync($"/api/models/{created.Id}", request);
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -106,7 +106,7 @@ public sealed class ModelApiIntegrationTests
         payload.Provider.Should().Be(ModelProviderKind.AnthropicCompatible);
         payload.ModelId.Should().Be("claude-3.1");
         payload.ApiKeySecretRef.Should().Be("keychain:models:claude-3.1");
-        payload.SupportsToolCalling.Should().BeFalse();
+        payload.Capabilities.Should().Be(ModelCapabilitySet.Text);
     }
 
     [Fact]

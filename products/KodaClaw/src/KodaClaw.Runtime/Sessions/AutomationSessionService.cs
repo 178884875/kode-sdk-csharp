@@ -296,7 +296,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.MaxPromptCharacters;
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
             var usableTokens = Math.Max(endpoint.ContextWindowSize - maxOutputCap, 0);
@@ -314,7 +314,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.DefaultContextWindowSize;
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
             var available = endpoint.ContextWindowSize - maxOutputCap;

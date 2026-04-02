@@ -185,7 +185,7 @@ public sealed class BackupApiIntegrationTests
             ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: null,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: now,
             UpdatedAt: now));
@@ -516,7 +516,7 @@ public sealed class BackupApiIntegrationTests
             ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: modelSecretRef.ToReferenceString(),
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: now,
             UpdatedAt: now));

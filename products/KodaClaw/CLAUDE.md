@@ -266,7 +266,14 @@ ACCEPTANCE_PACK 验收矩阵
 
 ## 当前进行中工作（WIP）
 
-无进行中条目。
+**近期完成**（ModelCapabilitySet 重设计，2026-04-02）：
+- 枚举重设计：`TextChat/ToolCalling/Vision/ImageGeneration/TTS/STT/Embeddings` → `Text/Image/Video/File/Audio`（Text=1, Image=2, Video=4, File=8, Audio=16）
+- 移除 `ModelEndpoint.SupportsToolCalling` 计算属性；DTO/ModelPreset 默认值改为 `Text`
+- 所有 `ResolveDefaultForAsync(TextChat|ToolCalling)` 调用点统一改为 `ResolveDefaultForAsync(Text)`；`Vision` → `Image`
+- `model-presets.json` 全量重新计算 defaultCapabilities（Claude/GPT-4o/Kimi=3，推理/纯文本=1，MiMo-Omni=19）
+- 前端 CAP 常量、ModelsSettingsDesk 能力复选框、contracts.ts `supportsToolCalling` 同步清除
+- `GenerateImageTool`/`GenerateSpeechTool` 已删除；`koda-canvas` Image kind 移除；`koda-channels` 音频发送段落移除
+- `dotnet build` 0 错 0 警告；`npm run typecheck` 通过
 
 **近期完成**（记忆系统优化，2026-03-26）：
 - 移除 SQLite 元数据层，纯文件方案（KC-W3-001~007）
@@ -298,15 +305,8 @@ ACCEPTANCE_PACK 验收矩阵
   - `koda-memory/SKILL.md` v2.0（三层架构 + memory_search + 降级机制）；HEARTBEAT Nightly Consolidation prompt 更新（KC-5807）
   - 18 个新测试全绿；全量回归 337 单元 + 252 集成 + 144 契约通过（KC-5808）
 
-**近期完成**（Iter 56，2026-03-25）：
-- TTS 语音合成（KC-5601~5605）
-  - `ISpeechService` 接口 + `GenerateSpeechResult` record；`OpenAICompatibleTtsService`：调用 `/v1/audio/speech`，voice 自动 fallback（xiaomimimo → `mimo_default`，否则 `alloy`），响应流写入 `IMediaStore`；DI `TryAddSingleton`；model-presets.json 新增 `openai-tts-1` 预置（KC-5601）
-  - `GenerateSpeechTool`（`generate_speech`）：text/voice/endpointId 参数，返回 `{ ok, mediaId, mediaUrl, contentType }`；发出 `speech_generated` 诊断事件；`InvalidOperationException` → `ToolResult.Fail`；DI 注册同 `generate_image` null-safe 模式（KC-5602）
-  - `ITelegramApiClient` + `HttpTelegramApiClient` 新增 `SendAudioAsync`（multipart, sendAudio API）；`TelegramConnector.SendAsync` 新增 `audio/*` content-type 分支（KC-5603）
-  - `IFeishuApiClient` + `HttpFeishuApiClient` 新增 `UploadAudioFileAsync` + `SendAudioMessageAsync`；`FeishuConnector` audio 路径带 try/catch fallback 到文本（KC-5603）
-  - `WeChatConnector` 遇音频附件直接 `throw new NotSupportedException("微信个人号不支持发送音频文件")`（上层已捕获）（KC-5603）
-  - `koda-channels/SKILL.md`：`allowed-tools` 追加 `generate_speech`；新增语音消息段落（组合用法示例）；平台音频支持矩阵；MiMo style 标签示例；版本升至 1.1（KC-5604）
-  - 测试：`OpenAICompatibleTtsServiceTests`（L1, 6）+ `GenerateSpeechToolTests`（L1, 6）+ `TelegramConnectorAudioTests`（L2, 3）+ `SpeechContractTests`（L3, 4）；全量回归 711 个测试全绿（KC-5605）
+**近期完成**（Iter 56，2026-03-25）**[已移除]**：
+- TTS 语音合成（KC-5601~5605）——`GenerateSpeechTool`（`generate_speech`）、`ISpeechService`、`OpenAICompatibleTtsService`、Connector 音频发送路径（TelegramConnector/FeishuConnector/WeChatConnector）已整体移除。TTS 能力改由外部 Skill 扩展提供，不内置于 Runtime。
 
 **近期完成**（Iter 55，2026-03-25）：
 - HEARTBEAT.md Cron 调度重构（KC-5501~5504）
@@ -388,13 +388,13 @@ ACCEPTANCE_PACK 验收矩阵
 
 **近期完成**（Iter 34，2026-03-21）：
 - 多模态内容基础层（KC-3401~3408）
-  - ModelCapabilitySet flags enum（TextChat/ToolCalling/Vision/ImageGeneration/TTS/STT/Embeddings），替换 `SupportsToolCalling: bool`（KC-3401）
+  - ModelCapabilitySet flags enum（→ 已重设计为 Text/Image/Video/File/Audio，见当前进行中），替换 `SupportsToolCalling: bool`（KC-3401）
   - SQLite 迁移追加 `capabilities` 列，`ResolveDefaultForAsync(ModelCapabilitySet)` 接口及实现（KC-3402）
-  - Frontend Models Desk 7 项能力勾选 UI + 预设携带推荐 capabilities（KC-3403）
+  - Frontend Models Desk 能力勾选 UI + 预设携带推荐 capabilities（KC-3403）
   - SDK `ImageContent : ContentBlock`（base64/URL），AnthropicProvider / OpenAIProvider 映射，MessageQueue 多模态重载（KC-3404）
   - `IMediaStore` / `LocalMediaStore`，`MediaMeta` / `MediaReference` contracts，`GET /api/media/{id}` 端点（KC-3405）
-  - `IGenerationService` / `OpenAIImageGenerationService`（DALL-E 3），`GenerateImageTool`，`CanvasArtifactKind.Image`（KC-3406）
-  - Frontend CanvasDesk Image kind 渲染（`<img>` 替代 iframe），`canvas-preview-image` CSS（KC-3407）
+  - `IGenerationService` / `OpenAIImageGenerationService`（DALL-E 3），`GenerateImageTool`，`CanvasArtifactKind.Image`（KC-3406）**[已移除]** — 图像生成改由外部 Skill 扩展，`CanvasArtifactKind.Image` 随之移除
+  - Frontend CanvasDesk Image kind 渲染（KC-3407）**[已移除]**
   - `ChannelOutboundDraft.MediaAttachments`，`channel_send` 工具新增 `mediaId?`，`TelegramConnector` sendPhoto 路径，InboxApprovalDesk 缩略图预览（KC-3408）
 
 **近期完成**（Iter 32-33，2026-03-21）：

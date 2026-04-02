@@ -113,7 +113,7 @@ internal sealed class ModelRegistrySeedService : IHostedService
             ApiKeyEnvironmentVariable: apiKeyEnvVar,
             ApiKeySecretRef: null,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: false,   // SetDefaultAsync called separately
             CreatedAt: now,
             UpdatedAt: now,

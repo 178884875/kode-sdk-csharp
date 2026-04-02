@@ -218,7 +218,7 @@ public sealed class SecretMigrationReportIntegrationTests
             ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: modelSecretRef.ToReferenceString(),
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: now,
             UpdatedAt: now));
@@ -232,7 +232,7 @@ public sealed class SecretMigrationReportIntegrationTests
             ApiKeyEnvironmentVariable: fallbackEnvironmentVariable,
             ApiKeySecretRef: null,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: false,
             CreatedAt: now.AddMinutes(1),
             UpdatedAt: now.AddMinutes(1)));

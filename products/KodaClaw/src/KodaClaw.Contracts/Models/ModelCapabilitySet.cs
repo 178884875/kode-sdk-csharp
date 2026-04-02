@@ -3,12 +3,10 @@ namespace KodaClaw.Contracts;
 [Flags]
 public enum ModelCapabilitySet
 {
-    None            = 0,
-    TextChat        = 1 << 0,
-    ToolCalling     = 1 << 1,
-    Vision          = 1 << 2,
-    ImageGeneration = 1 << 3,
-    TextToSpeech    = 1 << 4,
-    SpeechToText    = 1 << 5,
-    Embeddings      = 1 << 6,
+    None  = 0,
+    Text  = 1 << 0,  // 1  — text chat (all usable models must have this)
+    Image = 1 << 1,  // 2  — image input understanding (vision)
+    Video = 1 << 2,  // 4  — video input understanding
+    File  = 1 << 3,  // 8  — document/file input understanding
+    Audio = 1 << 4,  // 16 — audio input understanding (omni models)
 }

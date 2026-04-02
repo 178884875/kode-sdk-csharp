@@ -260,7 +260,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     }
 
     /// <summary>
-    /// Runs a multimodal turn: checks if the current model supports Vision,
+    /// Runs a multimodal turn: checks if the current model supports Image input,
     /// and if so, sends text + image content blocks; otherwise falls back to text-only prompt.
     /// </summary>
     private async Task<AgentRunResult> RunMultimodalTurnAsync(
@@ -269,21 +269,21 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         IReadOnlyList<MediaReference> attachments,
         CancellationToken cancellationToken)
     {
-        var hasVision = false;
+        var hasImage = false;
         try
         {
             var endpoint = await _modelRegistryRepository!.ResolveDefaultForAsync(
-                ModelCapabilitySet.Vision, cancellationToken);
-            hasVision = endpoint != null;
+                ModelCapabilitySet.Image, cancellationToken);
+            hasImage = endpoint != null;
         }
         catch
         {
-            // Vision check failed, fall back to text-only
+            // Image capability check failed, fall back to text-only
         }
 
-        if (!hasVision)
+        if (!hasImage)
         {
-            // Model doesn't support Vision — fall back to text-only prompt with media info
+            // Model doesn't support Image input — fall back to text-only prompt with media info
             return await handle.Agent.RunAsync(prompt, cancellationToken);
         }
 
@@ -708,7 +708,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.MaxPromptCharacters;
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
             var usableTokens = Math.Max(endpoint.ContextWindowSize - maxOutputCap, 0);
@@ -726,7 +726,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.DefaultContextWindowSize;
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
             var available = endpoint.ContextWindowSize - maxOutputCap;

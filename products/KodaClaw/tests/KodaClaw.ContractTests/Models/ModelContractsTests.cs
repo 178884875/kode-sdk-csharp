@@ -20,7 +20,7 @@ public sealed class ModelContractsTests
             ApiKeyEnvironmentVariable: "OPENAI_API_KEY",
             ApiKeySecretRef: "env:models:OPENAI_API_KEY",
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling);
+            Capabilities: ModelCapabilitySet.Text);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var roundTrip = JsonSerializer.Deserialize<CreateModelEndpointRequest>(json, JsonOptions);
@@ -43,7 +43,7 @@ public sealed class ModelContractsTests
             ModelId: "claude-3-opus",
             BaseUrl: "https://api.anthropic.com/v1",
             ApiKeySecretRef: "keychain:models:claude-3-opus",
-            Capabilities: ModelCapabilitySet.TextChat);
+            Capabilities: ModelCapabilitySet.Text);
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         var roundTrip = JsonSerializer.Deserialize<UpdateModelEndpointRequest>(json, JsonOptions);
@@ -128,7 +128,7 @@ public sealed class ModelContractsTests
                 ApiKeyEnvironmentVariable: "PROXY_KEY",
                 ApiKeySecretRef: "env:models:PROXY_KEY",
                 Enabled: true,
-                Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+                Capabilities: ModelCapabilitySet.Text,
                 IsDefault: true,
                 CreatedAt: DateTimeOffset.UtcNow,
                 UpdatedAt: DateTimeOffset.UtcNow),

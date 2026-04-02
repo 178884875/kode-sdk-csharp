@@ -250,7 +250,7 @@ public static partial class GatewayApp
             try
             {
                 chatModel = await modelRegistryRepository.ResolveDefaultForAsync(
-                    ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                    ModelCapabilitySet.Text, cancellationToken);
             }
             catch (Exception ex)
             {

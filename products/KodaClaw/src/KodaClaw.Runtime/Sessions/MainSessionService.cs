@@ -794,7 +794,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.MaxPromptCharacters;
             // Allocate 20% of usable context window to system prompt (× 4 chars/token); min = fallback default.
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
@@ -817,7 +817,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
         try
         {
             var endpoint = await _modelRegistryRepository.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling, cancellationToken);
+                ModelCapabilitySet.Text, cancellationToken);
             if (endpoint is null) return _options.DefaultContextWindowSize;
             var maxOutputCap = Math.Min(endpoint.MaxOutputTokens, Math.Min((int)(endpoint.ContextWindowSize * 0.20), 16_384));
             var available = endpoint.ContextWindowSize - maxOutputCap;

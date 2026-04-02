@@ -123,7 +123,7 @@ internal static class RuntimeProviderSelector
         catch (InvalidOperationException) when (registry is not null)
         {
             var endpoint = await registry.ResolveDefaultForAsync(
-                KodaClaw.Contracts.ModelCapabilitySet.TextChat | KodaClaw.Contracts.ModelCapabilitySet.ToolCalling,
+                KodaClaw.Contracts.ModelCapabilitySet.Text,
                 cancellationToken);
 
             if (endpoint is not null && !string.IsNullOrWhiteSpace(endpoint.ModelId))

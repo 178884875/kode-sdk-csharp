@@ -192,10 +192,10 @@ export default function App() {
   useEffect(() => {
     if (isLoading || !snapshot || modelsLoadedRef.current) return;
     modelsLoadedRef.current = true;
-    const CAP_TEXT_CHAT = 1;
+    const CAP_TEXT = 1;
     fetchModels()
       .then(res => {
-        const eligible = res.items.filter(m => m.enabled && (m.capabilities & CAP_TEXT_CHAT) !== 0);
+        const eligible = res.items.filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0);
         setAvailableModels(eligible.map(m => ({ id: m.id, displayName: m.displayName })));
         const ep = eligible.find(m => m.isDefault) ?? eligible[0];
         setModelName(ep?.displayName ?? null);

@@ -3,8 +3,8 @@ import type { FormEvent, KeyboardEvent, ClipboardEvent } from "react";
 import { ArrowUp, Check, ChevronDown, Paperclip, Square, X } from "lucide-react";
 import { useLocaleText } from "../i18n/I18nProvider";
 
-const CAP_TEXT_CHAT = 1 << 0; // 1
-const CAP_VISION = 1 << 2;    // 4
+const CAP_TEXT  = 1 << 0; // 1
+const CAP_IMAGE = 1 << 1; // 2
 
 export type AttachedMedia = {
   mediaId: string;
@@ -62,8 +62,8 @@ export function ChatComposer({
   const supportsVision =
     onAttachMedia != null &&
     modelCapabilities != null &&
-    (modelCapabilities & CAP_TEXT_CHAT) !== 0 &&
-    (modelCapabilities & CAP_VISION) !== 0;
+    (modelCapabilities & CAP_TEXT) !== 0 &&
+    (modelCapabilities & CAP_IMAGE) !== 0;
 
   // Close model dropdown on outside click
   useEffect(() => {

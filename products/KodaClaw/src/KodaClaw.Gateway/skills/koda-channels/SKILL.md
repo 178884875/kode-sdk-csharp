@@ -42,8 +42,7 @@ BindingId 格式示例：`telegram-personal`、`feishu-work`、`wechat-account`
 
 - 支持 Markdown（`**粗体**`、`_斜体_`、`\`代码\``、代码块）
 - 消息长度上限：4096 字符（超出自动截断或分段发送）
-- 支持发送图片（`mediaId` 参数）
-- 支持发送音频文件（mp3，`sendAudio` 模式）
+- 支持发送图片（`mediaId` 参数，需用户上传后获取 mediaId）
 - 换行用 `\n`
 
 ```
@@ -59,7 +58,6 @@ channel_send(
 - 不支持斜体 markdown，建议使用纯文本
 - 消息长度上限：约 4000 字符
 - 支持图文混排（文本 + 图片分别发送）
-- 支持发送音频文件（需 App 具有文件上传权限，失败时降级为文本提示）
 - `@` 提及：不支持通过 channel_send 直接 @ 用户
 
 ```
@@ -75,7 +73,6 @@ channel_send(
 - 消息长度上限：约 2000 字符
 - 发送前自动将 Markdown 转换为纯文本
 - 不支持发送图片附件（个人号 API 限制）
-- **不支持发送音频文件**（需 AMR 格式，当前不支持）
 
 ```
 channel_send(
@@ -98,7 +95,7 @@ channel_send(
 
 ## 媒体附件发送
 
-发送图片需要先有 `mediaId`（用户上传图片后系统返回），然后通过 `mediaId` 参数传入 `channel_send`。
+发送图片需要先有 `mediaId`（用户在对话中上传图片后系统返回），然后通过 `mediaId` 参数传入 `channel_send`。
 
 **注意**：微信个人号不支持图片发送，`mediaId` 参数在微信渠道会被忽略。
 

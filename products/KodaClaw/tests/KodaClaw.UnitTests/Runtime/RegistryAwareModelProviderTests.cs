@@ -25,7 +25,7 @@ public sealed class RegistryAwareModelProviderTests
             ApiKeyEnvironmentVariable: envVar,
             ApiKeySecretRef: secretRef,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: DateTimeOffset.UtcNow,
             UpdatedAt: DateTimeOffset.UtcNow,
@@ -50,7 +50,7 @@ public sealed class RegistryAwareModelProviderTests
 
         registry
             .Setup(r => r.ResolveDefaultForAsync(
-                ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+                ModelCapabilitySet.Text,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(endpoint);
 

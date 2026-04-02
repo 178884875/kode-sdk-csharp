@@ -11,7 +11,7 @@ public sealed record ModelPreset(
     string Description,
     string? CostHint,
     bool RequiresBaseUrl,
-    ModelCapabilitySet DefaultCapabilities = ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+    ModelCapabilitySet DefaultCapabilities = ModelCapabilitySet.Text,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false
 );

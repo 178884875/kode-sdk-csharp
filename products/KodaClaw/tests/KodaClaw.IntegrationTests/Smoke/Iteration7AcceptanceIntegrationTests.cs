@@ -344,7 +344,7 @@ public sealed class Iteration7AcceptanceIntegrationTests
             ApiKeyEnvironmentVariable: null,
             ApiKeySecretRef: modelSecretRef.ToReferenceString(),
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: true,
             CreatedAt: now,
             UpdatedAt: now));
@@ -357,7 +357,7 @@ public sealed class Iteration7AcceptanceIntegrationTests
             ApiKeyEnvironmentVariable: Iteration7FallbackEnvironmentVariable,
             ApiKeySecretRef: null,
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: false,
             CreatedAt: now.AddMinutes(1),
             UpdatedAt: now.AddMinutes(1)));

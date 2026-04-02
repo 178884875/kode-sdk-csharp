@@ -29,13 +29,11 @@ import "./ui/Modal.css";
 import "./ControlPlaneDesk.css";
 
 // ModelCapabilitySet bitmask constants (mirrors C# enum)
-const CAP_TEXT_CHAT        = 1 << 0; // 1
-const CAP_TOOL_CALLING     = 1 << 1; // 2
-const CAP_VISION           = 1 << 2; // 4
-const CAP_IMAGE_GENERATION = 1 << 3; // 8
-const CAP_TTS              = 1 << 4; // 16
-const CAP_STT              = 1 << 5; // 32
-const CAP_EMBEDDINGS       = 1 << 6; // 64
+const CAP_TEXT  = 1 << 0; // 1
+const CAP_IMAGE = 1 << 1; // 2
+const CAP_VIDEO = 1 << 2; // 4
+const CAP_FILE  = 1 << 3; // 8
+const CAP_AUDIO = 1 << 4; // 16
 
 const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ModelProviderKind, string>> = {
   OpenAI: 'https://api.openai.com/v1',
@@ -68,7 +66,7 @@ const DEFAULT_MODEL_DRAFT: ModelDraft = {
   apiKeyEnvironmentVariable: "",
   apiKeyValue: "",
   enabled: true,
-  capabilities: CAP_TEXT_CHAT | CAP_TOOL_CALLING,
+  capabilities: CAP_TEXT,
   contextWindowSize: 128000,
   maxOutputTokens: 8192,
   isReasoning: false,
@@ -81,13 +79,11 @@ function fmtK(n: number): string {
 }
 
 const CAP_ICON_MAP: [number, React.ReactNode, string, string][] = [
-  [1 << 0, <MessageSquare size={12} />, '对话', 'Chat'],
-  [1 << 1, <Wrench size={12} />, '工具', 'Tools'],
-  [1 << 2, <Eye size={12} />, '视觉', 'Vision'],
-  [1 << 3, <ImageIcon size={12} />, '图像', 'Image'],
-  [1 << 4, <Volume2 size={12} />, 'TTS', 'TTS'],
-  [1 << 5, <Mic size={12} />, 'STT', 'STT'],
-  [1 << 6, <Layers size={12} />, '向量', 'Embed'],
+  [CAP_TEXT,  <MessageSquare size={12} />, '文本', 'Text'],
+  [CAP_IMAGE, <Eye size={12} />,           '图像', 'Image'],
+  [CAP_VIDEO, <Layers size={12} />,        '视频', 'Video'],
+  [CAP_FILE,  <ImageIcon size={12} />,     '文件', 'File'],
+  [CAP_AUDIO, <Mic size={12} />,           '音频', 'Audio'],
 ];
 
 function toOptionalText(value: string): string | null {
@@ -212,13 +208,11 @@ export function ModelsSettingsDesk() {
         apiKeyEnv: "API Key 环境变量（可选，高级）",
         enabled: "端点已启用",
         capabilitiesTitle: "支持能力",
-        capTextChat: "文字对话",
-        capToolCalling: "工具调用",
-        capVision: "视觉（图片输入）",
-        capImageGeneration: "图片生成",
-        capTts: "文字转语音",
-        capStt: "语音转文字",
-        capEmbeddings: "向量嵌入",
+        capText: "文本对话",
+        capImage: "图像输入",
+        capVideo: "视频输入",
+        capFile: "文件输入",
+        capAudio: "音频输入",
         create: "创建模型端点",
         save: "保存端点修改",
         reset: "重置编辑器",
@@ -320,13 +314,11 @@ export function ModelsSettingsDesk() {
         apiKeyEnv: "API key env var (optional, advanced)",
         enabled: "Endpoint enabled",
         capabilitiesTitle: "Capabilities",
-        capTextChat: "Text chat",
-        capToolCalling: "Tool calling",
-        capVision: "Vision (image input)",
-        capImageGeneration: "Image generation",
-        capTts: "Text-to-speech",
-        capStt: "Speech-to-text",
-        capEmbeddings: "Embeddings",
+        capText: "Text chat",
+        capImage: "Image input",
+        capVideo: "Video input",
+        capFile: "File input",
+        capAudio: "Audio input",
         create: "Create model endpoint",
         save: "Save endpoint edits",
         reset: "Reset composer",
@@ -1038,13 +1030,11 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.capabilitiesTitle}</span>
               {(
                 [
-                  [CAP_TEXT_CHAT,        text.composer.capTextChat],
-                  [CAP_TOOL_CALLING,     text.composer.capToolCalling],
-                  [CAP_VISION,           text.composer.capVision],
-                  [CAP_IMAGE_GENERATION, text.composer.capImageGeneration],
-                  [CAP_TTS,              text.composer.capTts],
-                  [CAP_STT,              text.composer.capStt],
-                  [CAP_EMBEDDINGS,       text.composer.capEmbeddings],
+                  [CAP_TEXT,  text.composer.capText],
+                  [CAP_IMAGE, text.composer.capImage],
+                  [CAP_VIDEO, text.composer.capVideo],
+                  [CAP_FILE,  text.composer.capFile],
+                  [CAP_AUDIO, text.composer.capAudio],
                 ] as [number, string][]
               ).map(([flag, label]) => (
                 <label key={flag} className="bootstrap-form__toggle">

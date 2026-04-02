@@ -8,7 +8,7 @@ public sealed record UpdateModelEndpointRequest(
     string? ApiKeyEnvironmentVariable = null,
     string? ApiKeySecretRef = null,
     bool Enabled = true,
-    ModelCapabilitySet Capabilities = ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+    ModelCapabilitySet Capabilities = ModelCapabilitySet.Text,
     int ContextWindowSize = 128_000,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false,

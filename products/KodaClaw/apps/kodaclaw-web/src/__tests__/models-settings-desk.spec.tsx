@@ -45,8 +45,7 @@ const defaultModels: ModelEndpoint[] = [
     baseUrl: null,
     apiKeyEnvironmentVariable: "OPENAI_API_KEY",
     enabled: true,
-    capabilities: 7, // TextChat | ToolCalling | Vision
-    supportsToolCalling: true,
+    capabilities: 3, // Text | Image
     isDefault: true,
     createdAt: "2026-03-18T10:00:00Z",
     updatedAt: "2026-03-18T10:00:00Z",
@@ -59,8 +58,7 @@ const defaultModels: ModelEndpoint[] = [
     baseUrl: "https://proxy.example",
     apiKeyEnvironmentVariable: "ANTHROPIC_PROXY_KEY",
     enabled: true,
-    capabilities: 3, // TextChat | ToolCalling
-    supportsToolCalling: true,
+    capabilities: 1, // Text
     isDefault: false,
     createdAt: "2026-03-18T11:00:00Z",
     updatedAt: "2026-03-18T11:00:00Z",

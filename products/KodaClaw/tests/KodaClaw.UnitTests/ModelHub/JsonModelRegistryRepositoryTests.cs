@@ -51,7 +51,7 @@ public sealed class JsonModelRegistryRepositoryTests : IDisposable
             Provider = ModelProviderKind.AnthropicCompatible,
             ModelId = "claude-3.7-sonnet",
             BaseUrl = "https://anthropic.proxy.test",
-            Capabilities = ModelCapabilitySet.TextChat,
+            Capabilities = ModelCapabilitySet.Text,
             UpdatedAt = endpoint.UpdatedAt.AddMinutes(5),
         };
 
@@ -107,7 +107,7 @@ public sealed class JsonModelRegistryRepositoryTests : IDisposable
             ApiKeyEnvironmentVariable: "MODEL_KEY",
             ApiKeySecretRef: "env:models:MODEL_KEY",
             Enabled: true,
-            Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+            Capabilities: ModelCapabilitySet.Text,
             IsDefault: isDefault,
             CreatedAt: now,
             UpdatedAt: now);

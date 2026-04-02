@@ -74,7 +74,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
                 ApiKeyEnvironmentVariable: null,
                 ApiKeySecretRef: new SecretRef("env", "models", environmentKey).ToReferenceString(),
                 Enabled: true,
-                Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling,
+                Capabilities: ModelCapabilitySet.Text,
                 IsDefault: true,
                 CreatedAt: now,
                 UpdatedAt: now));
@@ -149,7 +149,7 @@ public sealed class ModelRuntimeBootstrapIntegrationTests
                     ModelId: "gpt-4o-mini",
                     ApiKeyEnvironmentVariable: environmentKey,
                     Enabled: true,
-                    Capabilities: ModelCapabilitySet.TextChat | ModelCapabilitySet.ToolCalling));
+                    Capabilities: ModelCapabilitySet.Text));
             createResponse.EnsureSuccessStatusCode();
 
             var created = await createResponse.Content.ReadFromJsonAsync<ModelEndpoint>();

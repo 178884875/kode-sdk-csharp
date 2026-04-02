@@ -633,8 +633,6 @@ export interface ModelEndpoint {
   apiKeySecretRef?: string | null;
   enabled: boolean;
   capabilities: number;
-  /** @deprecated computed from capabilities; kept for backward compat */
-  supportsToolCalling: boolean;
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;

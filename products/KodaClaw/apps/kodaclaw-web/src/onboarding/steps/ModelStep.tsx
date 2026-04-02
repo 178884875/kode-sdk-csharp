@@ -52,7 +52,7 @@ export function ModelStep({ onNext, onSkip }: Props) {
     fetchModelPresets().then(setPresets).catch(() => {});
   }, []);
 
-  // Only show text / multimodal models (capabilities must include TextChat = 0x1)
+  // Only show text / multimodal models (capabilities must include Text = 0x1)
   const providerPresets = provider
     ? presets.filter(p => (PROVIDER_FILTER[provider] ?? (() => false))(p) && (p.defaultCapabilities & 1) !== 0)
     : [];
