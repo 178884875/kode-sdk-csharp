@@ -539,8 +539,12 @@ public static partial class GatewayApp
 
             // 若传入 DeliveryMode，将 defaultDeliveryMode 合并进 ConfigurationJson
             var updatedConfigJson = existing.ConfigurationJson;
+
+            // 若传入 ConfigurationJson，用新的配置覆盖
+            if (!string.IsNullOrWhiteSpace(request.ConfigurationJson))
+                updatedConfigJson = request.ConfigurationJson;
             if (request.DeliveryMode.HasValue)
-                updatedConfigJson = MergeDefaultDeliveryMode(existing.ConfigurationJson, request.DeliveryMode.Value);
+                updatedConfigJson = MergeDefaultDeliveryMode(updatedConfigJson, request.DeliveryMode.Value);
 
             var updated = existing with
             {
@@ -555,7 +559,10 @@ public static partial class GatewayApp
             if (request.DeliveryMode.HasValue)
                 await threadBindingRepository.UpdateDeliveryModeByAccountIdAsync(id, request.DeliveryMode.Value, cancellationToken);
 
-            if (enabledChanged)
+            var configChanged = !string.Equals(updatedConfigJson, existing.ConfigurationJson, StringComparison.Ordinal);
+            var needReload = enabledChanged || configChanged;
+
+            if (needReload)
             {
                 if (updated.InboundEnabled)
                 {

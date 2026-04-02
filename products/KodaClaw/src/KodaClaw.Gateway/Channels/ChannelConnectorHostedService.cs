@@ -32,6 +32,7 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
         await StartAccountsByKindAsync(ChannelConnectorKind.Feishu, pollingToken);
         await StartAccountsByKindAsync(ChannelConnectorKind.WeChat, pollingToken);
         await StartAccountsByKindAsync(ChannelConnectorKind.DingTalk, pollingToken);
+        await StartAccountsByKindAsync(ChannelConnectorKind.Relay, pollingToken);
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
@@ -148,10 +149,16 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
         ChannelConnectorKind kind,
         CancellationToken cancellationToken)
     {
+        // Relay accounts should be started regardless of state (they auto-reconnect)
+        // Other connector types only start when explicitly Connected
+        var stateFilter = kind == ChannelConnectorKind.Relay
+            ? (ChannelAccountState?)null
+            : ChannelAccountState.Connected;
+
         var accounts = await _channelAccountRepository.ListAsync(
             new ChannelAccountQuery(
                 ConnectorKind: kind,
-                State: ChannelAccountState.Connected,
+                State: stateFilter,
                 Limit: 200),
             cancellationToken);
 
@@ -186,6 +193,8 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 _channelInboundGatewayService.StartWeChatAccountAsync(account, cancellationToken),
             ChannelConnectorKind.DingTalk =>
                 _channelInboundGatewayService.StartDingTalkAccountAsync(account, cancellationToken),
+            ChannelConnectorKind.Relay =>
+                _channelInboundGatewayService.StartRelayAccountAsync(account, cancellationToken),
             _ => Task.CompletedTask,
         };
     }
@@ -205,6 +214,8 @@ internal sealed class ChannelConnectorHostedService : IHostedService, IChannelCo
                 _channelInboundGatewayService.StopWeChatAccountAsync(accountId, cancellationToken),
             ChannelConnectorKind.DingTalk =>
                 _channelInboundGatewayService.StopDingTalkAccountAsync(accountId, cancellationToken),
+            ChannelConnectorKind.Relay =>
+                _channelInboundGatewayService.StopRelayAccountAsync(accountId, cancellationToken),
             _ => Task.CompletedTask,
         };
     }

@@ -4,6 +4,7 @@ using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.ChannelHub.Connectors.DingTalk;
 using KodaClaw.ChannelHub.Connectors.WeChat;
+using KodaClaw.ChannelHub.Connectors.Relay;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -35,6 +36,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<WeChatConnector>();
         services.TryAddSingleton<IDingTalkApiClient, HttpDingTalkApiClient>();
         services.TryAddSingleton<DingTalkConnector>();
+        services.TryAddSingleton<RelayConnector>();
         services.TryAddSingleton<IAutomationNotificationService, AutomationNotificationService>();
         return services;
     }

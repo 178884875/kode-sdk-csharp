@@ -1,6 +1,7 @@
 import './ChannelSetupWizard.css';
-import { useState } from 'react';
-import { testTelegramToken, testFeishuCredentials, createChannelAccount } from '../../lib/api';
+import { useState, useEffect } from 'react';
+import type { ChannelAccount } from '../../types/contracts';
+import { testTelegramToken, testFeishuCredentials, createChannelAccount, fetchChannelAccounts } from '../../lib/api';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import type { ChannelConnectorKind } from '../../types/contracts';
 import { WeChatQrLoginPanel } from './WeChatQrLoginPanel';
@@ -17,6 +18,7 @@ const CHANNEL_META: Record<string, { emoji: string; label: string }> = {
   Feishu:   { emoji: '🪶', label: '飞书 / Lark' },
   WeChat:   { emoji: '💬', label: '微信' },
   DingTalk: { emoji: '🤖', label: '钉钉 / DingTalk' },
+  Relay:    { emoji: '🔗', label: 'Relay (WebSocket)' },
 };
 
 export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizardProps) {
@@ -34,6 +36,17 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
   const [dingTalkAppKey, setDingTalkAppKey] = useState('');
   const [dingTalkAppSecret, setDingTalkAppSecret] = useState('');
   const [dingTalkRobotCode, setDingTalkRobotCode] = useState('');
+
+  // Relay
+  const [relayAccountId, setRelayAccountId] = useState('');
+  const [relayUrl, setRelayUrl] = useState('');
+  const [relaySecret, setRelaySecret] = useState('');
+  const [relayNotifyChannelId, setRelayNotifyChannelId] = useState('');
+
+  const [availableChannels, setAvailableChannels] = useState<ChannelAccount[]>([]);
+  useEffect(() => {
+    fetchChannelAccounts().then(r => setAvailableChannels(Array.isArray(r) ? r : [])).catch(() => {});
+  }, []);
 
   const [testing, setTesting] = useState(false);
   const [verifiedName, setVerifiedName] = useState<string | null>(null);
@@ -127,6 +140,30 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       dtSuccessStep2: '打开机器人对话',
       dtSuccessStep3: '发一条消息给机器人，Koda 会自动回复',
       dtSuccessDesc: '如果 Koda 没有回复，请检查应用是否已发布，以及机器人功能是否已开启。',
+      // Relay
+      relayIntroTitle: '连接 Relay 中继',
+      relayIntroDesc: '通过 WebSocket 连接到 Relay Hub 服务器，接收来自外部系统的 webhook 事件并转发给 Koda',
+      relayIntroStart: '开始连接',
+      relayInstructionsTitle: '准备 Relay 连接信息（共 2 步）',
+      relayStep1: '在社区平台 (community.ai-koda.com) 注册 Relay 实例，获取 accountId 和 sharedSecret',
+      relayStep2: 'Relay WebSocket 地址为 wss://community.ai-koda.com/ws/relay',
+      relayInstructionsNext: '信息已准备 →',
+      relayCredTitle: '输入 Relay 连接信息',
+      relayAccountIdLabel: 'Account ID',
+      relayAccountIdPlaceholder: 'Account ID (from community relay instance)',
+      relayUrlLabel: 'Relay URL',
+      relayUrlPlaceholder: 'wss://community.ai-koda.com/ws/relay',
+      relaySecretLabel: 'Shared Secret',
+      relaySecretPlaceholder: 'Shared Secret (可选)',
+      relayNotifyChannelLabel: '通知渠道（可选）',
+      relayNotifyChannelNone: '不推送通知',
+      relayNotifyChannelHint: '社区通知（审核结果等）将实时推送到此渠道',
+      relayTestBtn: '下一步 →',
+      relaySuccessTitle: 'Relay 已连接 ✓',
+      relaySuccessStep1: '在社区平台确认 Relay 实例状态为"在线"',
+      relaySuccessStep2: '配置外部系统 webhook 指向社区平台的 /api/v1/webhook/incoming/:instanceId',
+      relaySuccessStep3: '发送测试 webhook 验证消息能正确转发到 Koda',
+      relaySuccessDesc: '如果 Koda 没有收到消息，请检查 Relay 实例是否在线，以及 sharedSecret 是否匹配。',
       done: '完成',
       cancel: '取消',
       back: '← 返回',
@@ -216,6 +253,30 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       dtSuccessStep2: 'Open the bot conversation',
       dtSuccessStep3: 'Send a message to the bot — Koda will reply automatically',
       dtSuccessDesc: 'If Koda doesn\'t reply, check that the app is published and the bot feature is enabled.',
+      // Relay
+      relayIntroTitle: 'Connect Relay Hub',
+      relayIntroDesc: 'Connect to a WebSocket relay hub to receive webhook events from external systems and forward them to Koda.',
+      relayIntroStart: 'Get started',
+      relayInstructionsTitle: 'Prepare Relay connection info (2 steps)',
+      relayStep1: 'Register a Relay instance on the community platform (community.ai-koda.com) to get accountId and sharedSecret',
+      relayStep2: 'The Relay WebSocket URL is wss://community.ai-koda.com/ws/relay',
+      relayInstructionsNext: 'Info ready →',
+      relayCredTitle: 'Enter Relay connection info',
+      relayAccountIdLabel: 'Account ID',
+      relayAccountIdPlaceholder: 'Account ID (from community relay instance)',
+      relayUrlLabel: 'Relay URL',
+      relayUrlPlaceholder: 'wss://community.ai-koda.com/ws/relay',
+      relaySecretLabel: 'Shared Secret',
+      relaySecretPlaceholder: 'Shared Secret (optional)',
+      relayNotifyChannelLabel: 'Notify channel (optional)',
+      relayNotifyChannelNone: 'No notifications',
+      relayNotifyChannelHint: 'Community notifications (review results, etc.) will be pushed to this channel in real time',
+      relayTestBtn: 'Next →',
+      relaySuccessTitle: 'Relay connected ✓',
+      relaySuccessStep1: 'Verify your Relay instance shows "online" on the community platform',
+      relaySuccessStep2: 'Configure external system webhooks to point to /api/v1/webhook/incoming/:instanceId on the community platform',
+      relaySuccessStep3: 'Send a test webhook to verify messages are forwarded to Koda',
+      relaySuccessDesc: 'If Koda doesn\'t receive messages, check that the Relay instance is online and the sharedSecret matches.',
       done: 'Done',
       cancel: 'Cancel',
       back: '← Back',
@@ -225,6 +286,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
   const isTelegram = connectorKind === 'Telegram';
   const isWeChat = connectorKind === 'WeChat';
   const isDingTalk = connectorKind === 'DingTalk';
+  const isRelay = connectorKind === 'Relay';
 
   const handleTestTelegram = async () => {
     setTesting(true);
@@ -281,6 +343,14 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           configurationJson: JSON.stringify({ appKey: dingTalkAppKey.trim(), appSecret: dingTalkAppSecret.trim(), robotCode: dingTalkRobotCode.trim() }),
           inboundEnabled: true,
         });
+      } else if (isRelay) {
+        await createChannelAccount({
+          id: `relay-${Date.now()}`,
+          connectorKind: 'Relay',
+          displayName: relayUrl.trim() || 'Relay',
+          configurationJson: JSON.stringify({ accountId: relayAccountId.trim() || undefined, relayUrl: relayUrl.trim(), sharedSecret: relaySecret.trim() || undefined, notifyChannelId: relayNotifyChannelId.trim() || undefined }),
+          inboundEnabled: true,
+        });
       } else if (!isWeChat) {
         await createChannelAccount({
           id: `feishu-${Date.now()}`,
@@ -308,7 +378,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           <h2 className="onboarding-step-title">{text.pickTitle}</h2>
           <p className="onboarding-step-desc">{text.pickDesc}</p>
           <div className="channel-picker-grid">
-            {(['Telegram', 'Feishu', 'WeChat', 'DingTalk'] as ChannelConnectorKind[]).map(kind => (
+            {(['Telegram', 'Feishu', 'WeChat', 'DingTalk', 'Relay'] as ChannelConnectorKind[]).map(kind => (
               <button
                 key={kind}
                 type="button"
@@ -335,17 +405,17 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'intro' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : isDingTalk ? text.dtIntroTitle : text.fsIntroTitle}
+            {isTelegram ? text.tgIntroTitle : isWeChat ? text.wxIntroTitle : isDingTalk ? text.dtIntroTitle : isRelay ? text.relayIntroTitle : text.fsIntroTitle}
           </h2>
           <p className="onboarding-step-desc">
-            {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : isDingTalk ? text.dtIntroDesc : text.fsIntroDesc}
+            {isTelegram ? text.tgIntroDesc : isWeChat ? text.wxIntroDesc : isDingTalk ? text.dtIntroDesc : isRelay ? text.relayIntroDesc : text.fsIntroDesc}
           </p>
           <div className="wizard-btn-row">
             <button
               className="onboarding-next-btn"
               onClick={() => setPhase(isWeChat ? 'qrlogin' : 'instructions')}
             >
-              {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : isDingTalk ? text.dtIntroStart : text.fsIntroStart}
+              {isTelegram ? text.tgIntroStart : isWeChat ? text.wxIntroStart : isDingTalk ? text.dtIntroStart : isRelay ? text.relayIntroStart : text.fsIntroStart}
             </button>
             <button className="onboarding-skip-step-btn" onClick={() => setPhase('pick')}>
               {text.back}
@@ -358,7 +428,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'instructions' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgInstructionsTitle : isDingTalk ? text.dtInstructionsTitle : text.fsInstructionsTitle}
+            {isTelegram ? text.tgInstructionsTitle : isDingTalk ? text.dtInstructionsTitle : isRelay ? text.relayInstructionsTitle : text.fsInstructionsTitle}
           </h2>
           {isTelegram ? (
             <ol className="telegram-instructions">
@@ -379,6 +449,11 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
               <li>{text.dtStep3}</li>
               <li>{text.dtStep4}</li>
             </ol>
+          ) : isRelay ? (
+            <ol className="telegram-instructions">
+              <li>{text.relayStep1}</li>
+              <li>{text.relayStep2}</li>
+            </ol>
           ) : (
             <ol className="telegram-instructions">
               <li>
@@ -393,7 +468,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
           )}
           <div className="wizard-btn-row">
             <button className="onboarding-next-btn" onClick={() => setPhase('credentials')}>
-              {isTelegram ? text.tgInstructionsNext : isDingTalk ? text.dtInstructionsNext : text.fsInstructionsNext}
+              {isTelegram ? text.tgInstructionsNext : isDingTalk ? text.dtInstructionsNext : isRelay ? text.relayInstructionsNext : text.fsInstructionsNext}
             </button>
             <button className="onboarding-skip-step-btn" onClick={() => setPhase('intro')}>
               {text.back}
@@ -406,7 +481,7 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
       {phase === 'credentials' && (
         <div>
           <h2 className="onboarding-step-title">
-            {isTelegram ? text.tgCredTitle : isDingTalk ? text.dtCredTitle : text.fsCredTitle}
+            {isTelegram ? text.tgCredTitle : isDingTalk ? text.dtCredTitle : isRelay ? text.relayCredTitle : text.fsCredTitle}
           </h2>
           {isTelegram ? (
             <div className="apikey-input-group">
@@ -460,6 +535,61 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
                 />
               </div>
             </>
+          ) : isRelay ? (
+            <>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-relay-account-id">{text.relayAccountIdLabel}</label>
+                <input
+                  id="csw-relay-account-id"
+                  type="text"
+                  className="apikey-input"
+                  data-testid="relay-account-id-input"
+                  placeholder={text.relayAccountIdPlaceholder}
+                  value={relayAccountId}
+                  onChange={e => { setRelayAccountId(e.target.value); setCredError(null); }}
+                />
+              </div>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-relay-url">{text.relayUrlLabel}</label>
+                <input
+                  id="csw-relay-url"
+                  type="text"
+                  className="apikey-input"
+                  data-testid="relay-url-input"
+                  placeholder={text.relayUrlPlaceholder}
+                  value={relayUrl}
+                  onChange={e => { setRelayUrl(e.target.value); setCredError(null); }}
+                />
+              </div>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-relay-secret">{text.relaySecretLabel}</label>
+                <input
+                  id="csw-relay-secret"
+                  type="password"
+                  className="apikey-input"
+                  data-testid="relay-secret-input"
+                  placeholder={text.relaySecretPlaceholder}
+                  value={relaySecret}
+                  onChange={e => { setRelaySecret(e.target.value); setCredError(null); }}
+                />
+              </div>
+              <div className="apikey-input-group">
+                <label htmlFor="csw-relay-notify-channel">{text.relayNotifyChannelLabel}</label>
+                <select
+                  id="csw-relay-notify-channel"
+                  className="apikey-input"
+                  data-testid="relay-notify-channel-select"
+                  value={relayNotifyChannelId}
+                  onChange={e => setRelayNotifyChannelId(e.target.value)}
+                >
+                  <option value="">{text.relayNotifyChannelNone}</option>
+                  {availableChannels.map(ch => (
+                    <option key={ch.id} value={ch.id}>{ch.displayName} ({ch.connectorKind})</option>
+                  ))}
+                </select>
+                <p className="apikey-hint">{text.relayNotifyChannelHint}</p>
+              </div>
+            </>
           ) : (
             <>
               <div className="apikey-input-group">
@@ -498,6 +628,15 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
                 disabled={!dingTalkAppKey || !dingTalkAppSecret || !dingTalkRobotCode}
               >
                 {text.dtTestBtn}
+              </button>
+            ) : isRelay ? (
+              <button
+                className="test-connection-btn"
+                data-testid="test-relay-btn"
+                onClick={() => setPhase('delivery')}
+                disabled={!relayUrl}
+              >
+                {text.relayTestBtn}
               </button>
             ) : (
               <button
@@ -587,6 +726,16 @@ export function ChannelSetupWizard({ onComplete, onDismiss }: ChannelSetupWizard
                 <li><strong>{text.dtSuccessStep3}</strong></li>
               </ol>
               <p className="onboarding-step-desc">{text.dtSuccessDesc}</p>
+            </>
+          ) : isRelay ? (
+            <>
+              <h2 className="onboarding-step-title">{text.relaySuccessTitle}</h2>
+              <ol className="telegram-instructions" style={{ marginBottom: 12 }}>
+                <li>{text.relaySuccessStep1}</li>
+                <li>{text.relaySuccessStep2}</li>
+                <li><strong>{text.relaySuccessStep3}</strong></li>
+              </ol>
+              <p className="onboarding-step-desc">{text.relaySuccessDesc}</p>
             </>
           ) : (
             <>

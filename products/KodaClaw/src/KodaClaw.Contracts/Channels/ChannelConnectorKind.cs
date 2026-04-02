@@ -10,4 +10,5 @@ public enum ChannelConnectorKind
     Feishu = 2,
     WeChat = 3,
     DingTalk = 4,
+    Relay = 5,
 }

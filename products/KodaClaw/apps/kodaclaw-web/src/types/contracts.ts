@@ -47,7 +47,7 @@ export type PluginTrustState = "Untrusted" | "Trusted" | "Signed";
 export type PluginTrustEvidenceSource = "LocalDigest" | "SignatureSidecar";
 export type PluginTrustVerificationState = "DigestOnly" | "Verified" | "Mismatch" | "Invalid";
 export type PluginRuntimeState = "Stopped" | "Starting" | "Running" | "Degraded";
-export type ChannelConnectorKind = "Telegram" | "GenericWebhook" | "Feishu" | "WeChat" | "DingTalk";
+export type ChannelConnectorKind = "Telegram" | "GenericWebhook" | "Feishu" | "WeChat" | "DingTalk" | "Relay";
 export type ChannelAccountState = "Disconnected" | "Connecting" | "Connected" | "Degraded";
 export type ChannelThreadType = "DirectMessage" | "Group";
 export type ChannelTurnOutcomeKind = "NoAction" | "DraftCreated" | "ApprovalRequested" | "Delivered" | "Failed";
@@ -992,6 +992,7 @@ export interface PatchChannelAccountRequest {
   displayName?: string | null;
   deliveryMode?: DeliveryMode | null;
   enabled?: boolean | null;
+  configurationJson?: string | null;
 }
 
 export interface CreateModelEndpointRequest {

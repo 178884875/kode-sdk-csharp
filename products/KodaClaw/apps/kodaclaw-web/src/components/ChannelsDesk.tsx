@@ -170,6 +170,27 @@ export function ChannelsDesk() {
       disable: "禁用",
       enable: "启用",
       delete: "删除",
+      edit: "编辑",
+      editForm: {
+        title: "编辑配置",
+        save: "保存",
+        saving: "保存中...",
+        cancel: "取消",
+        clear: "清除",
+        secretPlaceholder: "（保留原值）",
+        telegramToken: "Bot Token",
+        feishuAppId: "App ID",
+        feishuAppSecret: "App Secret",
+        dingTalkAppKey: "App Key",
+        dingTalkAppSecret: "App Secret",
+        dingTalkRobotCode: "Robot Code",
+        relayAccountId: "Account ID",
+        relayUrl: "Relay URL",
+        relaySecret: "共享密钥",
+        relayNotifyChannel: "通知渠道（可选）",
+        relayNotifyChannelNone: "不推送通知",
+        webhookPath: "Webhook 路径",
+      },
       addForm: {
         title: "添加渠道",
         stepLabel: (step: number, total: number) => `步骤 ${step}/${total}`,
@@ -178,6 +199,12 @@ export function ChannelsDesk() {
         feishuAppId: "App ID",
         feishuAppSecret: "App Secret",
         webhookPath: "Webhook 路径",
+        relayAccountId: "Account ID",
+        relayUrl: "Relay URL",
+        relaySecret: "共享密钥",
+        relayNotifyChannel: "通知渠道（可选）",
+        relayNotifyChannelNone: "不推送通知",
+        relayNotifyChannelHint: "社区通知将实时推送到此渠道",
         verifyToken: "验证 Token",
         verifyCredentials: "验证凭证",
         verifying: "验证中...",
@@ -318,6 +345,27 @@ export function ChannelsDesk() {
       disable: "Disable",
       enable: "Enable",
       delete: "Delete",
+      edit: "Edit",
+      editForm: {
+        title: "Edit Configuration",
+        save: "Save",
+        saving: "Saving...",
+        cancel: "Cancel",
+        clear: "Clear",
+        secretPlaceholder: "(keep original)",
+        telegramToken: "Bot Token",
+        feishuAppId: "App ID",
+        feishuAppSecret: "App Secret",
+        dingTalkAppKey: "App Key",
+        dingTalkAppSecret: "App Secret",
+        dingTalkRobotCode: "Robot Code",
+        relayAccountId: "Account ID",
+        relayUrl: "Relay URL",
+        relaySecret: "Shared Secret",
+        relayNotifyChannel: "Notify channel (optional)",
+        relayNotifyChannelNone: "No notifications",
+        webhookPath: "Webhook path",
+      },
       addForm: {
         title: "Add Channel",
         stepLabel: (step: number, total: number) => `Step ${step}/${total}`,
@@ -328,6 +376,12 @@ export function ChannelsDesk() {
         dingTalkAppKey: "App Key",
         dingTalkAppSecret: "App Secret",
         dingTalkRobotCode: "Robot Code",
+        relayAccountId: "Account ID",
+        relayUrl: "Relay URL",
+        relaySecret: "Shared Secret",
+        relayNotifyChannel: "Notify channel (optional)",
+        relayNotifyChannelNone: "No notifications",
+        relayNotifyChannelHint: "Community notifications will be pushed to this channel in real time",
         webhookPath: "Webhook path",
         verifyToken: "Verify Token",
         verifyCredentials: "Verify Credentials",
@@ -376,9 +430,27 @@ export function ChannelsDesk() {
   const [addFormDingTalkAppKey, setAddFormDingTalkAppKey] = useState("");
   const [addFormDingTalkAppSecret, setAddFormDingTalkAppSecret] = useState("");
   const [addFormDingTalkRobotCode, setAddFormDingTalkRobotCode] = useState("");
+  const [addFormRelayAccountId, setAddFormRelayAccountId] = useState("");
+  const [addFormRelayUrl, setAddFormRelayUrl] = useState("");
+  const [addFormRelaySecret, setAddFormRelaySecret] = useState("");
   const [addFormTesting, setAddFormTesting] = useState(false);
   const [addFormSaving, setAddFormSaving] = useState(false);
   const [addFormError, setAddFormError] = useState<string | null>(null);
+
+  // Edit account form state
+  const [editingAccount, setEditingAccount] = useState<ChannelAccount | null>(null);
+  const [editParsedConfig, setEditParsedConfig] = useState<Record<string, string>>({});
+  const [editRelayAccountId, setEditRelayAccountId] = useState('');
+  const [editRelayUrl, setEditRelayUrl] = useState('');
+  const [editRelayNotifyChannelId, setEditRelayNotifyChannelId] = useState('');
+  const [editFeishuAppId, setEditFeishuAppId] = useState('');
+  const [editDingTalkAppKey, setEditDingTalkAppKey] = useState('');
+  const [editDingTalkRobotCode, setEditDingTalkRobotCode] = useState('');
+  const [editWebhookPath, setEditWebhookPath] = useState('');
+  const [editSecretCleared, setEditSecretCleared] = useState<Record<string, boolean>>({});
+  const [editSecretNew, setEditSecretNew] = useState<Record<string, string>>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const listRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
@@ -667,6 +739,8 @@ export function ChannelsDesk() {
     setAddFormDingTalkAppKey("");
     setAddFormDingTalkAppSecret("");
     setAddFormDingTalkRobotCode("");
+    setAddFormRelayUrl("");
+    setAddFormRelaySecret("");
     setAddFormDeliveryMode("RequireApproval");
     setAddFormTelegramTestResult(null);
     setAddFormTesting(false);
@@ -749,12 +823,19 @@ export function ChannelsDesk() {
           appSecret: addFormDingTalkAppSecret.trim(),
           robotCode: addFormDingTalkRobotCode.trim(),
         });
+      } else if (addFormConnectorKind === "Relay") {
+        configurationJson = JSON.stringify({
+          accountId: addFormRelayAccountId.trim() || undefined,
+          relayUrl: addFormRelayUrl.trim(),
+          sharedSecret: addFormRelaySecret.trim() || undefined,
+        });
       }
 
       const defaultDisplayName =
         addFormConnectorKind === "Telegram" ? "Telegram Bot"
         : addFormConnectorKind === "Feishu" ? "飞书 Bot"
         : addFormConnectorKind === "DingTalk" ? "钉钉 Bot"
+        : addFormConnectorKind === "Relay" ? "Relay"
         : "Webhook";
 
       const request: CreateChannelAccountRequest = {
@@ -772,6 +853,83 @@ export function ChannelsDesk() {
       setAddFormError(nextError instanceof Error ? nextError.message : "Failed to create channel account.");
     } finally {
       setAddFormSaving(false);
+    }
+  }
+
+  function handleOpenEdit(account: ChannelAccount) {
+    let config: Record<string, string> = {};
+    try {
+      if (account.configurationJson) {
+        config = JSON.parse(account.configurationJson) as Record<string, string>;
+      }
+    } catch { /* ignore */ }
+
+    setEditingAccount(account);
+    setEditParsedConfig(config);
+    setEditSecretCleared({});
+    setEditSecretNew({});
+    setEditSaving(false);
+    setEditError(null);
+
+    if (account.connectorKind === 'Relay') {
+      setEditRelayAccountId(config['accountId'] ?? '');
+      setEditRelayUrl(config['relayUrl'] ?? '');
+      setEditRelayNotifyChannelId(config['notifyChannelId'] ?? '');
+    } else if (account.connectorKind === 'Feishu') {
+      setEditFeishuAppId(config['appId'] ?? '');
+    } else if (account.connectorKind === 'DingTalk') {
+      setEditDingTalkAppKey(config['appKey'] ?? '');
+      setEditDingTalkRobotCode(config['robotCode'] ?? '');
+    } else if (account.connectorKind === 'GenericWebhook') {
+      setEditWebhookPath(config['webhookPath'] ?? '');
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!editingAccount) return;
+    setEditSaving(true);
+    setEditError(null);
+
+    const secretValue = (key: string): string | undefined => {
+      if (editSecretCleared[key]) {
+        return editSecretNew[key] ?? '';
+      }
+      return editParsedConfig[key] ?? undefined;
+    };
+
+    try {
+      let config: Record<string, unknown> = {};
+
+      if (editingAccount.connectorKind === 'Telegram') {
+        config = { botToken: secretValue('botToken') };
+      } else if (editingAccount.connectorKind === 'Feishu') {
+        config = { appId: editFeishuAppId.trim(), appSecret: secretValue('appSecret') };
+      } else if (editingAccount.connectorKind === 'DingTalk') {
+        config = {
+          appKey: editDingTalkAppKey.trim(),
+          appSecret: secretValue('appSecret'),
+          robotCode: editDingTalkRobotCode.trim(),
+        };
+      } else if (editingAccount.connectorKind === 'Relay') {
+        config = {
+          accountId: editRelayAccountId.trim() || undefined,
+          relayUrl: editRelayUrl.trim(),
+          sharedSecret: secretValue('sharedSecret') || undefined,
+          notifyChannelId: editRelayNotifyChannelId.trim() || undefined,
+        };
+      } else if (editingAccount.connectorKind === 'GenericWebhook') {
+        config = { webhookPath: editWebhookPath.trim() };
+      }
+
+      await updateChannelAccount(editingAccount.id, {
+        configurationJson: JSON.stringify(config),
+      });
+      setEditingAccount(null);
+      await handleRefresh();
+    } catch (nextError) {
+      setEditError(nextError instanceof Error ? nextError.message : 'Failed to save configuration.');
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -842,6 +1000,7 @@ export function ChannelsDesk() {
       case "Telegram": return "#0088CC";
       case "Feishu": return "#00B96B";
       case "DingTalk": return "#3296FA";
+      case "Relay": return "#8B5CF6";
       default: return "var(--border-medium)";
     }
   }
@@ -995,6 +1154,14 @@ export function ChannelsDesk() {
                     {account.inboundEnabled ? text.disable : text.enable}
                   </Button>
                   <Button
+                    variant="ghost"
+                    size="sm"
+                    data-testid={`channel-account-edit-${account.id}`}
+                    onClick={() => handleOpenEdit(account)}
+                  >
+                    {text.edit}
+                  </Button>
+                  <Button
                     variant="danger"
                     size="sm"
                     data-testid={`channel-account-delete-${account.id}`}
@@ -1051,6 +1218,7 @@ export function ChannelsDesk() {
                       <option value="Telegram">Telegram</option>
                       <option value="Feishu">飞书 / Lark</option>
                       <option value="DingTalk">钉钉 / DingTalk</option>
+                      <option value="Relay">Relay (WebSocket)</option>
                       <option value="GenericWebhook">Generic Webhook</option>
                     </Select>
                     <div className="channel-add-form__actions">
@@ -1137,6 +1305,42 @@ export function ChannelsDesk() {
                           value={addFormDingTalkRobotCode}
                           onChange={(e) => setAddFormDingTalkRobotCode(e.target.value)}
                           placeholder="dingxxxxxxxxx"
+                        />
+                      </>
+                    ) : addFormConnectorKind === "Relay" ? (
+                      <>
+                        <label className="metric-label" htmlFor="channel-form-relay-account-id">
+                          {text.addForm.relayAccountId}
+                        </label>
+                        <input
+                          id="channel-form-relay-account-id"
+                          className="kc-input"
+                          type="text"
+                          value={addFormRelayAccountId}
+                          onChange={(e) => setAddFormRelayAccountId(e.target.value)}
+                          placeholder="Account ID (from community relay instance)"
+                        />
+                        <label className="metric-label" htmlFor="channel-form-relay-url">
+                          {text.addForm.relayUrl}
+                        </label>
+                        <input
+                          id="channel-form-relay-url"
+                          className="kc-input"
+                          type="text"
+                          value={addFormRelayUrl}
+                          onChange={(e) => setAddFormRelayUrl(e.target.value)}
+                          placeholder="wss://community.ai-koda.com/ws/relay"
+                        />
+                        <label className="metric-label" htmlFor="channel-form-relay-secret">
+                          {text.addForm.relaySecret}
+                        </label>
+                        <input
+                          id="channel-form-relay-secret"
+                          className="kc-input"
+                          type="password"
+                          value={addFormRelaySecret}
+                          onChange={(e) => setAddFormRelaySecret(e.target.value)}
+                          placeholder="Shared Secret"
                         />
                       </>
                     ) : (
@@ -1428,6 +1632,197 @@ export function ChannelsDesk() {
           )}
         </section>
       </div>
+
+      {editingAccount ? (
+        <div className="channel-edit-modal-overlay" data-testid="channel-edit-modal">
+          <div className="channel-add-form">
+            <div className="channel-add-form__header">
+              <span className="channel-add-form__title">{text.editForm.title}</span>
+              <span className="channel-add-form__step">{editingAccount.connectorKind} · {editingAccount.displayName}</span>
+            </div>
+
+            {editingAccount.connectorKind === 'Telegram' ? (
+              <>
+                <label className="metric-label" htmlFor="channel-edit-bot-token">{text.editForm.telegramToken}</label>
+                {editSecretCleared['botToken'] ? (
+                  <input
+                    id="channel-edit-bot-token"
+                    className="kc-input"
+                    type="password"
+                    value={editSecretNew['botToken'] ?? ''}
+                    onChange={(e) => setEditSecretNew((prev) => ({ ...prev, botToken: e.target.value }))}
+                    placeholder="123456789:ABC..."
+                  />
+                ) : (
+                  <div className="channel-edit-secret-row">
+                    <input className="kc-input channel-edit-secret-masked" type="text" value="••••••" disabled />
+                    <Button variant="ghost" size="sm" onClick={() => setEditSecretCleared((prev) => ({ ...prev, botToken: true }))}>
+                      {text.editForm.clear}
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : editingAccount.connectorKind === 'Feishu' ? (
+              <>
+                <label className="metric-label" htmlFor="channel-edit-feishu-app-id">{text.editForm.feishuAppId}</label>
+                <input
+                  id="channel-edit-feishu-app-id"
+                  className="kc-input"
+                  type="text"
+                  value={editFeishuAppId}
+                  onChange={(e) => setEditFeishuAppId(e.target.value)}
+                  placeholder="cli_xxxxxxxxxxxxxxxx"
+                />
+                <label className="metric-label" htmlFor="channel-edit-feishu-app-secret">{text.editForm.feishuAppSecret}</label>
+                {editSecretCleared['appSecret'] ? (
+                  <input
+                    id="channel-edit-feishu-app-secret"
+                    className="kc-input"
+                    type="password"
+                    value={editSecretNew['appSecret'] ?? ''}
+                    onChange={(e) => setEditSecretNew((prev) => ({ ...prev, appSecret: e.target.value }))}
+                    placeholder="App Secret"
+                  />
+                ) : (
+                  <div className="channel-edit-secret-row">
+                    <input className="kc-input channel-edit-secret-masked" type="text" value="••••••" disabled />
+                    <Button variant="ghost" size="sm" onClick={() => setEditSecretCleared((prev) => ({ ...prev, appSecret: true }))}>
+                      {text.editForm.clear}
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : editingAccount.connectorKind === 'DingTalk' ? (
+              <>
+                <label className="metric-label" htmlFor="channel-edit-dingtalk-app-key">{text.editForm.dingTalkAppKey}</label>
+                <input
+                  id="channel-edit-dingtalk-app-key"
+                  className="kc-input"
+                  type="text"
+                  value={editDingTalkAppKey}
+                  onChange={(e) => setEditDingTalkAppKey(e.target.value)}
+                  placeholder="dingxxxxxxxxx"
+                />
+                <label className="metric-label" htmlFor="channel-edit-dingtalk-app-secret">{text.editForm.dingTalkAppSecret}</label>
+                {editSecretCleared['appSecret'] ? (
+                  <input
+                    id="channel-edit-dingtalk-app-secret"
+                    className="kc-input"
+                    type="password"
+                    value={editSecretNew['appSecret'] ?? ''}
+                    onChange={(e) => setEditSecretNew((prev) => ({ ...prev, appSecret: e.target.value }))}
+                    placeholder="App Secret"
+                  />
+                ) : (
+                  <div className="channel-edit-secret-row">
+                    <input className="kc-input channel-edit-secret-masked" type="text" value="••••••" disabled />
+                    <Button variant="ghost" size="sm" onClick={() => setEditSecretCleared((prev) => ({ ...prev, appSecret: true }))}>
+                      {text.editForm.clear}
+                    </Button>
+                  </div>
+                )}
+                <label className="metric-label" htmlFor="channel-edit-dingtalk-robot-code">{text.editForm.dingTalkRobotCode}</label>
+                <input
+                  id="channel-edit-dingtalk-robot-code"
+                  className="kc-input"
+                  type="text"
+                  value={editDingTalkRobotCode}
+                  onChange={(e) => setEditDingTalkRobotCode(e.target.value)}
+                  placeholder="dingxxxxxxxxx"
+                />
+              </>
+            ) : editingAccount.connectorKind === 'Relay' ? (
+              <>
+                <label className="metric-label" htmlFor="channel-edit-relay-account-id">{text.editForm.relayAccountId}</label>
+                <input
+                  id="channel-edit-relay-account-id"
+                  className="kc-input"
+                  type="text"
+                  value={editRelayAccountId}
+                  onChange={(e) => setEditRelayAccountId(e.target.value)}
+                  placeholder="Account ID"
+                />
+                <label className="metric-label" htmlFor="channel-edit-relay-url">{text.editForm.relayUrl}</label>
+                <input
+                  id="channel-edit-relay-url"
+                  className="kc-input"
+                  type="text"
+                  value={editRelayUrl}
+                  onChange={(e) => setEditRelayUrl(e.target.value)}
+                  placeholder="wss://..."
+                />
+                <label className="metric-label" htmlFor="channel-edit-relay-secret">{text.editForm.relaySecret}</label>
+                {editSecretCleared['sharedSecret'] ? (
+                  <input
+                    id="channel-edit-relay-secret"
+                    className="kc-input"
+                    type="password"
+                    value={editSecretNew['sharedSecret'] ?? ''}
+                    onChange={(e) => setEditSecretNew((prev) => ({ ...prev, sharedSecret: e.target.value }))}
+                    placeholder="Shared Secret"
+                  />
+                ) : (
+                  <div className="channel-edit-secret-row">
+                    <input className="kc-input channel-edit-secret-masked" type="text" value="••••••" disabled />
+                    <Button variant="ghost" size="sm" onClick={() => setEditSecretCleared((prev) => ({ ...prev, sharedSecret: true }))}>
+                      {text.editForm.clear}
+                    </Button>
+                  </div>
+                )}
+                <label className="metric-label" htmlFor="channel-edit-relay-notify">{text.editForm.relayNotifyChannel}</label>
+                <select
+                  id="channel-edit-relay-notify"
+                  className="kc-input"
+                  value={editRelayNotifyChannelId}
+                  onChange={(e) =>
+                    setEditRelayNotifyChannelId(e.target.value)}
+                >
+                  <option value="">{text.editForm.relayNotifyChannelNone}</option>
+                  {accounts
+                    .filter((a) => a.inboundEnabled && a.id !== editingAccount?.id)
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.connectorKind} · {a.displayName}
+                      </option>
+                    ))}
+                </select>
+              </>
+            ) : (
+              <>
+                <label className="metric-label" htmlFor="channel-edit-webhook-path">{text.editForm.webhookPath}</label>
+                <input
+                  id="channel-edit-webhook-path"
+                  className="kc-input"
+                  type="text"
+                  value={editWebhookPath}
+                  onChange={(e) => setEditWebhookPath(e.target.value)}
+                  placeholder="/webhook/my-hook"
+                />
+              </>
+            )}
+
+            {editError ? (
+              <p className="desk-feedback desk-feedback--error">{editError}</p>
+            ) : null}
+            <div className="channel-add-form__actions">
+              <Button
+                variant="secondary"
+                disabled={editSaving}
+                onClick={() => setEditingAccount(null)}
+              >
+                {text.editForm.cancel}
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={editSaving}
+                onClick={() => { void handleSaveEdit(); }}
+              >
+                {editSaving ? text.editForm.saving : text.editForm.save}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ConfirmModal
         open={deleteConfirm !== null}

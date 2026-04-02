@@ -36,6 +36,9 @@ public sealed class WorkspaceService : IWorkspaceService
     ];
 
     private readonly IWorkspaceGitService? _git;
+
+    // 防止多个 HostedService 并发调用 EnsureInitializedAsync 时 Windows 文件锁竞态
+    private static readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly IDiagnosticsService? _diagnosticsService;
 
     public WorkspaceService(
@@ -77,102 +80,110 @@ public sealed class WorkspaceService : IWorkspaceService
 
     public async Task<WorkspaceSnapshot> EnsureInitializedAsync(CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(RootPath);
-
-        foreach (var relativeDirectory in RequiredDirectories)
+        await _initLock.WaitAsync(cancellationToken);
+        try
         {
-            Directory.CreateDirectory(GetAbsolutePath(relativeDirectory));
-        }
-
-        var appConfigPath = GetAbsolutePath(
-            KodaClawWorkspaceLayout.ConfigDirectory,
-            KodaClawWorkspaceLayout.AppConfigFile);
-
-        await WriteJsonIfMissingAsync(
-            appConfigPath,
-            new WorkspaceAppConfig(),
-            cancellationToken);
-        var appConfig = await LoadAppConfigAsync(cancellationToken);
-        await WriteJsonIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.GatewayConfigFile),
-            new GatewayConfig(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ModelsConfigFile),
-            DefaultWorkspaceTemplates.EmptyObjectJson(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.PluginsConfigFile),
-            DefaultWorkspaceTemplates.EmptyObjectJson(),
-            cancellationToken);
-        await WriteJsonIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.DeviceIdentityFile),
-            CreateDeviceIdentity(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.ProfileFile),
-            DefaultWorkspaceTemplates.EmptyObjectJson(),
-            cancellationToken);
-
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.AgentsFile),
-            DefaultWorkspaceTemplates.Agents(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.IdentityFile),
-            DefaultWorkspaceTemplates.Identity(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.SoulFile),
-            DefaultWorkspaceTemplates.Soul(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.OntologyFile),
-            DefaultWorkspaceTemplates.Ontology(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.UserFile),
-            DefaultWorkspaceTemplates.User(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.MemoryFile),
-            DefaultWorkspaceTemplates.Memory(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.HeartbeatFile),
-            DefaultWorkspaceTemplates.Heartbeat(),
-            cancellationToken);
-        if (!appConfig.BootstrapCompleted)
-        {
-            await WriteTextIfMissingAsync(
-                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.BootstrapFile),
-                DefaultWorkspaceTemplates.Bootstrap(),
+            Directory.CreateDirectory(RootPath);
+    
+            foreach (var relativeDirectory in RequiredDirectories)
+            {
+                Directory.CreateDirectory(GetAbsolutePath(relativeDirectory));
+            }
+    
+            var appConfigPath = GetAbsolutePath(
+                KodaClawWorkspaceLayout.ConfigDirectory,
+                KodaClawWorkspaceLayout.AppConfigFile);
+    
+            await WriteJsonIfMissingAsync(
+                appConfigPath,
+                new WorkspaceAppConfig(),
                 cancellationToken);
+            var appConfig = await LoadAppConfigAsync(cancellationToken);
+            await WriteJsonIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.GatewayConfigFile),
+                new GatewayConfig(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.ModelsConfigFile),
+                DefaultWorkspaceTemplates.EmptyObjectJson(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.ConfigDirectory, KodaClawWorkspaceLayout.PluginsConfigFile),
+                DefaultWorkspaceTemplates.EmptyObjectJson(),
+                cancellationToken);
+            await WriteJsonIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.DeviceIdentityFile),
+                CreateDeviceIdentity(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.IdentityDirectory, KodaClawWorkspaceLayout.ProfileFile),
+                DefaultWorkspaceTemplates.EmptyObjectJson(),
+                cancellationToken);
+    
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.AgentsFile),
+                DefaultWorkspaceTemplates.Agents(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.IdentityFile),
+                DefaultWorkspaceTemplates.Identity(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.SoulFile),
+                DefaultWorkspaceTemplates.Soul(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.OntologyFile),
+                DefaultWorkspaceTemplates.Ontology(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.UserFile),
+                DefaultWorkspaceTemplates.User(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.MemoryFile),
+                DefaultWorkspaceTemplates.Memory(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.HeartbeatFile),
+                DefaultWorkspaceTemplates.Heartbeat(),
+                cancellationToken);
+            if (!appConfig.BootstrapCompleted)
+            {
+                await WriteTextIfMissingAsync(
+                    GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.BootstrapFile),
+                    DefaultWorkspaceTemplates.Bootstrap(),
+                    cancellationToken);
+            }
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.ToolsFile),
+                DefaultWorkspaceTemplates.Tools(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.McpConfigFile),
+                DefaultWorkspaceTemplates.McpConfig(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, "canvas", "index.html"),
+                DefaultWorkspaceTemplates.CanvasIndex(),
+                cancellationToken);
+            await WriteTextIfMissingAsync(
+                GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, "canvas", "state.json"),
+                DefaultWorkspaceTemplates.CanvasState(),
+                cancellationToken);
+    
+            if (_git is not null)
+                await _git.EnsureGitRepoAsync(cancellationToken);
+    
+            RecordDiagnostic("workspace.initialized", "debug",
+                $"Workspace initialized at {RootPath}.");
+    
+            return await GetSnapshotAsync(cancellationToken);
         }
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.ToolsFile),
-            DefaultWorkspaceTemplates.Tools(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, KodaClawWorkspaceLayout.McpConfigFile),
-            DefaultWorkspaceTemplates.McpConfig(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, "canvas", "index.html"),
-            DefaultWorkspaceTemplates.CanvasIndex(),
-            cancellationToken);
-        await WriteTextIfMissingAsync(
-            GetAbsolutePath(KodaClawWorkspaceLayout.WorkspaceDirectory, "canvas", "state.json"),
-            DefaultWorkspaceTemplates.CanvasState(),
-            cancellationToken);
-
-        if (_git is not null)
-            await _git.EnsureGitRepoAsync(cancellationToken);
-
-        RecordDiagnostic("workspace.initialized", "debug",
-            $"Workspace initialized at {RootPath}.");
-
-        return await GetSnapshotAsync(cancellationToken);
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<WorkspaceAppConfig> LoadAppConfigAsync(CancellationToken cancellationToken = default)

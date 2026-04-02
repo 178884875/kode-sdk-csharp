@@ -3,6 +3,7 @@ using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.DingTalk;
 using KodaClaw.ChannelHub.Connectors.WeChat;
+using KodaClaw.ChannelHub.Connectors.Relay;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 
@@ -16,6 +17,7 @@ internal sealed class ChannelInboundGatewayService
     private readonly FeishuConnector _feishuConnector;
     private readonly WeChatConnector _weChatConnector;
     private readonly DingTalkConnector _dingTalkConnector;
+    private readonly RelayConnector _relayConnector;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IDiagnosticsService? _diagnosticsService;
 
@@ -26,6 +28,7 @@ internal sealed class ChannelInboundGatewayService
         FeishuConnector feishuConnector,
         WeChatConnector weChatConnector,
         DingTalkConnector dingTalkConnector,
+        RelayConnector relayConnector,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IDiagnosticsService? diagnosticsService = null)
     {
@@ -35,6 +38,7 @@ internal sealed class ChannelInboundGatewayService
         _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
         _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
         _dingTalkConnector = dingTalkConnector ?? throw new ArgumentNullException(nameof(dingTalkConnector));
+        _relayConnector = relayConnector ?? throw new ArgumentNullException(nameof(relayConnector));
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _diagnosticsService = diagnosticsService;
     }
@@ -209,6 +213,37 @@ internal sealed class ChannelInboundGatewayService
         CancellationToken cancellationToken = default)
     {
         return _dingTalkConnector.StopAsync(accountId, cancellationToken);
+    }
+
+    public async Task StartRelayAccountAsync(
+        ChannelAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        if (account.ConnectorKind != ChannelConnectorKind.Relay)
+        {
+            return;
+        }
+
+        try
+        {
+            await _relayConnector.StartAsync(
+                account,
+                async (envelope, token) =>
+                    await ProcessAsync(envelope, token),
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
+        {
+            // Account is already live; keep current connection.
+        }
+    }
+
+    public Task StopRelayAccountAsync(
+        string accountId,
+        CancellationToken cancellationToken = default)
+    {
+        return _relayConnector.StopAsync(accountId, cancellationToken);
     }
 
     private void RecordChannelEvent(string eventType, string level, string message, string? accountId = null)
