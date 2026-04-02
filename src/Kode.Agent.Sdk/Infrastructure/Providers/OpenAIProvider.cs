@@ -1,15 +1,20 @@
 using System.ClientModel;
+using System.ClientModel.Primitives;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Chat;
 using ContentBlock = Kode.Agent.Sdk.Core.Types.ContentBlock;
+using FileContent = Kode.Agent.Sdk.Core.Types.FileContent;
 using ImageContent = Kode.Agent.Sdk.Core.Types.ImageContent;
 using Message = Kode.Agent.Sdk.Core.Types.Message;
 using TextContent = Kode.Agent.Sdk.Core.Types.TextContent;
 using ToolResultContent = Kode.Agent.Sdk.Core.Types.ToolResultContent;
 using ToolUseContent = Kode.Agent.Sdk.Core.Types.ToolUseContent;
+using VideoContent = Kode.Agent.Sdk.Core.Types.VideoContent;
 
 namespace Kode.Agent.Sdk.Infrastructure.Providers;
 
@@ -41,6 +46,11 @@ public sealed class OpenAIProvider : IModelProvider
             }
         }
 
+        // Inject MediaRewriteHttpHandler so video_url / file_url markers in content
+        // parts are rewritten to their proper JSON shapes before leaving the process.
+        clientOptions.Transport = new HttpClientPipelineTransport(
+            new HttpClient(new MediaRewriteHttpHandler()));
+
         _client = new OpenAIClient(
             new ApiKeyCredential(options.ApiKey),
             clientOptions);
@@ -52,6 +62,19 @@ public sealed class OpenAIProvider : IModelProvider
     public OpenAIProvider(HttpClient httpClient, OpenAIOptions options, ILogger<OpenAIProvider>? logger = null)
         : this(options, logger)
     {
+    }
+
+    /// <summary>
+    /// Internal constructor for testing — accepts a fully-configured
+    /// <see cref="OpenAIClientOptions"/> (including a mock transport).
+    /// The caller is responsible for chaining <see cref="MediaRewriteHttpHandler"/>
+    /// inside the transport if request-body transformation is required.
+    /// </summary>
+    internal OpenAIProvider(OpenAIOptions options, OpenAIClientOptions clientOptions, ILogger<OpenAIProvider>? logger = null)
+    {
+        _options = options;
+        _logger = logger;
+        _client = new OpenAIClient(new ApiKeyCredential(options.ApiKey), clientOptions);
     }
 
     public async IAsyncEnumerable<StreamChunk> StreamAsync(
@@ -138,8 +161,10 @@ public sealed class OpenAIProvider : IModelProvider
     {
         if (msg.Role == MessageRole.User)
         {
-            var hasImages = msg.Content.OfType<ImageContent>().Any();
-            if (!hasImages)
+            var hasMultiModal = msg.Content.OfType<ImageContent>().Any()
+                || msg.Content.OfType<VideoContent>().Any()
+                || msg.Content.OfType<FileContent>().Any();
+            if (!hasMultiModal)
             {
                 var text = string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
                 // Skip empty user messages (e.g. messages that contain only ToolResultContent —
@@ -148,7 +173,11 @@ public sealed class OpenAIProvider : IModelProvider
                 return new UserChatMessage(text);
             }
 
-            // Multi-modal user message: build content part list
+            // Multi-modal user message: build content part list.
+            // VideoContent and FileContent are not natively supported by the OpenAI SDK, so they
+            // are encoded as specially-prefixed text parts.  MediaRewriteHttpHandler rewrites them
+            // into the correct video_url / file_url JSON shapes at the HTTP layer before the
+            // request leaves the process.
             var parts = new List<ChatMessageContentPart>();
             foreach (var block in msg.Content)
             {
@@ -165,6 +194,14 @@ public sealed class OpenAIProvider : IModelProvider
                             BinaryData.FromBytes(Convert.FromBase64String(img.Data)),
                             img.MediaType ?? "image/png"));
                         break;
+                    case VideoContent video:
+                        parts.Add(ChatMessageContentPart.CreateTextPart(
+                            MediaRewriteHttpHandler.VideoMarker + video.Url));
+                        break;
+                    case FileContent file:
+                        parts.Add(ChatMessageContentPart.CreateTextPart(
+                            MediaRewriteHttpHandler.FileMarker + file.Url));
+                        break;
                 }
             }
             return new UserChatMessage(parts);
@@ -174,7 +211,7 @@ public sealed class OpenAIProvider : IModelProvider
         {
             var toolUses = msg.Content.OfType<ToolUseContent>().ToList();
             var textContent = string.Join("", msg.Content.OfType<TextContent>().Select(t => t.Text));
-            
+
             if (toolUses.Count > 0)
             {
                 var toolCalls = toolUses.Select(tu =>
@@ -186,7 +223,7 @@ public sealed class OpenAIProvider : IModelProvider
 
                 // Create assistant message with tool calls
                 var assistantMessage = new AssistantChatMessage(toolCalls);
-                
+
                 // Always add content - OpenAI requires it even if empty
                 if (!string.IsNullOrEmpty(textContent))
                 {
@@ -197,7 +234,7 @@ public sealed class OpenAIProvider : IModelProvider
                     // Add empty text to satisfy OpenAI API requirement
                     assistantMessage.Content.Add(ChatMessageContentPart.CreateTextPart(""));
                 }
-                
+
                 return assistantMessage;
             }
 
@@ -402,6 +439,92 @@ public sealed class OpenAIProvider : IModelProvider
             },
             Model = response.Model ?? ""
         };
+    }
+}
+
+/// <summary>
+/// <see cref="DelegatingHandler"/> that rewrites specially-prefixed text content
+/// parts into <c>video_url</c> and <c>file_url</c> JSON shapes before the HTTP
+/// request is sent.  This is necessary because the OpenAI .NET SDK does not
+/// natively support these GLM-compatible content-part types; they are encoded
+/// as text parts with sentinel prefixes in <see cref="OpenAIProvider"/> and
+/// decoded here at the HTTP layer.
+/// </summary>
+internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
+    : DelegatingHandler(inner ?? new HttpClientHandler())
+{
+    /// <summary>Sentinel prefix for a <see cref="VideoContent"/> URL.</summary>
+    internal const string VideoMarker = "__KODE_VIDEO_URL__";
+
+    /// <summary>Sentinel prefix for a <see cref="FileContent"/> URL.</summary>
+    internal const string FileMarker = "__KODE_FILE_URL__";
+
+    protected override async Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request,
+        CancellationToken cancellationToken)
+    {
+        if (request.Content is not null)
+        {
+            var body = await request.Content.ReadAsStringAsync(cancellationToken);
+            var transformed = TransformMediaMarkers(body);
+            if (!ReferenceEquals(transformed, body))
+                request.Content = new StringContent(transformed, Encoding.UTF8, "application/json");
+        }
+
+        return await base.SendAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Walks the serialised request JSON and replaces any text content parts whose
+    /// text begins with <see cref="VideoMarker"/> or <see cref="FileMarker"/> with
+    /// the correct <c>video_url</c> / <c>file_url</c> object shapes.
+    /// Returns the original string (same reference) when no markers are found, to
+    /// avoid unnecessary allocations on the hot path.
+    /// </summary>
+    internal static string TransformMediaMarkers(string json)
+    {
+        // Fast pre-check: skip JSON parsing when no markers are present.
+        if (!json.Contains(VideoMarker, StringComparison.Ordinal)
+            && !json.Contains(FileMarker, StringComparison.Ordinal))
+            return json;
+
+        var root = JsonNode.Parse(json);
+        if (root is null) return json;
+
+        var messages = root["messages"]?.AsArray();
+        if (messages is null) return json;
+
+        bool changed = false;
+        foreach (var msg in messages)
+        {
+            if (msg?["content"] is not JsonArray parts) continue;
+
+            for (int i = 0; i < parts.Count; i++)
+            {
+                var part = parts[i];
+                if (part?["type"]?.GetValue<string>() != "text") continue;
+
+                var text = part["text"]?.GetValue<string>();
+                if (text is null) continue;
+
+                if (text.StartsWith(VideoMarker, StringComparison.Ordinal))
+                {
+                    var url = text[VideoMarker.Length..];
+                    parts[i] = JsonNode.Parse(JsonSerializer.Serialize(
+                        new { type = "video_url", video_url = new { url } }))!;
+                    changed = true;
+                }
+                else if (text.StartsWith(FileMarker, StringComparison.Ordinal))
+                {
+                    var url = text[FileMarker.Length..];
+                    parts[i] = JsonNode.Parse(JsonSerializer.Serialize(
+                        new { type = "file_url", file_url = new { url } }))!;
+                    changed = true;
+                }
+            }
+        }
+
+        return changed ? root.ToJsonString() : json;
     }
 }
 

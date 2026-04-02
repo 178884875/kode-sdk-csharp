@@ -77,6 +77,8 @@ public enum MessageRole
 [JsonDerivedType(typeof(ToolResultContent), "tool_result")]
 [JsonDerivedType(typeof(ThinkingContent), "thinking")]
 [JsonDerivedType(typeof(ImageContent), "image")]
+[JsonDerivedType(typeof(VideoContent), "video")]
+[JsonDerivedType(typeof(FileContent), "file")]
 public abstract record ContentBlock
 {
     /// <summary>
@@ -179,6 +181,44 @@ public record ImageContent : ContentBlock
     {
         Url = url
     };
+}
+
+/// <summary>
+/// Video content block (user-provided video URL).
+/// </summary>
+public record VideoContent : ContentBlock
+{
+    /// <inheritdoc />
+    public override string Type => "video";
+
+    /// <summary>
+    /// URL of the video.
+    /// </summary>
+    public required string Url { get; init; }
+
+    /// <summary>
+    /// Creates a video content block from a URL.
+    /// </summary>
+    public static VideoContent FromUrl(string url) => new() { Url = url };
+}
+
+/// <summary>
+/// File content block (user-provided file URL).
+/// </summary>
+public record FileContent : ContentBlock
+{
+    /// <inheritdoc />
+    public override string Type => "file";
+
+    /// <summary>
+    /// URL of the file.
+    /// </summary>
+    public required string Url { get; init; }
+
+    /// <summary>
+    /// Creates a file content block from a URL.
+    /// </summary>
+    public static FileContent FromUrl(string url) => new() { Url = url };
 }
 
 /// <summary>
