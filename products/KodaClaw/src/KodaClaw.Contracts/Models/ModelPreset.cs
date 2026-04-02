@@ -13,5 +13,6 @@ public sealed record ModelPreset(
     bool RequiresBaseUrl,
     ModelCapabilitySet DefaultCapabilities = ModelCapabilitySet.Text,
     int MaxOutputTokens = 8192,
-    bool IsReasoning = false
+    bool IsReasoning = false,
+    bool SupportsToolCalling = true
 );

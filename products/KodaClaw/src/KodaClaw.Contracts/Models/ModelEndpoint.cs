@@ -16,4 +16,5 @@ public sealed record ModelEndpoint(
     int ContextWindowSize = 128_000,
     int MaxOutputTokens = 8192,
     bool IsReasoning = false,
+    bool SupportsToolCalling = true,
     IReadOnlyDictionary<string, string>? CustomHeaders = null);

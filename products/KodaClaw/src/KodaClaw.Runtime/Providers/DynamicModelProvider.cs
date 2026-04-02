@@ -132,6 +132,10 @@ public sealed class DynamicModelProvider : IModelProvider
             return request;
         }
 
+        // Intentional: DynamicModelProvider is a single-model env-var path.
+        // It always overrides request.Model with the configured default.
+        // For multi-model or capability-aware routing, use RegistryAwareModelProvider
+        // with a populated model registry.
         return request with
         {
             Model = snapshot.DefaultModel,

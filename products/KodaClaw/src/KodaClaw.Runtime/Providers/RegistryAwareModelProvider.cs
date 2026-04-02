@@ -1,4 +1,5 @@
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Sdk.Infrastructure.Providers;
 using KodaClaw.Contracts;
 using KodaClaw.ModelHub;
@@ -6,27 +7,33 @@ using KodaClaw.ModelHub;
 namespace KodaClaw.Runtime;
 
 /// <summary>
-/// Registry-first IModelProvider: resolves the default Text endpoint
-/// from IModelRegistryRepository and constructs the appropriate LLM provider.
+/// Registry-first IModelProvider: resolves the appropriate endpoint from
+/// IModelRegistryRepository based on required capabilities inferred from the
+/// request content, then constructs the matching LLM provider.
 /// Falls back to DynamicModelProvider (env-var path) when the registry is empty.
 /// </summary>
 public sealed class RegistryAwareModelProvider : IModelProvider
 {
+    private const string DiagnosticSource = "registry_aware_model_provider";
+
     private readonly IModelRegistryRepository _registry;
     private readonly ISecretStore _secretStore;
     private readonly IRuntimeModelProviderFactory _factory;
     private readonly DynamicModelProvider _fallback;
+    private readonly IDiagnosticsService? _diagnosticsService;
 
     public RegistryAwareModelProvider(
         IModelRegistryRepository registry,
         ISecretStore secretStore,
         IRuntimeModelProviderFactory factory,
-        DynamicModelProvider fallback)
+        DynamicModelProvider fallback,
+        IDiagnosticsService? diagnosticsService = null)
     {
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _secretStore = secretStore ?? throw new ArgumentNullException(nameof(secretStore));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _fallback = fallback ?? throw new ArgumentNullException(nameof(fallback));
+        _diagnosticsService = diagnosticsService;
     }
 
     public string ProviderName => "registry";
@@ -75,13 +82,31 @@ public sealed class RegistryAwareModelProvider : IModelProvider
         ModelRequest request,
         CancellationToken cancellationToken)
     {
-        var endpoint = await _registry.ResolveDefaultForAsync(
-            ModelCapabilitySet.Text, cancellationToken);
+        var required = InferRequiredCapabilities(request);
+        var endpoint = await _registry.ResolveDefaultForAsync(required, cancellationToken);
+
+        // Capability-degraded fallback: no multimodal endpoint found, try Text-only
+        // and strip unsupported content blocks from the request.
+        if (endpoint is null && required != ModelCapabilitySet.Text)
+        {
+            endpoint = await _registry.ResolveDefaultForAsync(
+                ModelCapabilitySet.Text, cancellationToken);
+
+            if (endpoint is not null)
+            {
+                var stripped = StripUnsupportedContent(request, endpoint.Capabilities);
+                if (stripped != request)
+                {
+                    RecordDegradationEvent(endpoint, required, endpoint.Capabilities);
+                    request = stripped;
+                }
+            }
+        }
 
         if (endpoint is not null)
         {
             var provider = await BuildProviderAsync(endpoint, cancellationToken);
-            var normalized = NormalizeRequest(request, endpoint.ModelId, endpoint.MaxOutputTokens, endpoint.IsReasoning);
+            var normalized = NormalizeRequest(request, endpoint);
             return (provider, normalized);
         }
 
@@ -146,32 +171,112 @@ public sealed class RegistryAwareModelProvider : IModelProvider
             "Configure a key in Models settings or set the corresponding environment variable.");
     }
 
-    private static ModelRequest NormalizeRequest(
-        ModelRequest request,
-        string modelId,
-        int maxOutputTokens = 8192,
-        bool isReasoning = false)
+    /// <summary>
+    /// Normalizes the request for the resolved endpoint.
+    /// Throws <see cref="InvalidOperationException"/> if the endpoint does not
+    /// support tool calling but the request carries tool schemas — fail fast with
+    /// a clear message rather than silently stripping tools.
+    /// </summary>
+    private static ModelRequest NormalizeRequest(ModelRequest request, ModelEndpoint endpoint)
     {
         var normalized = request;
 
-        if (!string.IsNullOrWhiteSpace(modelId) &&
-            !string.Equals(request.Model, modelId, StringComparison.Ordinal))
+        if (!string.IsNullOrWhiteSpace(endpoint.ModelId) &&
+            !string.Equals(request.Model, endpoint.ModelId, StringComparison.Ordinal))
         {
-            normalized = normalized with { Model = modelId };
+            normalized = normalized with { Model = endpoint.ModelId };
         }
 
-        if (maxOutputTokens > 0 && normalized.MaxTokens is null)
+        if (endpoint.MaxOutputTokens > 0 && normalized.MaxTokens is null)
         {
-            normalized = normalized with { MaxTokens = maxOutputTokens };
+            normalized = normalized with { MaxTokens = endpoint.MaxOutputTokens };
         }
 
-        // Reasoning models (e.g. DeepSeek R1, o3-mini) do not support function calling.
-        // Strip tool schemas so the provider does not send tool_use blocks.
-        if (isReasoning && normalized.Tools is { Count: > 0 })
+        if (!endpoint.SupportsToolCalling && normalized.Tools is { Count: > 0 })
         {
-            normalized = normalized with { Tools = null };
+            throw new InvalidOperationException(
+                $"Model endpoint '{endpoint.DisplayName}' (id: {endpoint.Id}) does not support " +
+                "tool calling. KodaClaw sessions require tool calling. " +
+                "Please configure a model that supports function calling, or update the endpoint's " +
+                "SupportsToolCalling setting if the model has been updated.");
         }
 
         return normalized;
+    }
+
+    /// <summary>
+    /// Infers required ModelCapabilitySet from the content blocks present in the request messages.
+    /// Text is always required. Additional capabilities are added for image/video/file blocks.
+    /// </summary>
+    private static ModelCapabilitySet InferRequiredCapabilities(ModelRequest request)
+    {
+        var required = ModelCapabilitySet.Text;
+        foreach (var message in request.Messages)
+        {
+            foreach (var block in message.Content)
+            {
+                required |= block switch
+                {
+                    ImageContent => ModelCapabilitySet.Image,
+                    VideoContent => ModelCapabilitySet.Video,
+                    FileContent  => ModelCapabilitySet.File,
+                    _            => ModelCapabilitySet.None,
+                };
+            }
+        }
+        return required;
+    }
+
+    /// <summary>
+    /// Strips content blocks that require capabilities the endpoint does not have.
+    /// Used when degrading from a multimodal request to a text-only endpoint.
+    /// </summary>
+    private static ModelRequest StripUnsupportedContent(
+        ModelRequest request,
+        ModelCapabilitySet supported)
+    {
+        var messages = request.Messages
+            .Select(msg =>
+            {
+                var filtered = msg.Content
+                    .Where(block => block switch
+                    {
+                        ImageContent => supported.HasFlag(ModelCapabilitySet.Image),
+                        VideoContent => supported.HasFlag(ModelCapabilitySet.Video),
+                        FileContent  => supported.HasFlag(ModelCapabilitySet.File),
+                        _            => true,
+                    })
+                    .ToList();
+
+                return (IReadOnlyList<ContentBlock>)filtered == msg.Content
+                    ? msg
+                    : msg with { Content = filtered };
+            })
+            .ToList();
+
+        return request with { Messages = messages };
+    }
+
+    private void RecordDegradationEvent(
+        ModelEndpoint endpoint,
+        ModelCapabilitySet requested,
+        ModelCapabilitySet available)
+    {
+        _diagnosticsService?.Record(new DiagnosticEvent(
+            Id: Guid.NewGuid().ToString("N"),
+            Source: DiagnosticSource,
+            EventType: "multimodal_content_degraded",
+            Level: "Warning",
+            Message: $"No endpoint found for capabilities '{requested}'. " +
+                     $"Degraded to endpoint '{endpoint.DisplayName}' with capabilities '{available}'. " +
+                     "Unsupported content blocks (image/video/file) have been stripped from the request.",
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: new Dictionary<string, string?>
+            {
+                ["endpointId"]          = endpoint.Id,
+                ["endpointDisplayName"] = endpoint.DisplayName,
+                ["requestedCapabilities"] = requested.ToString(),
+                ["availableCapabilities"] = available.ToString(),
+            }));
     }
 }

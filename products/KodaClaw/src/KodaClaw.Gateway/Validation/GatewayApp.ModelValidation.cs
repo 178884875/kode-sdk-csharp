@@ -14,6 +14,7 @@ public static partial class GatewayApp
         int ContextWindowSize = 128_000,
         int MaxOutputTokens = 8192,
         bool IsReasoning = false,
+        bool SupportsToolCalling = true,
         IReadOnlyDictionary<string, string>? CustomHeaders = null);
 
     private static bool TryValidateModelEndpointRequest(
@@ -33,6 +34,7 @@ public static partial class GatewayApp
             request.ContextWindowSize,
             request.MaxOutputTokens,
             request.IsReasoning,
+            request.SupportsToolCalling,
             request.CustomHeaders,
             out validated,
             out error);
@@ -55,6 +57,7 @@ public static partial class GatewayApp
             request.ContextWindowSize,
             request.MaxOutputTokens,
             request.IsReasoning,
+            request.SupportsToolCalling,
             request.CustomHeaders,
             out validated,
             out error);
@@ -72,6 +75,7 @@ public static partial class GatewayApp
         int contextWindowSize,
         int maxOutputTokens,
         bool isReasoning,
+        bool supportsToolCalling,
         IReadOnlyDictionary<string, string>? customHeaders,
         out ValidatedModelEndpointRequest validated,
         out ErrorResponse? error)
@@ -167,6 +171,7 @@ public static partial class GatewayApp
             ContextWindowSize: contextWindowSize,
             MaxOutputTokens: maxOutputTokens > 0 ? maxOutputTokens : 8192,
             IsReasoning: isReasoning,
+            SupportsToolCalling: supportsToolCalling,
             CustomHeaders: normalizedCustomHeaders);
         return true;
     }

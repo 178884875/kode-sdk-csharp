@@ -639,6 +639,7 @@ export interface ModelEndpoint {
   contextWindowSize?: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
+  supportsToolCalling?: boolean;
   customHeaders?: Record<string, string> | null;
 }
 
@@ -1005,6 +1006,7 @@ export interface CreateModelEndpointRequest {
   contextWindowSize?: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
+  supportsToolCalling?: boolean;
   apiKeyValue?: string | null;
   customHeaders?: Record<string, string> | null;
 }
@@ -1021,6 +1023,7 @@ export interface UpdateModelEndpointRequest {
   contextWindowSize?: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
+  supportsToolCalling?: boolean;
   apiKeyValue?: string | null;
   customHeaders?: Record<string, string> | null;
 }
@@ -1133,6 +1136,7 @@ export interface ModelPreset {
   contextWindowSize: number;
   maxOutputTokens?: number;
   isReasoning?: boolean;
+  supportsToolCalling?: boolean;
   tier: 'Recommended' | 'Advanced' | 'Fast' | 'Reasoning' | 'Local';
   description: string;
   costHint?: string;

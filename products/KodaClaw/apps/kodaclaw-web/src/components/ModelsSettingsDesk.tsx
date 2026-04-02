@@ -55,6 +55,7 @@ type ModelDraft = {
   contextWindowSize: number;
   maxOutputTokens: number;
   isReasoning: boolean;
+  supportsToolCalling: boolean;
   customHeaders: Record<string, string>;
 };
 
@@ -70,6 +71,7 @@ const DEFAULT_MODEL_DRAFT: ModelDraft = {
   contextWindowSize: 128000,
   maxOutputTokens: 8192,
   isReasoning: false,
+  supportsToolCalling: true,
   customHeaders: {},
 };
 
@@ -104,6 +106,7 @@ function toCreateRequest(draft: ModelDraft): CreateModelEndpointRequest {
     contextWindowSize: draft.contextWindowSize,
     maxOutputTokens: draft.maxOutputTokens,
     isReasoning: draft.isReasoning,
+    supportsToolCalling: draft.supportsToolCalling,
     customHeaders: Object.keys(draft.customHeaders).length > 0 ? draft.customHeaders : null,
   };
 }
@@ -121,6 +124,7 @@ function toUpdateRequest(draft: ModelDraft): UpdateModelEndpointRequest {
     contextWindowSize: draft.contextWindowSize,
     maxOutputTokens: draft.maxOutputTokens,
     isReasoning: draft.isReasoning,
+    supportsToolCalling: draft.supportsToolCalling,
     customHeaders: Object.keys(draft.customHeaders).length > 0 ? draft.customHeaders : null,
   };
 }
@@ -138,6 +142,7 @@ function toDraft(endpoint: ModelEndpoint): ModelDraft {
     contextWindowSize: endpoint.contextWindowSize ?? 128000,
     maxOutputTokens: endpoint.maxOutputTokens ?? 8192,
     isReasoning: endpoint.isReasoning ?? false,
+    supportsToolCalling: endpoint.supportsToolCalling ?? true,
     customHeaders: endpoint.customHeaders ?? {},
   };
 }
@@ -236,7 +241,8 @@ export function ModelsSettingsDesk() {
         } as Record<string, string>,
         contextWindowSize: "上下文窗口大小（token）",
         maxOutputTokens: "最大输出 Token",
-        isReasoning: "推理模型（禁用工具调用）",
+        isReasoning: "推理模型（CoT 模式）",
+        supportsToolCalling: "支持工具调用",
         advancedOptions: "高级选项",
         customHeadersLabel: "自定义请求头",
         customHeadersKeyPlaceholder: "User-Agent",
@@ -342,7 +348,8 @@ export function ModelsSettingsDesk() {
         } as Record<string, string>,
         contextWindowSize: "Context window size (tokens)",
         maxOutputTokens: "Max output tokens",
-        isReasoning: "Reasoning model (no tool calls)",
+        isReasoning: "Reasoning model (chain-of-thought mode)",
+        supportsToolCalling: "Supports tool calling",
         advancedOptions: "Advanced options",
         customHeadersLabel: "Custom request headers",
         customHeadersKeyPlaceholder: "User-Agent",
@@ -781,6 +788,7 @@ export function ModelsSettingsDesk() {
                       contextWindowSize: preset.contextWindowSize ?? current.contextWindowSize,
                       maxOutputTokens: preset.maxOutputTokens ?? current.maxOutputTokens,
                       isReasoning: preset.isReasoning ?? current.isReasoning,
+                      supportsToolCalling: preset.supportsToolCalling ?? current.supportsToolCalling,
                     }));
                     setTestResult(null);
                   } else {
@@ -1024,6 +1032,16 @@ export function ModelsSettingsDesk() {
                 onChange={(event) => setModelDraft((current) => ({ ...current, isReasoning: event.target.checked }))}
               />
               <span>{text.composer.isReasoning}</span>
+            </label>
+            {/* 11b. supportsToolCalling */}
+            <label className="bootstrap-form__toggle">
+              <input
+                data-testid="model-supports-tool-calling"
+                type="checkbox"
+                checked={modelDraft.supportsToolCalling}
+                onChange={(event) => setModelDraft((current) => ({ ...current, supportsToolCalling: event.target.checked }))}
+              />
+              <span>{text.composer.supportsToolCalling}</span>
             </label>
             {/* 12. Capabilities */}
             <div className="bootstrap-form__field">
