@@ -276,7 +276,7 @@ public sealed class GatewayDiagnosticsIntegrationTests
                 EventType: "gateway.chat.requested",
                 Level: "info",
                 Message: $"event-{index}",
-                Timestamp: new DateTimeOffset(2026, 3, 18, 10, 0, 0, TimeSpan.Zero).AddMinutes(index),
+                Timestamp: DateTimeOffset.UtcNow.AddDays(1).AddMinutes(index),
                 CorrelationId: $"corr-{index:000}",
                 SessionId: "session-main"))
             .ToArray();

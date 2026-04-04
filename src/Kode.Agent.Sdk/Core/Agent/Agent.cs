@@ -605,11 +605,24 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
 
     private async Task<AgentRunResult> RunMultimodalAsync(IReadOnlyList<ContentBlock> parts, CancellationToken cancellationToken = default)
     {
-        using var runActivity = KodeAgentActivitySource.Source.StartActivity("agent.run");
-        runActivity?.SetTag("agent.model", _config.Model);
+        // OT-1B: propagate parent trace context so sub-agent spans are children of the spawning tool span.
+        var parentCtx = _config.ParentActivityContext != default ? _config.ParentActivityContext : default(ActivityContext?);
+        using var runActivity = KodeAgentActivitySource.Source.StartActivity(
+            "agent.run",
+            ActivityKind.Internal,
+            parentCtx ?? default);
         runActivity?.SetTag("agent.model", _config.Model);
         runActivity?.SetTag("agent.max_iterations", _config.MaxIterations);
-        KodeAgentMetrics.RunsStarted.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
+        runActivity?.SetTag("agent.session_type", _config.SessionType);
+        runActivity?.SetTag("agent.role", _config.AgentRole);
+        // OT-2A: tag RunsStarted with session/role dimensions for cost attribution.
+        var runDimensions = new TagList
+        {
+            { "model", _config.Model },
+            { "session_type", _config.SessionType },
+            { "agent_role", _config.AgentRole }
+        };
+        KodeAgentMetrics.RunsStarted.Add(1, runDimensions);
         var runStopwatch = Stopwatch.StartNew();
 
         TransitionState(AgentRuntimeState.Working);
@@ -653,9 +666,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             }
 
             runStopwatch.Stop();
-            KodeAgentMetrics.RunsCompleted.Add(1, new KeyValuePair<string, object?>("model", _config.Model));
-            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds,
-                new KeyValuePair<string, object?>("model", _config.Model));
+            KodeAgentMetrics.RunsCompleted.Add(1, runDimensions);
+            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds, runDimensions);
             runActivity?.SetTag("agent.stop_reason", stopReason.ToString());
             runActivity?.SetTag("agent.tokens.total", totalUsage.InputTokens + totalUsage.OutputTokens);
 
@@ -670,8 +682,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             runStopwatch.Stop();
-            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds,
-                new KeyValuePair<string, object?>("model", _config.Model));
+            KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds, runDimensions);
             runActivity?.SetStatus(ActivityStatusCode.Error, "Cancelled");
 
             // User-requested cancellation — silent stop, no error event.
@@ -1176,6 +1187,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 Phase = "start"
             });
 
+            // OT-1D: span around context compression so its latency is visible in traces.
+            using var compressActivity = KodeAgentActivitySource.Source.StartActivity("agent.context_compress");
+            compressActivity?.SetTag("messages.count_before", _messages.Count);
+
             var compression = await _contextManager.CompressAsync(
                 _messages,
                 _eventBus.GetTimelineSnapshot(),
@@ -1192,6 +1207,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 _messages.AddRange(compression.RetainedMessages);
                 await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
                 await SaveStateAsync(cancellationToken);
+
+                compressActivity?.SetTag("compression.ratio", compression.Ratio);
+                compressActivity?.SetTag("messages.count_after", _messages.Count);
 
                 _eventBus.EmitMonitor(new ContextCompressionEvent
                 {
@@ -1624,9 +1642,18 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         CancellationToken cancellationToken)
     {
         using var modelActivity = KodeAgentActivitySource.Source.StartActivity("agent.model_request");
-        modelActivity?.SetTag("model", request.Model);
+        modelActivity?.SetTag("gen_ai.request.model", request.Model);
         modelActivity?.SetTag("has_tools", request.Tools?.Count > 0);
-        KodeAgentMetrics.ModelRequests.Add(1, new KeyValuePair<string, object?>("model", request.Model));
+        modelActivity?.SetTag("agent.session_type", _config.SessionType);
+        modelActivity?.SetTag("agent.role", _config.AgentRole);
+        // OT-2A: include session_type and agent_role for token cost attribution.
+        var modelDimensions = new TagList
+        {
+            { "model", request.Model },
+            { "session_type", _config.SessionType },
+            { "agent_role", _config.AgentRole }
+        };
+        KodeAgentMetrics.ModelRequests.Add(1, modelDimensions);
         var modelStopwatch = Stopwatch.StartNew();
 
         var step = _stepCount;
@@ -1734,7 +1761,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                             break;
 
                         case StreamChunkType.MessageStop:
-                            usage = chunk.Usage;
+                            if (chunk.Usage != null) usage = chunk.Usage;
                             stopReason = chunk.StopReason ?? ModelStopReason.EndTurn;
                             break;
                     }
@@ -1753,6 +1780,15 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 && toolUseBuilders.Count == 0
                 && providerAttempt < maxProviderAttempts)
             {
+                // OT-2C: classify error type for metric tagging.
+                var errorType = ClassifyModelError(ex);
+                KodeAgentMetrics.ModelErrors.Add(1, new TagList
+                {
+                    { "model", request.Model },
+                    { "error_type", errorType }
+                });
+                modelActivity?.SetTag("agent.retry_count", providerAttempt);
+
                 // Transient provider error before any content was produced — retry with backoff.
                 _eventBus.EmitMonitor(new ErrorEvent
                 {
@@ -1811,17 +1847,14 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 OutputTokens = usage.OutputTokens,
                 TotalTokens = usage.InputTokens + usage.OutputTokens
             });
-            KodeAgentMetrics.TokensInput.Add(usage.InputTokens,
-                new KeyValuePair<string, object?>("model", request.Model));
-            KodeAgentMetrics.TokensOutput.Add(usage.OutputTokens,
-                new KeyValuePair<string, object?>("model", request.Model));
-            modelActivity?.SetTag("tokens.input", usage.InputTokens);
-            modelActivity?.SetTag("tokens.output", usage.OutputTokens);
+            KodeAgentMetrics.TokensInput.Add(usage.InputTokens, modelDimensions);
+            KodeAgentMetrics.TokensOutput.Add(usage.OutputTokens, modelDimensions);
+            modelActivity?.SetTag("gen_ai.usage.input_tokens", usage.InputTokens);
+            modelActivity?.SetTag("gen_ai.usage.output_tokens", usage.OutputTokens);
         }
 
         modelStopwatch.Stop();
-        KodeAgentMetrics.ModelRequestDuration.Record(modelStopwatch.Elapsed.TotalMilliseconds,
-            new KeyValuePair<string, object?>("model", request.Model));
+        KodeAgentMetrics.ModelRequestDuration.Record(modelStopwatch.Elapsed.TotalMilliseconds, modelDimensions);
 
         return new ModelResponse
         {
@@ -2008,12 +2041,20 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 _breakpointManager.TransitionTo(BreakpointState.AwaitingApproval);
                 TransitionState(AgentRuntimeState.Paused);
 
-                var approved = await _permissionManager.RequestApprovalAsync(
-                    toolUse.Id,
-                    toolUse.Name,
-                    toolUse.Input,
-                    (preDecision as RequireApprovalDecision)?.Reason,
-                    cancellationToken);
+                // OT-1C: span measuring how long approval takes (human-in-the-loop wait time).
+                bool approved;
+                using (var approvalActivity = KodeAgentActivitySource.Source.StartActivity("agent.tool.approval_wait"))
+                {
+                    approvalActivity?.SetTag("tool.name", toolUse.Name);
+                    approvalActivity?.SetTag("tool.id", toolUse.Id);
+                    approved = await _permissionManager.RequestApprovalAsync(
+                        toolUse.Id,
+                        toolUse.Name,
+                        toolUse.Input,
+                        (preDecision as RequireApprovalDecision)?.Reason,
+                        cancellationToken);
+                    approvalActivity?.SetTag("tool.approved", approved);
+                }
 
                 // Always resume after a decision (approved or denied)
                 TransitionState(AgentRuntimeState.Working);
@@ -2079,10 +2120,22 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             sw.Stop();
             TouchProcessingHeartbeat();
 
-            var toolNameTag = new KeyValuePair<string, object?>("tool.name", toolUse.Name);
-            KodeAgentMetrics.ToolExecutions.Add(1, toolNameTag);
-            KodeAgentMetrics.ToolDuration.Record(sw.Elapsed.TotalMilliseconds, toolNameTag);
+            // OT-2E: tag tool metrics with category dimension for cost breakdown by tool type.
+            var toolCategory = ClassifyToolCategory(toolUse.Name);
+            var toolDimensions = new TagList
+            {
+                { "tool.name", toolUse.Name },
+                { "tool_category", toolCategory }
+            };
+            KodeAgentMetrics.ToolExecutions.Add(1, toolDimensions);
+            KodeAgentMetrics.ToolDuration.Record(sw.Elapsed.TotalMilliseconds, toolDimensions);
             toolActivity?.SetTag("tool.duration_ms", sw.Elapsed.TotalMilliseconds);
+            toolActivity?.SetTag("tool.category", toolCategory);
+
+            // OT-3B: desensitized structured log — no tool args/output, only metadata.
+            _logger?.LogDebug(
+                "Tool executed: {ToolName} category={ToolCategory} success={Success} duration_ms={DurationMs}",
+                toolUse.Name, toolCategory, toolResult.Success, (long)sw.Elapsed.TotalMilliseconds);
 
             var outcome = new ToolOutcome(
                 toolUse.Id,
@@ -2120,7 +2173,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             if (!finalResult.Success)
             {
                 var message = finalResult.Error ?? "Tool failed";
-                KodeAgentMetrics.ToolErrors.Add(1, toolNameTag);
+                KodeAgentMetrics.ToolErrors.Add(1, toolDimensions);
                 toolActivity?.SetStatus(ActivityStatusCode.Error, message);
 
                 _eventBus.EmitProgress(new ToolErrorEvent
@@ -2146,6 +2199,49 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// OT-2C: classify an exception into a coarse error_type label for metrics.
+    /// Labels: rate_limit | auth | server_error | timeout | unknown
+    /// </summary>
+    private static string ClassifyModelError(Exception ex)
+    {
+        var msg = ex.Message ?? string.Empty;
+        if (msg.Contains("429") || msg.Contains("rate limit", StringComparison.OrdinalIgnoreCase))
+            return "rate_limit";
+        if (msg.Contains("401") || msg.Contains("403") || msg.Contains("auth", StringComparison.OrdinalIgnoreCase))
+            return "auth";
+        if (msg.Contains("500") || msg.Contains("503") || msg.Contains("server error", StringComparison.OrdinalIgnoreCase))
+            return "server_error";
+        if (ex is TimeoutException
+            || msg.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+            || msg.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            return "timeout";
+        return "unknown";
+    }
+
+    /// <summary>
+    /// OT-2E: classify a tool name into a coarse category for metrics dimension.
+    /// Categories: filesystem | shell | web | orchestration | workspace | mcp | other
+    /// </summary>
+    private static string ClassifyToolCategory(string toolName)
+    {
+        if (toolName.StartsWith("fs_", StringComparison.OrdinalIgnoreCase)) return "filesystem";
+        if (toolName.StartsWith("bash_", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("shell_", StringComparison.OrdinalIgnoreCase)) return "shell";
+        if (toolName.StartsWith("web_", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("http_", StringComparison.OrdinalIgnoreCase)) return "web";
+        if (toolName.StartsWith("isolate_task", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("pipeline", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("parallel_", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("retry_", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("fan_out", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("map_reduce", StringComparison.OrdinalIgnoreCase) ||
+            toolName.StartsWith("debate", StringComparison.OrdinalIgnoreCase)) return "orchestration";
+        if (toolName.StartsWith("workspace_", StringComparison.OrdinalIgnoreCase)) return "workspace";
+        if (toolName.StartsWith("mcp__", StringComparison.OrdinalIgnoreCase)) return "mcp";
+        return "other";
     }
 
     /// <summary>
@@ -2578,6 +2674,20 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             // Start processing in the background. This mirrors TS ensureProcessing/runStep semantics, including queued reruns.
             _processingTask = Task.Run(async () =>
             {
+                using var runActivity = KodeAgentActivitySource.Source.StartActivity("agent.run");
+                runActivity?.SetTag("agent.session_type", _config.SessionType);
+                runActivity?.SetTag("agent.role", _config.AgentRole);
+                runActivity?.SetTag("agent.model", _config.Model);
+
+                var runDimensions = new TagList
+                {
+                    { "model", _config.Model },
+                    { "session_type", _config.SessionType },
+                    { "agent_role", _config.AgentRole }
+                };
+                KodeAgentMetrics.RunsStarted.Add(1, runDimensions);
+                var runStopwatch = Stopwatch.StartNew();
+
                 var runAgain = false;
                 try
                 {
@@ -2594,10 +2704,15 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                         if (!stepResult.HasMoreSteps) break;
                         if (RuntimeState == AgentRuntimeState.Paused) break;
                     }
+
+                    runStopwatch.Stop();
+                    KodeAgentMetrics.RunsCompleted.Add(1, runDimensions);
+                    KodeAgentMetrics.RunDuration.Record(runStopwatch.Elapsed.TotalMilliseconds, runDimensions);
                 }
                 catch (OperationCanceledException)
                 {
                     // Cancellation is expected when callers abort the run or we force-restart on timeout.
+                    runActivity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error, "Cancelled");
                 }
                 catch (Exception ex)
                 {

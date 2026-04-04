@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Anthropic;
 using Anthropic.Models.Messages;
+using Kode.Agent.Sdk.Diagnostics;
 using Microsoft.Extensions.Logging;
 using ContentBlock = Kode.Agent.Sdk.Core.Types.ContentBlock;
 using ImageContent = Kode.Agent.Sdk.Core.Types.ImageContent;
@@ -60,13 +62,31 @@ public sealed class AnthropicProvider : IModelProvider
         ModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        using var providerActivity = KodeAgentActivitySource.Source.StartActivity("provider.stream");
+        providerActivity?.SetTag("gen_ai.system", "anthropic");
+        providerActivity?.SetTag("gen_ai.request.model", request.Model);
+
+        var streamStopwatch = Stopwatch.StartNew();
+        var ttftRecorded = false;
+
+        _logger?.LogDebug("Anthropic stream starting: model={Model}, tools={ToolCount}",
+            request.Model, request.Tools?.Count ?? 0);
+
         var parameters = BuildMessageParameters(request);
         var toolIdMap = new Dictionary<long, string>();
         var toolNameMap = new Dictionary<long, string>();
         var toolInputBuilders = new Dictionary<long, System.Text.StringBuilder>();
+        long messageStartInputTokens = 0;
 
         await foreach (var evt in _client.Messages.CreateStreaming(parameters, cancellationToken))
         {
+            // Handle message start — input_tokens live here, not in message_delta
+            if (evt.TryPickStart(out var messageStartEvent))
+            {
+                messageStartInputTokens = messageStartEvent.Message.Usage.InputTokens;
+                continue;
+            }
+
             // Handle content block start
             if (evt.TryPickContentBlockStart(out var startEvent))
             {
@@ -75,6 +95,16 @@ public sealed class AnthropicProvider : IModelProvider
                     toolIdMap[startEvent.Index] = toolUse.ID;
                     toolNameMap[startEvent.Index] = toolUse.Name;
                     toolInputBuilders[startEvent.Index] = new System.Text.StringBuilder();
+
+                    if (!ttftRecorded)
+                    {
+                        ttftRecorded = true;
+                        var ttftMs = streamStopwatch.ElapsedMilliseconds;
+                        providerActivity?.SetTag("gen_ai.client.time_to_first_token_ms", ttftMs);
+                        KodeAgentMetrics.ModelTtft.Record(ttftMs,
+                            new TagList { { "model", request.Model }, { "provider", "anthropic" } });
+                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", request.Model, ttftMs);
+                    }
 
                     yield return new StreamChunk
                     {
@@ -117,6 +147,16 @@ public sealed class AnthropicProvider : IModelProvider
             {
                 if (deltaEvent.Delta.TryPickText(out var textDelta))
                 {
+                    if (!ttftRecorded)
+                    {
+                        ttftRecorded = true;
+                        var ttftMs = streamStopwatch.ElapsedMilliseconds;
+                        providerActivity?.SetTag("gen_ai.client.time_to_first_token_ms", ttftMs);
+                        KodeAgentMetrics.ModelTtft.Record(ttftMs,
+                            new TagList { { "model", request.Model }, { "provider", "anthropic" } });
+                        _logger?.LogDebug("Anthropic TTFT: model={Model}, ttft_ms={TtftMs}", request.Model, ttftMs);
+                    }
+
                     yield return new StreamChunk
                     {
                         Type = StreamChunkType.TextDelta,
@@ -194,14 +234,25 @@ public sealed class AnthropicProvider : IModelProvider
                 var stopReason = apiStopReason != null
                     ? ConvertStopReason((AnthropicStopReason)apiStopReason)
                     : ModelStopReason.EndTurn;
+                var inputTokens = (int)(messageStartInputTokens > 0 ? messageStartInputTokens : (messageDelta.Usage.InputTokens ?? 0));
+                var outputTokens = (int)messageDelta.Usage.OutputTokens;
+
+                streamStopwatch.Stop();
+                providerActivity?.SetTag("gen_ai.usage.input_tokens", inputTokens);
+                providerActivity?.SetTag("gen_ai.usage.output_tokens", outputTokens);
+                providerActivity?.SetTag("gen_ai.stream.duration_ms", streamStopwatch.ElapsedMilliseconds);
+                _logger?.LogDebug(
+                    "Anthropic stream complete: model={Model}, input_tokens={InputTokens}, output_tokens={OutputTokens}, duration_ms={DurationMs}",
+                    request.Model, inputTokens, outputTokens, streamStopwatch.ElapsedMilliseconds);
+
                 yield return new StreamChunk
                 {
                     Type = StreamChunkType.MessageStop,
                     StopReason = stopReason,
                     Usage = new TokenUsage
                     {
-                        InputTokens = (int)(messageDelta.Usage.InputTokens ?? 0),
-                        OutputTokens = (int)messageDelta.Usage.OutputTokens
+                        InputTokens = inputTokens,
+                        OutputTokens = outputTokens
                     }
                 };
                 continue;

@@ -273,6 +273,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
                 CompressionPrompt = _options.CompressionPrompt,
                 ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
             },
+            SessionType = "automation",
         };
     }
 

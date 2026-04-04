@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using FluentAssertions;
 using Kode.Agent.Sdk.Diagnostics;
@@ -94,6 +95,67 @@ public sealed class KodeAgentMetricsTests : IDisposable
         KodeAgentMetrics.ContextCompressions.Add(1);
 
         _measurements.Should().ContainSingle(m => m.Name == "kode.agent.context.compressions");
+    }
+
+    [Fact]
+    public void ModelTtft_histogram_should_emit_measurement_with_model_and_provider_tags()
+    {
+        KodeAgentMetrics.ModelTtft.Record(312.0,
+            new TagList { { "model", "claude-opus" }, { "provider", "anthropic" } });
+
+        _measurements.Should().ContainSingle(m => m.Name == "kode.agent.model.time_to_first_token");
+        var m = _measurements.First(m => m.Name == "kode.agent.model.time_to_first_token");
+        m.Value.Should().Be(312.0);
+        m.Tags.Should().Contain(t => t.Key == "model" && (string?)t.Value == "claude-opus");
+        m.Tags.Should().Contain(t => t.Key == "provider" && (string?)t.Value == "anthropic");
+    }
+
+    [Fact]
+    public void CompressionTokensInput_counter_should_emit_measurement()
+    {
+        KodeAgentMetrics.CompressionTokensInput.Add(4200);
+
+        _measurements.Should().ContainSingle(m => m.Name == "kode.agent.context.compression.tokens.input");
+        _measurements.First(m => m.Name == "kode.agent.context.compression.tokens.input")
+            .Value.Should().Be(4200L);
+    }
+
+    [Fact]
+    public void CompressionTokensOutput_counter_should_emit_measurement()
+    {
+        KodeAgentMetrics.CompressionTokensOutput.Add(800);
+
+        _measurements.Should().ContainSingle(m => m.Name == "kode.agent.context.compression.tokens.output");
+        _measurements.First(m => m.Name == "kode.agent.context.compression.tokens.output")
+            .Value.Should().Be(800L);
+    }
+
+    [Fact]
+    public void TokensInput_should_accept_session_type_and_agent_role_tags()
+    {
+        KodeAgentMetrics.TokensInput.Add(1000, new TagList
+        {
+            { "model", "gpt-4o" },
+            { "session_type", "main" },
+            { "agent_role", "primary" }
+        });
+
+        var m = _measurements.First(m => m.Name == "kode.agent.tokens.input");
+        m.Tags.Should().Contain(t => t.Key == "session_type" && (string?)t.Value == "main");
+        m.Tags.Should().Contain(t => t.Key == "agent_role" && (string?)t.Value == "primary");
+    }
+
+    [Fact]
+    public void ToolExecutions_should_accept_tool_category_tag()
+    {
+        KodeAgentMetrics.ToolExecutions.Add(1, new TagList
+        {
+            { "tool.name", "fs_read" },
+            { "tool_category", "filesystem" }
+        });
+
+        var m = _measurements.First(m => m.Name == "kode.agent.tool.executions");
+        m.Tags.Should().Contain(t => t.Key == "tool_category" && (string?)t.Value == "filesystem");
     }
 
     private void CollectLong(Instrument instrument, long measurement,

@@ -107,6 +107,25 @@ public record AgentConfig
     /// 60s hard-kill was too aggressive, causing premature cancellation.
     /// </summary>
     public TimeSpan ToolTimeout { get; init; } = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Session type for observability tagging. Values: "main", "channel", "automation".
+    /// Used as a tag on Token, ModelRequest, and Run metrics to enable cost attribution per session type.
+    /// </summary>
+    public string SessionType { get; init; } = "main";
+
+    /// <summary>
+    /// Agent role for observability tagging. Values: "primary", "sub-agent".
+    /// Set to "sub-agent" by SubAgentRunner so orchestration sub-agent token costs are separable.
+    /// </summary>
+    public string AgentRole { get; init; } = "primary";
+
+    /// <summary>
+    /// Parent activity context for distributed tracing across sub-agents.
+    /// When set by SubAgentRunner, the sub-agent's "agent.run" span becomes a child of the
+    /// parent's "agent.tool.execute" span, forming a complete multi-agent call tree.
+    /// </summary>
+    public System.Diagnostics.ActivityContext ParentActivityContext { get; init; } = default;
 }
 
 /// <summary>

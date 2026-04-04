@@ -30,6 +30,7 @@ public static class KodeAgentMetrics
         Meter.CreateHistogram<double>("kode.agent.step.duration", "ms", "Agent step duration");
 
     // ── Token usage ──
+    // Tags: model, session_type, agent_role
     public static readonly Counter<long> TokensInput =
         Meter.CreateCounter<long>("kode.agent.tokens.input", "tokens", "Input tokens consumed");
 
@@ -37,16 +38,26 @@ public static class KodeAgentMetrics
         Meter.CreateCounter<long>("kode.agent.tokens.output", "tokens", "Output tokens consumed");
 
     // ── Model requests ──
+    // Tags: model, session_type, agent_role
     public static readonly Counter<long> ModelRequests =
         Meter.CreateCounter<long>("kode.agent.model.requests", description: "Model API requests");
 
+    // Tags: model, error_type
     public static readonly Counter<long> ModelErrors =
         Meter.CreateCounter<long>("kode.agent.model.errors", description: "Model API errors");
 
     public static readonly Histogram<double> ModelRequestDuration =
         Meter.CreateHistogram<double>("kode.agent.model.request.duration", "ms", "Model request duration");
 
+    /// <summary>
+    /// Time from model request start to first token received (TTFT).
+    /// Tags: model, provider
+    /// </summary>
+    public static readonly Histogram<double> ModelTtft =
+        Meter.CreateHistogram<double>("kode.agent.model.time_to_first_token", "ms", "Time to first token from model request start");
+
     // ── Tool execution ──
+    // Tags: tool.name, tool_category
     public static readonly Counter<long> ToolExecutions =
         Meter.CreateCounter<long>("kode.agent.tool.executions", description: "Tool executions");
 
@@ -59,4 +70,19 @@ public static class KodeAgentMetrics
     // ── Context compression ──
     public static readonly Counter<long> ContextCompressions =
         Meter.CreateCounter<long>("kode.agent.context.compressions", description: "Context compression events");
+
+    /// <summary>
+    /// Tokens consumed by context compression model calls (input).
+    /// Tracked separately so compression overhead is distinguishable from task tokens.
+    /// </summary>
+    public static readonly Counter<long> CompressionTokensInput =
+        Meter.CreateCounter<long>("kode.agent.context.compression.tokens.input", "tokens",
+            "Input tokens consumed by context compression");
+
+    /// <summary>
+    /// Tokens consumed by context compression model calls (output).
+    /// </summary>
+    public static readonly Counter<long> CompressionTokensOutput =
+        Meter.CreateCounter<long>("kode.agent.context.compression.tokens.output", "tokens",
+            "Output tokens consumed by context compression");
 }

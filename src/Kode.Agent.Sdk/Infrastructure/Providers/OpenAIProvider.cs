@@ -1,9 +1,11 @@
 using System.ClientModel;
 using System.ClientModel.Primitives;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Kode.Agent.Sdk.Diagnostics;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using OpenAI.Chat;
@@ -23,6 +25,15 @@ namespace Kode.Agent.Sdk.Infrastructure.Providers;
 /// </summary>
 public sealed class OpenAIProvider : IModelProvider
 {
+    // ChatCompletionOptions.StreamOptions is an internal type in the SDK.
+    // We use reflection to set IncludeUsage=true so the API returns token usage
+    // in streaming responses (as a trailing chunk after the finish_reason chunk).
+    private static readonly System.Reflection.PropertyInfo? s_streamOptionsProp =
+        typeof(ChatCompletionOptions).GetProperty("StreamOptions",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+    private static readonly System.Reflection.PropertyInfo? s_includeUsageProp =
+        s_streamOptionsProp?.PropertyType.GetProperty("IncludeUsage");
+
     private readonly OpenAIClient _client;
     private readonly OpenAIOptions _options;
     private readonly ILogger<OpenAIProvider>? _logger;
@@ -81,18 +92,66 @@ public sealed class OpenAIProvider : IModelProvider
         ModelRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        using var providerActivity = KodeAgentActivitySource.Source.StartActivity("provider.stream");
+        providerActivity?.SetTag("gen_ai.system", "openai");
+        providerActivity?.SetTag("gen_ai.request.model", request.Model);
+
+        var streamStopwatch = Stopwatch.StartNew();
+        var ttftRecorded = false;
+
+        _logger?.LogDebug("OpenAI stream starting: model={Model}, tools={ToolCount}",
+            request.Model, request.Tools?.Count ?? 0);
+
         var chatClient = _client.GetChatClient(request.Model);
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
 
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, System.Text.StringBuilder Args)>();
+        TokenUsage? finalUsage = null;
 
         await foreach (var update in chatClient.CompleteChatStreamingAsync(messages, options, cancellationToken))
         {
             foreach (var chunk in ConvertStreamUpdate(update, toolCallBuilders))
             {
+                if (!ttftRecorded && chunk.Type is StreamChunkType.TextDelta
+                    or StreamChunkType.ThinkingDelta or StreamChunkType.ToolUseStart)
+                {
+                    ttftRecorded = true;
+                    var ttftMs = streamStopwatch.ElapsedMilliseconds;
+                    providerActivity?.SetTag("gen_ai.client.time_to_first_token_ms", ttftMs);
+                    KodeAgentMetrics.ModelTtft.Record(ttftMs,
+                        new TagList { { "model", request.Model }, { "provider", "openai" } });
+                    _logger?.LogDebug("OpenAI TTFT: model={Model}, ttft_ms={TtftMs}", request.Model, ttftMs);
+                }
+
+                if (chunk.Type == StreamChunkType.MessageStop && chunk.Usage != null)
+                    finalUsage = chunk.Usage;
+
                 yield return chunk;
             }
+
+            // With include_usage=true, OpenAI sends a trailing chunk (FinishReason=null, Usage!=null)
+            // after the finish_reason chunk. ConvertStreamUpdate ignores it, so we capture it here.
+            if (update.FinishReason == null && update.Usage != null)
+            {
+                finalUsage = new TokenUsage
+                {
+                    InputTokens = update.Usage.InputTokenCount,
+                    OutputTokens = update.Usage.OutputTokenCount
+                };
+                yield return new StreamChunk { Type = StreamChunkType.MessageStop, Usage = finalUsage };
+            }
+        }
+
+        streamStopwatch.Stop();
+        providerActivity?.SetTag("gen_ai.stream.duration_ms", streamStopwatch.ElapsedMilliseconds);
+        if (finalUsage != null)
+        {
+            providerActivity?.SetTag("gen_ai.usage.input_tokens", finalUsage.InputTokens);
+            providerActivity?.SetTag("gen_ai.usage.output_tokens", finalUsage.OutputTokens);
+            _logger?.LogDebug(
+                "OpenAI stream complete: model={Model}, input_tokens={InputTokens}, output_tokens={OutputTokens}, duration_ms={DurationMs}",
+                request.Model, finalUsage.InputTokens, finalUsage.OutputTokens, streamStopwatch.ElapsedMilliseconds);
         }
     }
 
@@ -245,6 +304,14 @@ public sealed class OpenAIProvider : IModelProvider
         return null;
     }
 
+    private static void TryEnableStreamUsage(ChatCompletionOptions options)
+    {
+        if (s_streamOptionsProp == null || s_includeUsageProp == null) return;
+        var streamOpts = Activator.CreateInstance(s_streamOptionsProp.PropertyType, nonPublic: true)!;
+        s_includeUsageProp.SetValue(streamOpts, true);
+        s_streamOptionsProp.SetValue(options, streamOpts);
+    }
+
     private ChatCompletionOptions BuildChatOptions(ModelRequest request)
     {
         var options = new ChatCompletionOptions
@@ -252,6 +319,7 @@ public sealed class OpenAIProvider : IModelProvider
             MaxOutputTokenCount = request.MaxTokens,
             Temperature = (float?)request.Temperature
         };
+        TryEnableStreamUsage(options);
 
         if (request.StopSequences?.Count > 0)
         {

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
@@ -78,6 +79,9 @@ internal static class SubAgentRunner
         var systemPrompt = request.SystemPromptOverride
                            ?? BuildSystemPrompt(request.Task, childWorkDir);
 
+        // OT-1B: capture the calling tool's Activity as parent context so the sub-agent
+        // run span becomes a child of the spawning "agent.tool.execute" span in the trace.
+        // OT-2A: set AgentRole = "sub-agent" to enable cost attribution in token metrics.
         var config = new AgentConfig
         {
             Model = request.ModelId,
@@ -96,6 +100,8 @@ internal static class SubAgentRunner
                 CompressToTokens = 50_000,
                 ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
             },
+            AgentRole = "sub-agent",
+            ParentActivityContext = Activity.Current?.Context ?? default,
         };
 
         var deps = new AgentDependencies

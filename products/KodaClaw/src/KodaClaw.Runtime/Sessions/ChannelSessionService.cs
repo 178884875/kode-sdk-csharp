@@ -1,14 +1,16 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using KodaClaw.Contracts;
 using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
+using Kode.Agent.Sdk.Diagnostics;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
 using Kode.Agent.Store.Json;
 using AgentRuntime = Kode.Agent.Sdk.Core.Agent.Agent;
-using System.Collections.Concurrent;
 
 namespace KodaClaw.Runtime;
 
@@ -226,6 +228,11 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         await sessionLock.WaitAsync(cancellationToken);
         try
         {
+            using var turnActivity = KodeAgentActivitySource.Source.StartActivity("channel.turn");
+            turnActivity?.SetTag("channel.binding_id", binding.Id);
+            turnActivity?.SetTag("channel.connector_kind", binding.ConnectorKind.ToString());
+            turnActivity?.SetTag("channel.session_id", handle.SessionId);
+
             runResult = envelope.MediaAttachments is { Count: > 0 } && _modelRegistryRepository != null
                 ? await RunMultimodalTurnAsync(handle, prompt, envelope.MediaAttachments, cancellationToken)
                 : await handle.Agent.RunAsync(prompt, cancellationToken);

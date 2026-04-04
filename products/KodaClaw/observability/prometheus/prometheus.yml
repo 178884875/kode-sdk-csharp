@@ -1,0 +1,13 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+scrape_configs:
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]
+    metric_relabel_configs:
+      # 保留 kodaclaw 前缀的指标
+      - source_labels: [__name__]
+        regex: "kodaclaw_.*|otelcol_.*"
+        action: keep

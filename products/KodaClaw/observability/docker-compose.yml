@@ -1,0 +1,82 @@
+# KodaClaw 本地可观测性栈
+# 启动: docker compose up -d
+# 停止: docker compose down
+#
+# 访问地址：
+#   Grafana  http://localhost:3000  (admin / kodaclaw)
+#   Jaeger   http://localhost:16686
+#   Prometheus http://localhost:9090
+#
+# Gateway 配置（在 .env 或环境变量中加）：
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+
+services:
+
+  # ── OTel Collector ─────────────────────────────────────────────────────────
+  # 统一接收 Gateway 的 OTLP，分发给 Jaeger（Traces）和 Prometheus（Metrics）
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    container_name: kodaclaw-otel-collector
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./collector/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC（Gateway → Collector）
+      - "4318:4318"   # OTLP HTTP（备用）
+      - "8889:8889"   # Prometheus metrics endpoint（Collector 自曝 + 转发）
+    depends_on:
+      - jaeger
+    restart: unless-stopped
+
+  # ── Jaeger（分布式链路）────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: kodaclaw-jaeger
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "14250:14250"   # gRPC（Collector → Jaeger）
+    restart: unless-stopped
+
+  # ── Prometheus（指标时序库）────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v3.3.1
+    container_name: kodaclaw-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+    restart: unless-stopped
+
+  # ── Grafana（仪表盘）──────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.6.1
+    container_name: kodaclaw-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=kodaclaw
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - jaeger
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:

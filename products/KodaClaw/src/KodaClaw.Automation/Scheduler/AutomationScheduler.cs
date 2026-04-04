@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Cronos;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -276,6 +278,11 @@ public sealed class AutomationScheduler : IAutomationScheduler
             AgentRunResult runResult;
             try
             {
+                using var automationActivity = KodeAgentActivitySource.Source.StartActivity("automation.run");
+                automationActivity?.SetTag("automation.id", definition.Id);
+                automationActivity?.SetTag("automation.run_id", runState.RunId);
+                automationActivity?.SetTag("automation.attempt", runState.Attempt);
+
                 runResult = await handle.Agent.RunAsync("Run the scheduled automation now.", cancellationToken);
             }
             finally

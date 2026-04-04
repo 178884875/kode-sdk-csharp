@@ -1,3 +1,4 @@
+using Kode.Agent.Sdk.Diagnostics;
 using KodaClaw.Automation;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
@@ -15,7 +16,11 @@ using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
+using Serilog.Sinks.OpenTelemetry;
 
 public static partial class GatewayApp
 {
@@ -28,6 +33,11 @@ public static partial class GatewayApp
         var workspaceRoot = KodaClawWorkspaceOptions.ResolveRootPathStatic(
             builder.Configuration["KODACLAW_WORKSPACE_ROOT"]
             ?? builder.Configuration["Workspace:RootPath"]);
+
+        // OT-4A: resolve OTLP endpoint from environment (empty = OTel export disabled).
+        var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                           ?? builder.Configuration["OpenTelemetry:OtlpEndpoint"];
+        var otlpEnabled = !string.IsNullOrWhiteSpace(otlpEndpoint);
 
         builder.Host.UseSerilog((ctx, cfg) =>
         {
@@ -42,6 +52,50 @@ public static partial class GatewayApp
                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff} {Level:u3}] {SourceContext} {Message:lj}{NewLine}{Exception}")
                .MinimumLevel.Override("Microsoft.AspNetCore", Serilog.Events.LogEventLevel.Warning)
                .MinimumLevel.Override("Microsoft.EntityFrameworkCore", Serilog.Events.LogEventLevel.Warning);
+
+            // OT-3C: bridge Serilog structured logs to OTel LogsProvider when OTLP is configured.
+            if (otlpEnabled)
+            {
+                cfg.WriteTo.OpenTelemetry(opts =>
+                {
+                    opts.Endpoint = otlpEndpoint!;
+                    opts.Protocol = OtlpProtocol.Grpc;
+                    opts.ResourceAttributes = new Dictionary<string, object>
+                    {
+                        ["service.name"] = "kodaclaw-gateway",
+                        ["service.version"] = "1.0.0",
+                    };
+                });
+            }
+        });
+
+        // OT-4A: configure OpenTelemetry Traces + Metrics.
+        var otelBuilder = builder.Services
+            .AddOpenTelemetry()
+            .ConfigureResource(r => r
+                .AddService("kodaclaw-gateway", serviceVersion: "1.0.0")
+                .AddAttributes([new("deployment.environment", builder.Environment.EnvironmentName)]));
+
+        otelBuilder.WithTracing(tracing =>
+        {
+            tracing
+                .AddSource(KodeAgentActivitySource.SourceName)   // SDK agent spans
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation();
+
+            if (otlpEnabled)
+                tracing.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint!));
+        });
+
+        otelBuilder.WithMetrics(metrics =>
+        {
+            metrics
+                .AddMeter(KodeAgentMetrics.MeterName)            // SDK agent metrics
+                .AddAspNetCoreInstrumentation()
+                .AddRuntimeInstrumentation();
+
+            if (otlpEnabled)
+                metrics.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint!));
         });
 
         builder.Services.AddKodaClawControlPlane(workspaceRoot);
