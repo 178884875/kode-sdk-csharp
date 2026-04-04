@@ -2,6 +2,7 @@ using KodaClaw.Contracts;
 using KodaClaw.McpHub;
 using KodaClaw.ModelHub;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
@@ -146,6 +147,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                             CompressionPrompt = binding.ThreadType == ChannelThreadType.DirectMessage
                                 ? _options.DmCompressionPrompt
                                 : _options.GroupCompressionPrompt,
+                            ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -691,6 +693,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                 CompressionPrompt = isDirectMessage
                     ? _options.DmCompressionPrompt
                     : _options.GroupCompressionPrompt,
+                ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
             },
         };
     }

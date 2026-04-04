@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Kode.Agent.Sdk.Core.Agent;
 using Microsoft.Extensions.Logging;
 
 namespace Kode.Agent.Sdk.Core.Context;
@@ -72,6 +73,12 @@ public record ContextManagerOptions
     /// Default: 5.
     /// </summary>
     public int MaxSummaryDepth { get; init; } = 5;
+
+    /// <summary>
+    /// Options for compressing oversized individual tool results before they are written
+    /// into the message history. Disabled by default; opt-in per session.
+    /// </summary>
+    public ToolResultCompressionOptions? ToolResultCompression { get; init; }
 }
 
 /// <summary>

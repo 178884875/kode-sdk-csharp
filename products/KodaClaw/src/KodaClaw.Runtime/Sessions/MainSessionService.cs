@@ -4,6 +4,7 @@ using KodaClaw.Contracts;
 using KodaClaw.McpHub;
 using KodaClaw.PluginHost.Hosting;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Agent;
 using Kode.Agent.Sdk.Core.Context;
 using Kode.Agent.Sdk.Core.Skills;
 using Kode.Agent.Sdk.Core.Types;
@@ -497,6 +498,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                             MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
                             CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                             CompressionPrompt = _options.CompressionPrompt,
+                            ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
                         },
                     },
                     cancellationToken: cancellationToken);
@@ -745,6 +747,7 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
                 MaxTokens = (int)(contextWindowSize * _options.ContextCompressionTriggerRatio),
                 CompressToTokens = (int)(contextWindowSize * _options.ContextCompressionTargetRatio),
                 CompressionPrompt = _options.CompressionPrompt,
+                ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
             },
         };
     }

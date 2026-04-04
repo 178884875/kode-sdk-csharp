@@ -6,6 +6,7 @@ using Kode.Agent.Sdk.Infrastructure.Providers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Kode.Agent.Tools.Builtin;
+using Kode.Agent.Tools.Orchestration;
 
 namespace KodaClaw.Runtime;
 
@@ -149,12 +150,24 @@ public static class ServiceCollectionExtensions
                     _ => new ScheduleReminderTool(oneShotTimerRepository, diagnosticsService));
             }
 
+            var modelProvider = sp.GetRequiredService<IModelProvider>();
+            var sandboxFactory = sp.GetService<ISandboxFactory>();
+            var loggerFactory = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>();
+            if (sandboxFactory is not null)
+            {
+                toolRegistry.RegisterOrchestrationTools(
+                    modelProvider,
+                    options.DefaultModel ?? string.Empty,
+                    sandboxFactory,
+                    loggerFactory);
+            }
+
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies
             {
-                ModelProvider = sp.GetRequiredService<IModelProvider>(),
+                ModelProvider = modelProvider,
                 ToolRegistry = toolRegistry,
-                SandboxFactory = sp.GetService<ISandboxFactory>(),
-                LoggerFactory = sp.GetService<Microsoft.Extensions.Logging.ILoggerFactory>(),
+                SandboxFactory = sandboxFactory,
+                LoggerFactory = loggerFactory,
             });
         });
         services.TryAddSingleton<IMemorySessionSummaryService, MemorySessionSummaryService>();

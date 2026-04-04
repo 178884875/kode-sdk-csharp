@@ -14,5 +14,6 @@
     <ProjectReference Include="..\..\..\..\src\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
     <ProjectReference Include="..\..\..\..\src\Kode.Agent.Store.Json\Kode.Agent.Store.Json.csproj" />
     <ProjectReference Include="..\..\..\..\src\Kode.Agent.Tools.Builtin\Kode.Agent.Tools.Builtin.csproj" />
+    <ProjectReference Include="..\..\..\..\src\Kode.Agent.Tools.Orchestration\Kode.Agent.Tools.Orchestration.csproj" />
   </ItemGroup>
 </Project>

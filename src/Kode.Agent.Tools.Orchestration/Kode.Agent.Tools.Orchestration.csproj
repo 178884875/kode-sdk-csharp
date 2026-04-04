@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Kode.Agent.Tools.Orchestration</PackageId>
+    <Description>Orchestration tools for Kode Agent SDK: sub-agent delegation and multi-agent coordination</Description>
+    <PackageTags>ai;agent;tools;orchestration;multi-agent</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Kode.Agent.Sdk\Kode.Agent.Sdk.csproj" />
+  </ItemGroup>
+
+</Project>

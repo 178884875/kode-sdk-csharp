@@ -13,7 +13,8 @@ public sealed class FsGlobTool : ToolBase<FsGlobArgs>
     public override string Name => "fs_glob";
 
     public override string Description =>
-        "Find files matching a glob pattern. Returns a list of matching file paths.";
+        "Find files matching a glob pattern. Returns a list of matching file paths. " +
+        "Defaults to 200 results; use maxResults to adjust the limit.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<FsGlobArgs>();
 
@@ -32,20 +33,16 @@ public sealed class FsGlobTool : ToolBase<FsGlobArgs>
         {
             var files = await context.Sandbox.GlobAsync(args.Pattern, cancellationToken);
 
-            var result = files.AsEnumerable();
-            if (args.MaxResults.HasValue)
-            {
-                result = result.Take(args.MaxResults.Value);
-            }
-
-            var fileList = result.ToList();
+            var limit = args.MaxResults ?? 200;
+            var fileList = files.Take(limit).ToList();
 
             return ToolResult.Ok(new
             {
                 pattern = args.Pattern,
                 files = fileList,
                 count = fileList.Count,
-                truncated = args.MaxResults.HasValue && files.Count > args.MaxResults.Value
+                truncated = files.Count > limit,
+                totalMatched = files.Count
             });
         }
         catch (Exception ex)
@@ -68,8 +65,8 @@ public class FsGlobArgs
     public required string Pattern { get; init; }
 
     /// <summary>
-    /// Maximum number of results to return.
+    /// Maximum number of results to return. Defaults to 500.
     /// </summary>
-    [ToolParameter(Description = "Maximum number of files to return", Required = false)]
+    [ToolParameter(Description = "Maximum number of files to return (default: 200)", Required = false)]
     public int? MaxResults { get; init; }
 }

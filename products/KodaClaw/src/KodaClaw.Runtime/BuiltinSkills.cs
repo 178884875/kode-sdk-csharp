@@ -11,6 +11,7 @@ public static class BuiltinSkills
     public const string KodaChannels = "koda-channels";
     public const string KodaAutomation = "koda-automation";
     public const string KodaCanvas = "koda-canvas";
+    public const string KodaOrchestration = "koda-orchestration";
 
     /// <summary>Main chat sessions: workspace protocol + memory management.</summary>
     public static readonly IReadOnlyList<string> ChatAutoActivate =
@@ -28,7 +29,8 @@ public static class BuiltinSkills
     /// Tools hidden from model schema by default; revealed only when their owning skill activates.
     /// canvas_upsert → koda-canvas
     /// channel_send / channel_list → koda-channels
+    /// fan_out_fan_in / map_reduce / debate → koda-orchestration
     /// </summary>
     public static readonly IReadOnlyList<string> SkillGatedTools =
-        ["canvas_upsert", "channel_send", "channel_list"];
+        ["canvas_upsert", "channel_send", "channel_list", "fan_out_fan_in", "map_reduce", "debate"];
 }

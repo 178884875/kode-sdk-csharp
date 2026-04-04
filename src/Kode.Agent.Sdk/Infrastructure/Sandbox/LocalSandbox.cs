@@ -243,23 +243,61 @@ public sealed class LocalSandbox : ISandbox
 
     public Task<IReadOnlyList<string>> GlobAsync(string pattern, CancellationToken cancellationToken = default)
     {
-        // Extract just the filename pattern from the input
-        // This handles both relative patterns (e.g., "*.cs", "**/*.cs")
-        // and absolute patterns (e.g., "/path/to/dir/**") by only using the filename part
-        var fileNamePattern = Path.GetFileName(pattern);
+        bool isRecursive = pattern.Contains("**");
+        string searchRoot;
+        string fileNamePattern;
 
-        // If pattern doesn't have a filename part (e.g., ends with "/" or "**"), use "*"
-        if (string.IsNullOrEmpty(fileNamePattern) || fileNamePattern == "**" || fileNamePattern == ".")
+        if (isRecursive)
         {
-            fileNamePattern = "*";
+            // Split on first "**" to get the directory prefix and file name pattern
+            // e.g. "workspace/docs/**/*" → root="workspace/docs", filePattern="*"
+            //      "**/*.cs"             → root="",               filePattern="*.cs"
+            var starStarIdx = pattern.IndexOf("**", StringComparison.Ordinal);
+            var dirPart = pattern[..starStarIdx].TrimEnd('/', '\\');
+
+            searchRoot = string.IsNullOrEmpty(dirPart)
+                ? _workingDirectory
+                : Path.Combine(_workingDirectory, dirPart);
+
+            var afterStarStar = pattern[(starStarIdx + 2)..].TrimStart('/', '\\');
+
+            // If the tail itself contains path separators, take only the last segment
+            if (afterStarStar.Contains('/') || afterStarStar.Contains('\\'))
+                afterStarStar = Path.GetFileName(afterStarStar);
+
+            fileNamePattern = string.IsNullOrEmpty(afterStarStar) || afterStarStar == "**"
+                ? "*"
+                : afterStarStar.Replace("**", "*");
+        }
+        else
+        {
+            // No "**": split on the last separator to get directory and filename pattern
+            // e.g. "src/*.json" → root="src", filePattern="*.json"
+            //      "*.cs"       → root="",    filePattern="*.cs"
+            var lastSep = pattern.LastIndexOfAny(['/', '\\']);
+            if (lastSep >= 0)
+            {
+                searchRoot = Path.Combine(_workingDirectory, pattern[..lastSep]);
+                fileNamePattern = pattern[(lastSep + 1)..];
+            }
+            else
+            {
+                searchRoot = _workingDirectory;
+                fileNamePattern = pattern;
+            }
+
+            if (string.IsNullOrEmpty(fileNamePattern))
+                fileNamePattern = "*";
         }
 
-        var searchPattern = fileNamePattern.Replace("**", "*");
-        var searchOption = pattern.Contains("**") ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+        var searchOption = isRecursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
 
         try
         {
-            var files = Directory.GetFiles(_workingDirectory, searchPattern, searchOption)
+            if (!Directory.Exists(searchRoot))
+                return Task.FromResult<IReadOnlyList<string>>([]);
+
+            var files = Directory.GetFiles(searchRoot, fileNamePattern, searchOption)
                 .Select(f => Path.GetRelativePath(_workingDirectory, f))
                 .ToList();
 
@@ -267,7 +305,6 @@ public sealed class LocalSandbox : ISandbox
         }
         catch (Exception ex) when (ex is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
         {
-            // Return empty list on any IO errors
             return Task.FromResult<IReadOnlyList<string>>([]);
         }
     }

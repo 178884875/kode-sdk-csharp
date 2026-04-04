@@ -33,6 +33,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     private readonly ToolRunner _toolRunner;
     private readonly MessageQueue _messageQueue;
     private readonly ContextManager _contextManager;
+    private readonly IToolResultCompressor? _toolResultCompressor;
     private readonly List<Message> _messages = [];
     private readonly List<ITool> _tools = [];
     private readonly IReadOnlyList<ToolDescriptor>? _persistedToolDescriptors;
@@ -153,6 +154,14 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 dependencies.ModelProvider,
                 _config.Model,
                 dependencies.LoggerFactory?.CreateLogger<LlmContextSummarizer>())
+            : null;
+
+        _toolResultCompressor = dependencies.ModelProvider != null
+                                && _config.Context?.ToolResultCompression?.Enabled == true
+            ? new LlmToolResultCompressor(
+                dependencies.ModelProvider,
+                _config.Model,
+                dependencies.LoggerFactory?.CreateLogger<LlmToolResultCompressor>())
             : null;
 
         _contextManager = new ContextManager(
@@ -1829,6 +1838,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     {
         var results = new List<(string CallId, ToolResult Result)>();
 
+        // Compute context pressure once per tool batch so each tool can adapt its output size.
+        var contextPressure = ComputeContextPressure();
+
         foreach (var toolUse in toolUses)
         {
             _toolRunner.RegisterToolCall(toolUse.Id, toolUse.Name, toolUse.Input);
@@ -1855,8 +1867,10 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 AgentId = AgentId,
                 CallId = toolUse.Id,
                 Sandbox = _sandbox!,
+                SandboxOptions = _config.SandboxOptions,
                 Agent = this,
                 Services = _toolServices,
+                ContextPressure = contextPressure,
                 Emit = (eventType, data) =>
                 {
                     _eventBus.EmitMonitor(new ToolCustomEvent
@@ -2079,9 +2093,22 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 sw.Elapsed);
 
             var postOutcome = await _hookManager.RunPostToolUseAsync(outcome, context, cancellationToken);
-            _toolRunner.UpdateFinalResult(toolUse.Id, postOutcome.Result);
+
+            // Compress oversized tool results before they enter the message history.
+            var finalResult = postOutcome.Result;
+            if (_toolResultCompressor != null && _config.Context?.ToolResultCompression != null)
+            {
+                finalResult = await _toolResultCompressor.CompressIfNeededAsync(
+                    toolUse.Name,
+                    finalResult,
+                    _messages,
+                    _config.Context.ToolResultCompression,
+                    cancellationToken);
+            }
+
+            _toolRunner.UpdateFinalResult(toolUse.Id, finalResult);
             var snapAfter = _toolRunner.GetSnapshot(toolUse.Id);
-            if (snapAfter != null && postOutcome.Result.Success)
+            if (snapAfter != null && finalResult.Success)
             {
                 _eventBus.EmitMonitor(new ToolExecutedEvent
                 {
@@ -2090,9 +2117,9 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 });
             }
 
-            if (!postOutcome.Result.Success)
+            if (!finalResult.Success)
             {
-                var message = postOutcome.Result.Error ?? "Tool failed";
+                var message = finalResult.Error ?? "Tool failed";
                 KodeAgentMetrics.ToolErrors.Add(1, toolNameTag);
                 toolActivity?.SetStatus(ActivityStatusCode.Error, message);
 
@@ -2109,16 +2136,30 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                     Severity = "warn",
                     Phase = "tool",
                     Message = message,
-                    Detail = postOutcome.Result.Value
+                    Detail = finalResult.Value
                 });
             }
 
             _eventBus.EmitProgress(new ToolEndEvent { Type = "tool:end", Call = GetSnapshotOrFallback(toolUse.Id, toolUse.Name) });
 
-            results.Add((toolUse.Id, postOutcome.Result));
+            results.Add((toolUse.Id, finalResult));
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Returns context pressure [0.0, ∞) — ratio of current token usage to the compression
+    /// trigger threshold. 1.0 means exactly at threshold; >1.0 means over threshold.
+    /// </summary>
+    private float ComputeContextPressure()
+    {
+        var maxTokens = _config.Context?.MaxTokens ?? 0;
+        if (maxTokens <= 0) return 0f;
+
+        var systemPromptTokens = ContextManager.EstimateSystemPromptTokens(_systemPrompt);
+        var usage = _contextManager.Analyze(_messages, systemPromptTokens);
+        return (float)usage.TotalTokens / maxTokens;
     }
 
     private ToolCallSnapshot GetSnapshotOrFallback(string callId, string toolName)

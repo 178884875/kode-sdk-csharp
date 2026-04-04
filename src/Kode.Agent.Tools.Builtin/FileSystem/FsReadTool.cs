@@ -14,7 +14,8 @@ public sealed class FsReadTool : ToolBase<FsReadArgs>
 
     public override string Description =>
         "Read the contents of a file. Returns the file content as text. " +
-        "Supports optional line range selection.";
+        "Supports optional line range selection. " +
+        "Files exceeding 500 lines are truncated by default; use startLine/endLine to read specific sections.";
 
     public override object InputSchema => JsonSchemaBuilder.BuildSchema<FsReadArgs>();
 
@@ -27,8 +28,13 @@ public sealed class FsReadTool : ToolBase<FsReadArgs>
     public override ValueTask<string?> GetPromptAsync(ToolContext context)
     {
         return ValueTask.FromResult<string?>(
-            "When reading files, prefer reading larger sections over multiple small reads. " +
-            "Use startLine and endLine to read specific sections efficiently.");
+            "File reading strategy:\n" +
+            "1. If you only need to find a keyword, function, or pattern — use fs_grep instead. " +
+            "It returns only matching lines and is far more context-efficient.\n" +
+            "2. If you need to read a file, always scope it: use startLine/endLine to read " +
+            "only the section you need. Avoid reading the whole file unless necessary.\n" +
+            "3. Files over 500 lines are automatically truncated. If truncated=true in the " +
+            "response, use startLine/endLine to read subsequent sections.");
     }
 
     protected override async Task<ToolResult> ExecuteAsync(
@@ -45,15 +51,34 @@ public sealed class FsReadTool : ToolBase<FsReadArgs>
 
             var content = await context.Sandbox.ReadFileAsync(args.Path, cancellationToken);
 
-            // Apply line range if specified
+            var allLines = content.Split('\n');
+            var totalLines = allLines.Length;
+
+            // Apply line range if specified, otherwise enforce an adaptive line cap.
+            // When context pressure is high the cap shrinks to preserve headroom.
+            bool truncated;
+            int start, end;
             if (args.StartLine.HasValue || args.EndLine.HasValue)
             {
-                var lines = content.Split('\n');
-                var start = Math.Max(0, (args.StartLine ?? 1) - 1);
-                var end = Math.Min(lines.Length, args.EndLine ?? lines.Length);
-
-                content = string.Join('\n', lines.Skip(start).Take(end - start));
+                start = Math.Max(0, (args.StartLine ?? 1) - 1);
+                end = Math.Min(totalLines, args.EndLine ?? totalLines);
+                truncated = false;
             }
+            else
+            {
+                var maxLines = context.ContextPressure switch
+                {
+                    >= 0.8f => 100,
+                    >= 0.6f => 200,
+                    >= 0.4f => 350,
+                    _       => 500
+                };
+                start = 0;
+                end = Math.Min(totalLines, maxLines);
+                truncated = totalLines > maxLines;
+            }
+
+            content = string.Join('\n', allLines.Skip(start).Take(end - start));
 
             var filePool = ToolContextFilePool.TryGetFilePool(context);
             if (filePool != null)
@@ -65,7 +90,12 @@ public sealed class FsReadTool : ToolBase<FsReadArgs>
             {
                 path = args.Path,
                 content,
-                lines = content.Split('\n').Length
+                lines = end - start,
+                totalLines,
+                truncated,
+                note = truncated
+                    ? $"File has {totalLines} lines; showing lines 1-{end} (limit={end} due to context pressure {context.ContextPressure:P0}). Use startLine/endLine to read other sections."
+                    : (string?)null
             });
         }
         catch (Exception ex)

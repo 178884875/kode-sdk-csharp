@@ -117,6 +117,20 @@ public record ToolContext
     public Action<string, object?>? Emit { get; init; }
 
     /// <summary>
+    /// The sandbox options used to configure the current agent's sandbox.
+    /// Tools that spawn child agents (e.g. isolate_task) should inherit these
+    /// to preserve filesystem access rights.
+    /// </summary>
+    public SandboxOptions? SandboxOptions { get; init; }
+
+    /// <summary>
+    /// Context pressure in [0.0, 1.0] — ratio of current token usage to the compression
+    /// trigger threshold. Tools may use this to adaptively limit their output size.
+    /// 0 = context nearly empty; 1.0 = at compression threshold; >1.0 = over threshold.
+    /// </summary>
+    public float ContextPressure { get; init; }
+
+    /// <summary>
     /// Cancellation token.
     /// </summary>
     public CancellationToken CancellationToken { get; init; }

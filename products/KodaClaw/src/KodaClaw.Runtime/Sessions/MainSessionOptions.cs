@@ -36,6 +36,14 @@ public sealed class MainSessionOptions
         "diagnostics_query",
         "schedule_reminder",
         "history_search",
+        "isolate_task",
+        "pipeline",
+        "parallel_research",
+        "retry_with_reflection",
+        "ask_specialist",
+        "context_distill",
+        "validate_and_fix",
+        // fan_out_fan_in, map_reduce, debate — gated behind koda-orchestration skill
     ];
 
     public static readonly IReadOnlyList<string> DefaultRequireApprovalTools =
@@ -68,12 +76,12 @@ public sealed class MainSessionOptions
     /// <summary>
     /// Fraction of the model's context window at which compression is triggered.
     /// </summary>
-    public double ContextCompressionTriggerRatio { get; init; } = 0.75;
+    public double ContextCompressionTriggerRatio { get; init; } = 0.60;
 
     /// <summary>
     /// Fraction of the model's context window to compress down to.
     /// </summary>
-    public double ContextCompressionTargetRatio { get; init; } = 0.50;
+    public double ContextCompressionTargetRatio { get; init; } = 0.40;
 
     /// <summary>
     /// Assumed context window size (tokens) used to compute compression thresholds.

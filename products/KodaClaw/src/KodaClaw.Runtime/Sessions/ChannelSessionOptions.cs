@@ -22,9 +22,9 @@ public sealed class ChannelSessionOptions
         RequireApprovalTools = [],
     };
 
-    public double ContextCompressionTriggerRatio { get; init; } = 0.75;
+    public double ContextCompressionTriggerRatio { get; init; } = 0.60;
 
-    public double ContextCompressionTargetRatio { get; init; } = 0.50;
+    public double ContextCompressionTargetRatio { get; init; } = 0.40;
 
     public int DefaultContextWindowSize { get; init; } = 128_000;
 
