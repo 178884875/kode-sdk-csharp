@@ -197,14 +197,13 @@ export function ModelsSettingsDesk() {
         enabled: "已启用",
         disabled: "已停用",
       },
-      modelList: {
-        edit: "编辑",
-        setDefault: "设为默认",
-        delete: "删除",
-      },
       composer: {
         displayName: "显示名称",
         provider: "提供商",
+        thirdParty: "第三方（兼容）",
+        protocol: "API 协议",
+        protocolOpenAI: "OpenAI 兼容",
+        protocolAnthropic: "Anthropic 兼容",
         modelId: "模型 ID",
         baseUrl: "Base URL（可选）",
         apiKey: "API Key",
@@ -218,7 +217,9 @@ export function ModelsSettingsDesk() {
         capVideo: "视频输入",
         capFile: "文件输入",
         capAudio: "音频输入",
+        modelMeta: "模型参数",
         create: "创建模型端点",
+        createRequiresTest: "请先测试连接后再创建",
         save: "保存端点修改",
         reset: "重置编辑器",
         presetSection: "从预设选择（可选）",
@@ -226,6 +227,7 @@ export function ModelsSettingsDesk() {
         baseUrlRequired: "Base URL（必填）",
         testConnection: "测试连接",
         testingConnection: "测试中…",
+        quickTest: "测试",
         cancel: "取消",
         replaceKey: "重新输入",
         connectionOk: "连接成功",
@@ -249,6 +251,15 @@ export function ModelsSettingsDesk() {
         customHeadersValuePlaceholder: "claude-code/0.1.0",
         addHeader: "+ 添加请求头",
         removeHeader: "删除",
+        duplicateWarning: "已存在相同 Model ID + Base URL 的端点",
+        setAsDefaultPrompt: "设为默认模型？",
+        setAsDefaultDone: "已设为默认",
+      },
+      modelList: {
+        edit: "编辑",
+        setDefault: "设为默认",
+        delete: "删除",
+        quickTest: "测试",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -304,15 +315,14 @@ export function ModelsSettingsDesk() {
         enabled: "Enabled",
         disabled: "Disabled",
       },
-      modelList: {
-        edit: "Edit",
-        setDefault: "Set default",
-        delete: "Delete",
-      },
       composer: {
         displayName: "Display name",
         provider: "Provider",
-        modelId: "Model id",
+        thirdParty: "Third-party (compatible)",
+        protocol: "API protocol",
+        protocolOpenAI: "OpenAI compatible",
+        protocolAnthropic: "Anthropic compatible",
+        modelId: "Model ID",
         baseUrl: "Base URL (optional)",
         apiKey: "API Key",
         apiKeyConfigured: "Configured",
@@ -325,7 +335,9 @@ export function ModelsSettingsDesk() {
         capVideo: "Video input",
         capFile: "File input",
         capAudio: "Audio input",
+        modelMeta: "Model parameters",
         create: "Create model endpoint",
+        createRequiresTest: "Test the connection first",
         save: "Save endpoint edits",
         reset: "Reset composer",
         presetSection: "Quick-start from preset (optional)",
@@ -333,6 +345,7 @@ export function ModelsSettingsDesk() {
         baseUrlRequired: "Base URL (required)",
         testConnection: "Test connection",
         testingConnection: "Testing...",
+        quickTest: "Test",
         cancel: "Cancel",
         replaceKey: "Replace",
         connectionOk: "Connected",
@@ -356,6 +369,15 @@ export function ModelsSettingsDesk() {
         customHeadersValuePlaceholder: "claude-code/0.1.0",
         addHeader: "+ Add header",
         removeHeader: "Remove",
+        duplicateWarning: "An endpoint with the same Model ID + Base URL already exists",
+        setAsDefaultPrompt: "Set as default model?",
+        setAsDefaultDone: "Set as default",
+      },
+      modelList: {
+        edit: "Edit",
+        setDefault: "Set default",
+        delete: "Delete",
+        quickTest: "Test",
       },
       providerLabels: {
         OpenAI: "OpenAI",
@@ -381,6 +403,10 @@ export function ModelsSettingsDesk() {
   const [selectedPresetForFill, setSelectedPresetForFill] = useState<ModelPreset | null>(null);
   const [testResult, setTestResult] = useState<ModelConnectionTestResponse | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
+  // Post-create "set as default" prompt
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
+  // Per-card quick-test state
+  const [cardTests, setCardTests] = useState<Map<string, { testing: boolean; result: ModelConnectionTestResponse | null }>>(new Map());
 
   const selectedModel = useMemo(
     () => models.find((item) => item.id === selectedModelId) ?? null,
@@ -455,6 +481,7 @@ export function ModelsSettingsDesk() {
       setModels(nextModels);
       setSelectedModelId(created.id);
       setModelDraft(toDraft(created));
+      setJustCreatedId(created.id);
       setNote(text.notes.modelCreated);
       setEndpointModalOpen(false);
     } catch (nextError) {
@@ -549,6 +576,37 @@ export function ModelsSettingsDesk() {
   function resetModelComposer() {
     setSelectedModelId(null);
     setModelDraft(DEFAULT_MODEL_DRAFT);
+    setTestResult(null);
+    setSelectedPresetForFill(null);
+    setJustCreatedId(null);
+  }
+
+  // Derived: is the current provider a "third-party compatible" type
+  const isThirdParty = modelDraft.provider === 'OpenAICompatible' || modelDraft.provider === 'AnthropicCompatible';
+  const thirdPartyProtocol: 'OpenAI' | 'Anthropic' = modelDraft.provider === 'AnthropicCompatible' ? 'Anthropic' : 'OpenAI';
+
+  // Duplicate detection: same modelId + baseUrl already exists (create mode only)
+  const isDuplicate = !selectedModelId && models.some(
+    m => m.modelId === modelDraft.modelId.trim() &&
+         (m.baseUrl ?? '') === (modelDraft.baseUrl.trim() || '')
+  );
+
+  function handleProtocolChange(protocol: 'OpenAI' | 'Anthropic') {
+    const nextProvider: ModelProviderKind = protocol === 'Anthropic' ? 'AnthropicCompatible' : 'OpenAICompatible';
+    setModelDraft(current => {
+      const nextBaseUrl = protocol === 'Anthropic'
+        ? (selectedPresetForFill?.anthropicBaseUrl ?? selectedPresetForFill?.baseUrl ?? current.baseUrl)
+        : (selectedPresetForFill?.baseUrl ?? current.baseUrl);
+      return { ...current, provider: nextProvider, baseUrl: nextBaseUrl ?? '' };
+    });
+    setTestResult(null);
+  }
+
+  function handleQuickTest(id: string, modelId: string, baseUrl: string | null | undefined) {
+    setCardTests(prev => new Map(prev).set(id, { testing: true, result: null }));
+    testModelConnection({ modelId, baseUrl: baseUrl ?? undefined, apiKey: '' })
+      .then(result => setCardTests(prev => new Map(prev).set(id, { testing: false, result })))
+      .catch(() => setCardTests(prev => new Map(prev).set(id, { testing: false, result: { ok: false, latencyMs: 0, error: 'network_error' } })));
   }
 
   const isZh = locale === 'zh-CN';
@@ -564,9 +622,21 @@ export function ModelsSettingsDesk() {
         </p>
       ) : null}
       {note ? (
-        <p className="desk-feedback desk-feedback--success" data-testid="models-settings-note">
+        <div className="desk-feedback desk-feedback--success" data-testid="models-settings-note">
           {note}
-        </p>
+          {justCreatedId && !models.find(m => m.id === justCreatedId)?.isDefault && (
+            <span style={{ marginLeft: 'var(--space-3)' }}>
+              {text.composer.setAsDefaultPrompt}{' '}
+              <button
+                className="ob-hint-link"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                onClick={() => { void handleSetDefault(justCreatedId); setJustCreatedId(null); }}
+              >
+                {text.composer.setAsDefaultDone}
+              </button>
+            </span>
+          )}
+        </div>
       ) : null}
 
       <section className="timeline" data-testid="models-list">
@@ -664,9 +734,30 @@ export function ModelsSettingsDesk() {
                           )}
                         </div>
 
-                        {/* Footer: actions only */}
+                        {/* Footer: actions + quick test */}
                         <div className="model-endpoint-card__footer">
+                          {(() => {
+                            const ct = cardTests.get(item.id);
+                            return ct?.result ? (
+                              <span
+                                className={`desk-feedback ${ct.result.ok ? 'desk-feedback--success' : 'desk-feedback--error'}`}
+                                style={{ fontSize: 'var(--font-size-xs)', padding: '2px var(--space-2)' }}
+                              >
+                                {ct.result.ok
+                                  ? `✓ ${ct.result.latencyMs}ms`
+                                  : `✗ ${text.composer.errorCodes[ct.result.error ?? ''] ?? ct.result.error}`}
+                              </span>
+                            ) : null;
+                          })()}
                           <div className="control-plane-item-actions">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleQuickTest(item.id, item.modelId, item.baseUrl)}
+                              disabled={isMutating || cardTests.get(item.id)?.testing === true}
+                            >
+                              {cardTests.get(item.id)?.testing ? '…' : text.modelList.quickTest}
+                            </Button>
                             <Button
                               variant="secondary"
                               size="sm"
@@ -732,7 +823,8 @@ export function ModelsSettingsDesk() {
                 form="model-endpoint-form"
                 variant="primary"
                 data-testid="model-create-submit"
-                disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0}
+                disabled={isMutating || modelDraft.displayName.trim().length === 0 || modelDraft.modelId.trim().length === 0 || !testResult?.ok}
+                title={!testResult?.ok ? text.composer.createRequiresTest : undefined}
               >
                 {isMutating ? (text.common.loading) : text.composer.create}
               </Button>
@@ -747,27 +839,47 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.provider}</span>
               <Select
                 data-testid="model-provider"
-                value={modelDraft.provider}
+                value={isThirdParty ? '__third__' : modelDraft.provider}
                 onChange={(event) => {
-                  const next = event.target.value as ModelProviderKind;
-                  const defaultUrl = PROVIDER_DEFAULT_BASE_URLS[next] ?? '';
-                  setModelDraft((current) => ({
-                    ...current,
-                    provider: next,
-                    baseUrl:
-                      current.baseUrl === '' || KNOWN_DEFAULT_URLS.has(current.baseUrl)
-                        ? defaultUrl
-                        : current.baseUrl,
-                  }));
+                  const val = event.target.value;
+                  if (val === '__third__') {
+                    setModelDraft(current => ({ ...current, provider: 'OpenAICompatible', baseUrl: '' }));
+                  } else {
+                    const next = val as ModelProviderKind;
+                    const defaultUrl = PROVIDER_DEFAULT_BASE_URLS[next] ?? '';
+                    setModelDraft(current => ({
+                      ...current,
+                      provider: next,
+                      baseUrl: current.baseUrl === '' || KNOWN_DEFAULT_URLS.has(current.baseUrl) ? defaultUrl : current.baseUrl,
+                    }));
+                  }
                   setSelectedPresetForFill(null);
+                  setTestResult(null);
                 }}
               >
                 <option value="OpenAI">{text.providerLabels.OpenAI}</option>
                 <option value="Anthropic">{text.providerLabels.Anthropic}</option>
-                <option value="OpenAICompatible">{text.providerLabels.OpenAICompatible}</option>
-                <option value="AnthropicCompatible">{text.providerLabels.AnthropicCompatible}</option>
+                <option value="__third__">{text.composer.thirdParty}</option>
               </Select>
             </label>
+            {/* 1b. Protocol toggle — only for third-party */}
+            {isThirdParty && (
+              <div className="bootstrap-form__field">
+                <span className="bootstrap-form__label">{text.composer.protocol}</span>
+                <div className="ob-protocol-tabs">
+                  {(['OpenAI', 'Anthropic'] as const).map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      className={`ob-protocol-tab ${thirdPartyProtocol === p ? 'is-active' : ''}`}
+                      onClick={() => { handleProtocolChange(p); setSelectedPresetForFill(null); }}
+                    >
+                      {p === 'OpenAI' ? text.composer.protocolOpenAI : text.composer.protocolAnthropic}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* 2. Preset (filtered by provider) */}
             <div className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.presetSection}</span>
@@ -778,12 +890,15 @@ export function ModelsSettingsDesk() {
                   const preset = presets.find(p => p.presetId === e.target.value);
                   if (preset) {
                     setSelectedPresetForFill(preset);
+                    const baseUrl = thirdPartyProtocol === 'Anthropic' && preset.anthropicBaseUrl
+                      ? preset.anthropicBaseUrl
+                      : (preset.baseUrl ?? PROVIDER_DEFAULT_BASE_URLS[preset.provider as ModelProviderKind] ?? '');
                     setModelDraft(current => ({
                       ...current,
                       displayName: current.displayName || preset.displayName,
                       provider: preset.provider as ModelProviderKind,
                       modelId: preset.modelId,
-                      baseUrl: preset.baseUrl ?? PROVIDER_DEFAULT_BASE_URLS[preset.provider as ModelProviderKind] ?? '',
+                      baseUrl,
                       capabilities: preset.defaultCapabilities,
                       contextWindowSize: preset.contextWindowSize ?? current.contextWindowSize,
                       maxOutputTokens: preset.maxOutputTokens ?? current.maxOutputTokens,
@@ -805,6 +920,11 @@ export function ModelsSettingsDesk() {
                     </option>
                   ))}
               </Select>
+              {selectedPresetForFill?.description && (
+                <span className="ob-hint" style={{ marginTop: 'var(--space-1)', display: 'block' }}>
+                  {selectedPresetForFill.description}
+                </span>
+              )}
             </div>
             {/* 3. Display Name */}
             <label className="bootstrap-form__field">
@@ -867,9 +987,59 @@ export function ModelsSettingsDesk() {
                 />
               )}
             </label>
-            {/* 7. Advanced: API Key env var + Custom Headers */}
+            {/* duplicate warning */}
+            {isDuplicate && (
+              <p className="desk-feedback desk-feedback--error" style={{ marginBottom: 'var(--space-2)' }}>
+                ⚠ {text.composer.duplicateWarning}
+              </p>
+            )}
+            {/* 7. Advanced: technical fields + API Key env var + Custom Headers */}
             <details className="bootstrap-form__advanced">
               <summary className="bootstrap-form__advanced-toggle">{text.composer.advancedOptions}</summary>
+              {/* Model meta */}
+              <div className="bootstrap-form__field" style={{ marginTop: 'var(--space-2)' }}>
+                <span className="bootstrap-form__label">{text.composer.modelMeta}</span>
+              </div>
+              <label className="bootstrap-form__field">
+                <span className="bootstrap-form__label">{text.composer.contextWindowSize}</span>
+                <input
+                  data-testid="model-context-window-size"
+                  type="number"
+                  min={1}
+                  className="kc-input"
+                  value={modelDraft.contextWindowSize}
+                  onChange={(event) => setModelDraft((current) => ({ ...current, contextWindowSize: Number(event.target.value) || current.contextWindowSize }))}
+                />
+              </label>
+              <label className="bootstrap-form__field">
+                <span className="bootstrap-form__label">{text.composer.maxOutputTokens}</span>
+                <input
+                  data-testid="model-max-output-tokens"
+                  type="number"
+                  min={1}
+                  className="kc-input"
+                  value={modelDraft.maxOutputTokens}
+                  onChange={(event) => setModelDraft((current) => ({ ...current, maxOutputTokens: Number(event.target.value) || current.maxOutputTokens }))}
+                />
+              </label>
+              <label className="bootstrap-form__toggle" style={{ marginTop: 'var(--space-1)' }}>
+                <input
+                  data-testid="model-is-reasoning"
+                  type="checkbox"
+                  checked={modelDraft.isReasoning}
+                  onChange={(event) => setModelDraft((current) => ({ ...current, isReasoning: event.target.checked }))}
+                />
+                <span>{text.composer.isReasoning}</span>
+              </label>
+              <label className="bootstrap-form__toggle">
+                <input
+                  data-testid="model-supports-tool-calling"
+                  type="checkbox"
+                  checked={modelDraft.supportsToolCalling}
+                  onChange={(event) => setModelDraft((current) => ({ ...current, supportsToolCalling: event.target.checked }))}
+                />
+                <span>{text.composer.supportsToolCalling}</span>
+              </label>
               <label className="bootstrap-form__field" style={{ marginTop: 'var(--space-2)' }}>
                 <span className="bootstrap-form__label">{text.composer.apiKeyEnv}</span>
                 <input
@@ -1000,50 +1170,7 @@ export function ModelsSettingsDesk() {
               />
               <span>{text.composer.enabled}</span>
             </label>
-            {/* 10. Context window + Max output tokens */}
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.contextWindowSize}</span>
-              <input
-                data-testid="model-context-window-size"
-                type="number"
-                min={1}
-                className="kc-input"
-                value={modelDraft.contextWindowSize}
-                onChange={(event) => setModelDraft((current) => ({ ...current, contextWindowSize: Number(event.target.value) || current.contextWindowSize }))}
-              />
-            </label>
-            <label className="bootstrap-form__field">
-              <span className="bootstrap-form__label">{text.composer.maxOutputTokens}</span>
-              <input
-                data-testid="model-max-output-tokens"
-                type="number"
-                min={1}
-                className="kc-input"
-                value={modelDraft.maxOutputTokens}
-                onChange={(event) => setModelDraft((current) => ({ ...current, maxOutputTokens: Number(event.target.value) || current.maxOutputTokens }))}
-              />
-            </label>
-            {/* 11. isReasoning */}
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="model-is-reasoning"
-                type="checkbox"
-                checked={modelDraft.isReasoning}
-                onChange={(event) => setModelDraft((current) => ({ ...current, isReasoning: event.target.checked }))}
-              />
-              <span>{text.composer.isReasoning}</span>
-            </label>
-            {/* 11b. supportsToolCalling */}
-            <label className="bootstrap-form__toggle">
-              <input
-                data-testid="model-supports-tool-calling"
-                type="checkbox"
-                checked={modelDraft.supportsToolCalling}
-                onChange={(event) => setModelDraft((current) => ({ ...current, supportsToolCalling: event.target.checked }))}
-              />
-              <span>{text.composer.supportsToolCalling}</span>
-            </label>
-            {/* 12. Capabilities */}
+            {/* 10. Capabilities */}
             <div className="bootstrap-form__field">
               <span className="bootstrap-form__label">{text.composer.capabilitiesTitle}</span>
               {(

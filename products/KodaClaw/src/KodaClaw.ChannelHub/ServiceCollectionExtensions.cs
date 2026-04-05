@@ -35,6 +35,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<FeishuConnector>();
         services.AddSingleton<IChannelConnector>(sp => sp.GetRequiredService<FeishuConnector>());
         services.TryAddSingleton<IWeChatApiClient, HttpWeChatApiClient>();
+        services.TryAddSingleton<IWeChatCdnClient, HttpWeChatCdnClient>();
         services.TryAddSingleton<WeChatAuthManager>();
         services.TryAddSingleton<WeChatConnector>();
         services.AddSingleton<IChannelConnector>(sp => sp.GetRequiredService<WeChatConnector>());

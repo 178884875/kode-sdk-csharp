@@ -2,6 +2,34 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 66 — Onboarding UX 优化 + GLM Coding Plan 接入（2026-04-05）
+
+> FREEZE doc: `docs/ITERATION_66_FREEZE.md`
+
+范围：ModelStep 顶部新增 [标准 API] / [Coding Plan] 模式切换，按模式过滤 Provider 和 preset 列表；GLM Coding Plan 路径展示 glm-5.1 / glm-5-turbo，自动使用 AnthropicCompatible 协议，消除现有 5 个 GLM preset 混杂展示的困惑。MiniMax Token Plan 预留入口，二期实现。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6601 | Gateway/Web | `model-presets.json` 给 glm-5.1、glm-5-turbo、glm-5-anthropic 加 `"accessMode": "coding-plan"`；`contracts.ts` `ModelPreset` 加 `accessMode?: 'api' \| 'coding-plan'` | `npm run typecheck`；`dotnet build` 0 错 | Completed |
+| KC-6602 | Web/Onboarding | `ModelStep.tsx` 顶部模式 pill（[标准 API] / [Coding Plan]）；标准 API 模式过滤掉 coding-plan preset；Coding Plan 模式只显示智谱 GLM provider，展示 glm-5.1 / glm-5-turbo；协议选择器在 Coding Plan 模式隐藏；API Key label/hint 随模式变化；Save 逻辑 Coding Plan 模式直接使用 `preset.provider` | `npm run typecheck` | Completed |
+| KC-6603 | Web/Onboarding | MiniMax Token Plan tab 预留（disabled + "即将支持"提示）；CSS 补全模式切换 pill 样式 | `npm run typecheck` | Completed |
+| KC-6604 | All | L0 全量编译 + L5 Dogfood：标准 API 模式 GLM 下无 glm-5.1；Coding Plan 模式填 Plan Key 能测试并保存为 AnthropicCompatible endpoint | `dotnet build`；`npm run typecheck`；手动验收 | Pending |
+
+## Iter 65 — 微信媒体消息：图片 + 文件入站/出站 Phase 1（2026-04-05）
+
+> FREEZE doc: `docs/ITERATION_65_FREEZE.md`
+
+范围：P0——WeChat 连接器支持图片（type=2）和文件（type=4）的完整收发闭环。AES-128-ECB CDN 加解密层新建，入站解析写 MediaStore，出站加密上传并 sendmessage。语音/视频为 Phase 2。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6501 | ChannelHub/Contracts | `WeChatApiContracts.cs` 补全：`ILinkImageItem`、`ILinkFileItem`、`ILinkMedia`、`ILinkGetUploadUrlRequest/Response`、`ILinkUploadParam`；`ILinkMessageItem` 加 `ImageItem`/`FileItem` 字段 | `dotnet build` 0 错 | Completed |
+| KC-6502 | ChannelHub | `IWeChatCdnClient` + `HttpWeChatCdnClient`：AES-128-ECB 加解密（含图片/文件两种 key 编码格式）；CDN 上传（POST + 读 `x-encrypted-param` header）；CDN 下载（GET + 解密）；注册 DI | `dotnet test --filter WeChatCdn` | Completed |
+| KC-6503 | ChannelHub | `IWeChatApiClient.GetUploadUrlAsync` + `SendMediaAsync` 接口 + `HttpWeChatApiClient` 实现（裸 `application/json` 无 charset） | `dotnet build` 0 错 | Completed |
+| KC-6504 | ChannelHub | `WeChatConnector` 入站扩展：`PollLoopAsync` 解析 item type=2/4 → `IWeChatCdnClient.DownloadAndDecryptAsync` → `IMediaStore.StoreAsync` → 附 `MediaReference` 到 `ChannelEventEnvelope` | `dotnet test --filter WeChatMediaInbound` | Completed |
+| KC-6505 | ChannelHub | `WeChatConnector` 出站扩展：`SendAsync` 遍历 `draft.MediaAttachments` → 读 MediaStore → AES 加密 → `GetUploadUrlAsync` → CDN 上传 → `sendmessage` type=2/4；每个附件独立发送；失败单条隔离不阻断文字消息 | `dotnet test --filter WeChatMediaOutbound` | Completed |
+| KC-6506 | Tests | `WeChatCdnClientTests`（L1, 7）：AES-ECB 往返、图片/文件 key 编码；`WeChatMediaConnectorTests`（L2, 4）：入站 type=2/4 mock、出站 mock 上传、失败隔离；全量回归 471 unit + 267/268 integration（1 个预存在 flaky） | `dotnet test KodaClaw.sln -m:1` | Completed |
+
 ## Iter 64 — 一次性定时提醒（2026-03-28）
 
 > FREEZE doc: `docs/ITERATION_64_FREEZE.md`

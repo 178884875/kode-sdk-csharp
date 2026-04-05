@@ -41,12 +41,91 @@ public sealed class ILinkMessageItem
 
     [JsonPropertyName("text_item")]
     public ILinkTextItem? TextItem { get; init; }
+
+    [JsonPropertyName("image_item")]
+    public ILinkImageItem? ImageItem { get; init; }
+
+    [JsonPropertyName("file_item")]
+    public ILinkFileItem? FileItem { get; init; }
 }
 
 public sealed class ILinkTextItem
 {
     [JsonPropertyName("text")]
     public string Text { get; init; } = string.Empty;
+}
+
+// ── 媒体通用结构 ──────────────────────────────────────────────
+
+public sealed class ILinkMedia
+{
+    [JsonPropertyName("encrypt_query_param")]
+    public string EncryptQueryParam { get; init; } = string.Empty;
+
+    [JsonPropertyName("aes_key")]
+    public string AesKey { get; init; } = string.Empty;
+
+    [JsonPropertyName("encrypt_type")]
+    public int EncryptType { get; init; } = 1;
+}
+
+public sealed class ILinkImageItem
+{
+    [JsonPropertyName("media")]
+    public ILinkMedia? Media { get; init; }
+}
+
+public sealed class ILinkFileItem
+{
+    [JsonPropertyName("media")]
+    public ILinkMedia? Media { get; init; }
+
+    [JsonPropertyName("file_name")]
+    public string FileName { get; init; } = string.Empty;
+
+    [JsonPropertyName("len")]
+    public string Len { get; init; } = "0";
+}
+
+// ── 上传媒体 ──────────────────────────────────────────────────
+
+public sealed class ILinkGetUploadUrlRequest
+{
+    [JsonPropertyName("filekey")]
+    public required string FileKey { get; init; }
+
+    [JsonPropertyName("media_type")]
+    public int MediaType { get; init; } // 1=图片 2=视频 3=文件 4=语音
+
+    [JsonPropertyName("to_user_id")]
+    public required string ToUserId { get; init; }
+
+    [JsonPropertyName("rawsize")]
+    public long RawSize { get; init; }
+
+    [JsonPropertyName("rawfilemd5")]
+    public required string RawFileMd5 { get; init; }
+
+    [JsonPropertyName("filesize")]
+    public long FileSize { get; init; }
+
+    [JsonPropertyName("aeskey")]
+    public required string AesKey { get; init; }
+}
+
+public sealed class ILinkGetUploadUrlResponse
+{
+    [JsonPropertyName("upload_param")]
+    public ILinkUploadParam? UploadParam { get; init; }
+}
+
+public sealed class ILinkUploadParam
+{
+    [JsonPropertyName("url")]
+    public string Url { get; init; } = string.Empty;
+
+    [JsonPropertyName("headers")]
+    public Dictionary<string, string>? Headers { get; init; }
 }
 
 // ── 发送消息 ──────────────────────────────────────────────

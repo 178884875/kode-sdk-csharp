@@ -1142,6 +1142,8 @@ export interface ModelPreset {
   costHint?: string;
   requiresBaseUrl: boolean;
   defaultCapabilities: number;
+  accessMode?: 'api' | 'coding-plan';
+  anthropicBaseUrl?: string;
 }
 
 export interface ModelConnectionTestRequest {

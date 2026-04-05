@@ -7,7 +7,7 @@ namespace KodaClaw.ChannelHub.Connectors.WeChat;
 
 public sealed class HttpWeChatApiClient : IWeChatApiClient
 {
-    private const string BaseUrl = "https://ilinkai.weixin.qq.com";
+    internal const string BaseUrl = "https://ilinkai.weixin.qq.com";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     // 每次请求生成新的随机 UIN（vibe-remote 的做法，静态 UIN 会触发 412）
@@ -177,6 +177,56 @@ public sealed class HttpWeChatApiClient : IWeChatApiClient
         var json = JsonSerializer.Serialize(
             new { ilink_user_id = ilinkUserId, typing_ticket = typingTicket, status },
             JsonOptions);
+        request.Content = new StringContent(json, Encoding.UTF8);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<ILinkGetUploadUrlResponse> GetUploadUrlAsync(ILinkGetUploadUrlRequest uploadRequest, CancellationToken ct = default)
+    {
+        EnsureBotToken();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/ilink/bot/getuploadurl");
+        AddCommonHeaders(request, includeAuth: true);
+        var json = JsonSerializer.Serialize(uploadRequest, JsonOptions);
+        request.Content = new StringContent(json, Encoding.UTF8);
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+
+        using var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            throw new HttpRequestException(
+                $"getuploadurl failed: HTTP {(int)response.StatusCode} — {errBody}",
+                null, response.StatusCode);
+        }
+
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var result = JsonSerializer.Deserialize<ILinkGetUploadUrlResponse>(body, JsonOptions);
+        return result ?? throw new InvalidOperationException("Empty response from getuploadurl");
+    }
+
+    public async Task SendMediaAsync(string toUserId, string contextToken,
+        IReadOnlyList<ILinkMessageItem> items, CancellationToken ct = default)
+    {
+        EnsureBotToken();
+
+        var body = new ILinkSendMessageRequest
+        {
+            Msg = new ILinkSendMessageBody
+            {
+                ToUserId = toUserId,
+                ClientId = $"kodaclaw-{Guid.NewGuid():N}",
+                ContextToken = contextToken,
+                ItemList = items
+            }
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/ilink/bot/sendmessage");
+        AddCommonHeaders(request, includeAuth: true);
+        var json = JsonSerializer.Serialize(body, JsonOptions);
         request.Content = new StringContent(json, Encoding.UTF8);
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 

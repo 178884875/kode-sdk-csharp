@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
@@ -12,6 +14,10 @@ public sealed class WeChatConnector : IChannelConnector
 {
     private const int ILinkErrCodeSessionExpired = -14;
     private const int ILinkMessageTypeText = 1;
+    private const int ILinkMessageTypeImage = 2;
+    private const int ILinkMessageTypeFile = 4;
+    private const int ILinkMediaTypeImage = 1; // getuploadurl media_type
+    private const int ILinkMediaTypeFile = 3;  // getuploadurl media_type
 
     // 正则：去除常见 Markdown 标记，微信不支持 Markdown
     private static readonly Regex MarkdownRegex = new(
@@ -30,31 +36,37 @@ public sealed class WeChatConnector : IChannelConnector
     private const string DiagnosticSource = "wechat";
 
     private readonly IWeChatApiClient _apiClient;
+    private readonly IWeChatCdnClient _cdnClient;
     private readonly WeChatAuthManager _authManager;
     private readonly WeChatConnectorOptions _options;
     private readonly ChannelSecretResolver _secretResolver;
     private readonly IChannelAccountRepository? _accountRepository;
+    private readonly IMediaStore? _mediaStore;
     private readonly ILogger<WeChatConnector> _logger;
     private readonly string _workspaceRootPath;
     private readonly IDiagnosticsService? _diagnosticsService;
 
     public WeChatConnector(
         IWeChatApiClient apiClient,
+        IWeChatCdnClient cdnClient,
         WeChatAuthManager authManager,
         KodaClawWorkspaceOptions workspaceOptions,
         ILogger<WeChatConnector> logger,
         WeChatConnectorOptions? options = null,
         ISecretStore? secretStore = null,
         IChannelAccountRepository? accountRepository = null,
+        IMediaStore? mediaStore = null,
         IDiagnosticsService? diagnosticsService = null)
     {
         _apiClient = apiClient;
+        _cdnClient = cdnClient;
         _authManager = authManager;
         _workspaceRootPath = workspaceOptions.ResolveRootPath();
         _logger = logger;
         _options = options ?? new WeChatConnectorOptions();
         _secretResolver = new ChannelSecretResolver(secretStore);
         _accountRepository = accountRepository;
+        _mediaStore = mediaStore;
         _diagnosticsService = diagnosticsService;
     }
 
@@ -157,17 +169,7 @@ public sealed class WeChatConnector : IChannelConnector
         if (string.IsNullOrWhiteSpace(draft.ExternalThreadId))
             throw new ArgumentException("WeChat outbound draft must provide an external thread id.", nameof(draft));
 
-        if (string.IsNullOrWhiteSpace(draft.MessageText))
-            throw new ArgumentException("WeChat outbound draft message text is required.", nameof(draft));
-
-        // 微信个人号不支持音频发送（需 AMR 格式转码），明确拒绝
-        var audioAttachment = draft.MediaAttachments?.FirstOrDefault(
-            static a => a.ContentType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase));
-        if (audioAttachment is not null)
-            throw new NotSupportedException("微信个人号不支持发送音频文件");
-
-        // 优先从内存缓存读取 contextToken（收到对方消息时缓存，持续有效直到 Gateway 重启）
-        // 缓存未命中时回退到 MetadataJson（如 channel_send 工具直接调用时）
+        // 优先从内存缓存读取 contextToken
         var cacheKey = $"{accountId}::{draft.ExternalThreadId}";
         var contextToken = _contextTokenCache.TryGetValue(cacheKey, out var cached)
             ? cached
@@ -176,14 +178,132 @@ public sealed class WeChatConnector : IChannelConnector
             "WeChat SendAsync: accountId={AccountId} toUserId={ToUserId} contextTokenLen={Len}",
             accountId, draft.ExternalThreadId, contextToken.Length);
 
-        // 微信不支持 Markdown，剥离标记转为纯文本
-        var plainText = MarkdownToPlainText(draft.MessageText);
+        return SendOutboundAsync(draft, startedAccount, contextToken, cancellationToken);
+    }
 
-        return _apiClient.SendTextAsync(
-            draft.ExternalThreadId,
-            contextToken,
-            plainText,
-            cancellationToken);
+    // ── 出站发送 ─────────────────────────────────────────────
+
+    private async Task SendOutboundAsync(
+        ChannelOutboundDraft draft,
+        StartedAccount ctx,
+        string contextToken,
+        CancellationToken ct)
+    {
+        // 先发媒体附件（每个独立一条消息）
+        if (draft.MediaAttachments is { Count: > 0 } && _mediaStore is not null)
+        {
+            foreach (var mediaRef in draft.MediaAttachments)
+            {
+                // 音频需 AMR 转码，降级为文件发送
+                var isImage = mediaRef.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+                var ilinkMediaType = isImage ? ILinkMediaTypeImage : ILinkMediaTypeFile;
+
+                try
+                {
+                    await SendMediaAttachmentAsync(
+                        draft.ExternalThreadId, contextToken, mediaRef, ilinkMediaType, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "WeChat: failed to send media attachment {MediaId}, skipping",
+                        mediaRef.MediaId);
+                }
+            }
+        }
+
+        // 再发文字（如果有）
+        if (!string.IsNullOrWhiteSpace(draft.MessageText))
+        {
+            var plainText = MarkdownToPlainText(draft.MessageText);
+            await _apiClient.SendTextAsync(draft.ExternalThreadId, contextToken, plainText, ct)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task SendMediaAttachmentAsync(
+        string toUserId,
+        string contextToken,
+        MediaReference mediaRef,
+        int ilinkMediaType,
+        CancellationToken ct)
+    {
+        // 1. 读取 MediaStore
+        var stream = await _mediaStore!.OpenReadAsync(mediaRef.MediaId, ct).ConfigureAwait(false);
+        if (stream is null)
+        {
+            _logger.LogWarning("WeChat: MediaStore returned null for mediaId={MediaId}", mediaRef.MediaId);
+            return;
+        }
+
+        using (stream)
+        {
+            var rawBytes = await ReadAllBytesAsync(stream, ct).ConfigureAwait(false);
+
+            // 2. 生成 AES-128 key（图片用 raw bytes，文件用 hex string）
+            var keyRaw = RandomNumberGenerator.GetBytes(16);
+            var isImage = ilinkMediaType == ILinkMediaTypeImage;
+            var aesKeyBase64 = isImage
+                ? Convert.ToBase64String(keyRaw)
+                : Convert.ToBase64String(Encoding.UTF8.GetBytes(Convert.ToHexString(keyRaw).ToLowerInvariant()));
+
+            // 3. AES-ECB 加密
+            var encrypted = HttpWeChatCdnClient.AesEcbEncrypt(rawBytes, keyRaw);
+
+            // 4. 计算原始文件 MD5
+            var rawMd5 = Convert.ToHexString(MD5.HashData(rawBytes)).ToLowerInvariant();
+
+            // 5. getuploadurl
+            var uploadResp = await _apiClient.GetUploadUrlAsync(new ILinkGetUploadUrlRequest
+            {
+                FileKey = Guid.NewGuid().ToString("N"),
+                MediaType = ilinkMediaType,
+                ToUserId = toUserId,
+                RawSize = rawBytes.Length,
+                RawFileMd5 = rawMd5,
+                FileSize = encrypted.Length,
+                AesKey = aesKeyBase64
+            }, ct).ConfigureAwait(false);
+
+            if (uploadResp.UploadParam is null)
+                throw new InvalidOperationException("getuploadurl returned no UploadParam");
+
+            // 6. 上传到 CDN
+            var encryptQueryParam = await _cdnClient.UploadEncryptedAsync(
+                uploadResp.UploadParam, encrypted, ct).ConfigureAwait(false);
+
+            // 7. 构造 item_list 并发送
+            var media = new ILinkMedia
+            {
+                EncryptQueryParam = encryptQueryParam,
+                AesKey = aesKeyBase64,
+                EncryptType = 1
+            };
+
+            ILinkMessageItem item = isImage
+                ? new ILinkMessageItem { Type = ILinkMessageTypeImage, ImageItem = new ILinkImageItem { Media = media } }
+                : new ILinkMessageItem
+                {
+                    Type = ILinkMessageTypeFile,
+                    FileItem = new ILinkFileItem
+                    {
+                        Media = media,
+                        FileName = mediaRef.FileName ?? "file",
+                        Len = encrypted.Length.ToString()
+                    }
+                };
+
+            await _apiClient.SendMediaAsync(toUserId, contextToken, [item], ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream, CancellationToken ct)
+    {
+        if (stream is MemoryStream ms) return ms.ToArray();
+        using var buf = new MemoryStream();
+        await stream.CopyToAsync(buf, ct).ConfigureAwait(false);
+        return buf.ToArray();
     }
 
     // ── 长轮询主循环 ──────────────────────────────────────────
@@ -237,15 +357,8 @@ public sealed class WeChatConnector : IChannelConnector
                         _contextTokenCache[cacheKey] = msg.ContextToken;
                     }
 
-                    foreach (var item in msg.ItemList)
-                    {
-                        if (item.Type != ILinkMessageTypeText || string.IsNullOrWhiteSpace(item.TextItem?.Text))
-                            continue;
-
-                        var envelope = BuildEnvelope(ctx.Account, msg, item.TextItem.Text, ctx.Configuration);
-                        await SendTypingAndProcessAsync(msg.FromUserId, msg.ContextToken, envelope, onEvent, ct)
-                            .ConfigureAwait(false);
-                    }
+                    await ProcessMessageItemsAsync(ctx.Account, msg, ctx.Configuration, onEvent, ct)
+                        .ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -266,6 +379,119 @@ public sealed class WeChatConnector : IChannelConnector
         {
             _logger.LogInformation("WeChat poll loop stopped for account {AccountId}", ctx.Account.Id);
         }
+    }
+
+    // ── 消息解析（入站）──────────────────────────────────────
+
+    private async Task ProcessMessageItemsAsync(
+        ChannelAccount account,
+        ILinkMessage msg,
+        WeChatConnectorConfiguration configuration,
+        Func<ChannelEventEnvelope, CancellationToken, Task> onEvent,
+        CancellationToken ct)
+    {
+        string? text = null;
+        List<MediaReference>? attachments = null;
+
+        foreach (var item in msg.ItemList)
+        {
+            switch (item.Type)
+            {
+                case ILinkMessageTypeText:
+                    if (!string.IsNullOrWhiteSpace(item.TextItem?.Text))
+                        text = item.TextItem.Text;
+                    break;
+
+                case ILinkMessageTypeImage:
+                    if (item.ImageItem?.Media is { } imgMedia && _mediaStore is not null)
+                    {
+                        var imgRef = await TryDownloadMediaAsync(
+                            imgMedia, isImage: true, "image/jpeg", null, msg.MessageId, ct)
+                            .ConfigureAwait(false);
+                        if (imgRef is not null)
+                            (attachments ??= []).Add(imgRef);
+                    }
+                    break;
+
+                case ILinkMessageTypeFile:
+                    if (item.FileItem?.Media is { } fileMedia && _mediaStore is not null)
+                    {
+                        var fileName = item.FileItem.FileName;
+                        var contentType = InferContentType(fileName);
+                        var fileRef = await TryDownloadMediaAsync(
+                            fileMedia, isImage: false, contentType, fileName, msg.MessageId, ct)
+                            .ConfigureAwait(false);
+                        if (fileRef is not null)
+                            (attachments ??= []).Add(fileRef);
+                    }
+                    break;
+            }
+        }
+
+        // 有文字或媒体附件时才触发事件
+        if (text is null && (attachments is null || attachments.Count == 0))
+            return;
+
+        var envelope = BuildEnvelopeWithMedia(account, msg, text, attachments, configuration);
+        await SendTypingAndProcessAsync(msg.FromUserId, msg.ContextToken, envelope, onEvent, ct)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<MediaReference?> TryDownloadMediaAsync(
+        ILinkMedia media,
+        bool isImage,
+        string contentType,
+        string? fileName,
+        long messageId,
+        CancellationToken ct)
+    {
+        if (_mediaStore is null) return null;
+        if (string.IsNullOrEmpty(media.EncryptQueryParam) || string.IsNullOrEmpty(media.AesKey))
+            return null;
+
+        try
+        {
+            var cdnBaseUrl = HttpWeChatApiClient.BaseUrl;
+            var stream = await _cdnClient.DownloadAndDecryptAsync(
+                cdnBaseUrl, media.EncryptQueryParam, media.AesKey, isImage, ct)
+                .ConfigureAwait(false);
+
+            var meta = await _mediaStore.StoreAsync(
+                stream, contentType, fileName,
+                source: "wechat",
+                externalMessageId: messageId.ToString(),
+                cancellationToken: ct)
+                .ConfigureAwait(false);
+
+            return new MediaReference(meta.Id, contentType, fileName, meta.SizeBytes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "WeChat: failed to download media for message {MessageId}", messageId);
+            return null;
+        }
+    }
+
+    private static string InferContentType(string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName)) return "application/octet-stream";
+        return Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            ".webp" => "image/webp",
+            ".pdf" => "application/pdf",
+            ".doc" => "application/msword",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ".xls" => "application/vnd.ms-excel",
+            ".xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ".mp4" => "video/mp4",
+            ".mp3" => "audio/mpeg",
+            ".zip" => "application/zip",
+            ".txt" => "text/plain",
+            _ => "application/octet-stream"
+        };
     }
 
     // ── 正在输入 ──────────────────────────────────────────────
@@ -331,10 +557,11 @@ public sealed class WeChatConnector : IChannelConnector
 
     // ── 事件构造 ─────────────────────────────────────────────
 
-    private static ChannelEventEnvelope BuildEnvelope(
+    private static ChannelEventEnvelope BuildEnvelopeWithMedia(
         ChannelAccount account,
         ILinkMessage msg,
-        string text,
+        string? text,
+        IReadOnlyList<MediaReference>? mediaAttachments,
         WeChatConnectorConfiguration configuration)
     {
         var metadataJson = JsonSerializer.Serialize(new { contextToken = msg.ContextToken });
@@ -352,7 +579,8 @@ public sealed class WeChatConnector : IChannelConnector
             ExternalMessageId: msg.MessageId.ToString(),
             Text: text,
             MetadataJson: metadataJson,
-            DefaultDeliveryMode: configuration.DefaultDeliveryMode);
+            DefaultDeliveryMode: configuration.DefaultDeliveryMode,
+            MediaAttachments: mediaAttachments);
     }
 
     // ── 账号状态管理 ─────────────────────────────────────────

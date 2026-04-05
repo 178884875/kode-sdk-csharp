@@ -206,6 +206,45 @@
 }
 
 /* ─────────────────────────────────────────
+   Mode toggle (标准 API / Coding Plan)
+───────────────────────────────────────── */
+.ob-mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.ob-mode-tab {
+  padding: 6px 18px;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--duration-base), color var(--duration-base);
+  white-space: nowrap;
+}
+
+.ob-mode-tab:hover:not(.is-active) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.ob-mode-tab.is-active {
+  background: var(--bg-primary);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+/* ─────────────────────────────────────────
    Provider tabs
 ───────────────────────────────────────── */
 .ob-provider-tabs {
@@ -238,6 +277,32 @@
   background: var(--accent-soft);
   color: var(--accent);
   font-weight: 600;
+}
+
+.ob-provider-tab.is-coming-soon {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ob-coming-soon-badge {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-subtle);
+  padding: 1px 5px;
+  border-radius: 999px;
+  margin-left: 5px;
+  letter-spacing: 0.02em;
+}
+
+.ob-hint-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ob-hint-link:hover {
+  opacity: 0.8;
 }
 
 /* ─────────────────────────────────────────

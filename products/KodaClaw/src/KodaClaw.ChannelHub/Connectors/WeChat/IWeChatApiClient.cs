@@ -23,6 +23,13 @@ public interface IWeChatApiClient
     /// <summary>发送"正在输入"状态：status=1 开始，status=2 取消（需要 BotToken 已设置）</summary>
     Task SendTypingAsync(string ilinkUserId, string typingTicket, int status, CancellationToken ct = default);
 
+    /// <summary>获取媒体 CDN 上传地址（需要 BotToken 已设置）</summary>
+    Task<ILinkGetUploadUrlResponse> GetUploadUrlAsync(ILinkGetUploadUrlRequest request, CancellationToken ct = default);
+
+    /// <summary>发送带媒体 item_list 的消息（需要 BotToken 已设置）</summary>
+    Task SendMediaAsync(string toUserId, string contextToken,
+        IReadOnlyList<ILinkMessageItem> items, CancellationToken ct = default);
+
     /// <summary>设置登录后的 BotToken（初始为 null）</summary>
     void SetBotToken(string botToken);
 }

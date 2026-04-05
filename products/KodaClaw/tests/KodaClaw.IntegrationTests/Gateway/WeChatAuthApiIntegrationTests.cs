@@ -167,6 +167,22 @@ public sealed class WeChatAuthApiIntegrationTests
             return Task.CompletedTask;
         }
 
+        public Task<ILinkGetUploadUrlResponse> GetUploadUrlAsync(
+            ILinkGetUploadUrlRequest request, CancellationToken ct = default)
+        {
+            return Task.FromResult(new ILinkGetUploadUrlResponse
+            {
+                UploadParam = new ILinkUploadParam { Url = "https://stub-cdn.example.com/upload" }
+            });
+        }
+
+        public Task SendMediaAsync(
+            string toUserId, string contextToken,
+            IReadOnlyList<ILinkMessageItem> items, CancellationToken ct = default)
+        {
+            return Task.CompletedTask;
+        }
+
         public void SetBotToken(string botToken) { }
     }
 }

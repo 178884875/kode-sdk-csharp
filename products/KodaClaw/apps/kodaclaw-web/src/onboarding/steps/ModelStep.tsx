@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { ModelPreset, ModelConnectionTestResponse } from '../../types/contracts';
+import type { ModelPreset, ModelConnectionTestResponse, ModelProviderKind } from '../../types/contracts';
 import {
   fetchModelPresets,
   testModelConnection,
@@ -12,7 +12,9 @@ interface Props {
   onSkip: () => void;
 }
 
-const PROVIDERS = [
+type ProviderDef = { id: string; label: string; comingSoon?: boolean };
+
+const PROVIDERS: ProviderDef[] = [
   { id: 'Anthropic', label: 'Anthropic'  },
   { id: 'OpenAI',    label: 'OpenAI'     },
   { id: 'DeepSeek',  label: 'DeepSeek'   },
@@ -23,19 +25,36 @@ const PROVIDERS = [
   { id: 'Ollama',    label: 'Ollama'     },
 ];
 
+// Coding Plan 模式下的 Provider 列表
+const CODING_PLAN_PROVIDERS: ProviderDef[] = [
+  { id: 'GLM',    label: '智谱 GLM'               },
+  { id: 'Xiaomi', label: '小米 MiMo'              },
+  { id: 'MiniMax', label: 'MiniMax' },
+];
+
 const PROVIDER_FILTER: Record<string, (p: ModelPreset) => boolean> = {
   Anthropic: p => p.provider === 'Anthropic',
   OpenAI:    p => p.provider === 'OpenAI',
   DeepSeek:  p => p.presetId.startsWith('deepseek-'),
-  GLM:       p => p.presetId.startsWith('glm-'),
-  MiniMax:   p => p.presetId.startsWith('minimax-'),
+  // 标准 API 模式下过滤掉 coding-plan 专属 preset
+  GLM:       p => p.presetId.startsWith('glm-') && p.accessMode !== 'coding-plan',
+  MiniMax:   p => p.presetId.startsWith('minimax-') && p.accessMode !== 'coding-plan',
   Kimi:      p => p.presetId.startsWith('kimi-') || p.presetId.startsWith('moonshot-'),
-  Xiaomi:    p => p.presetId.startsWith('xiaomi-'),
+  Xiaomi:    p => p.presetId.startsWith('xiaomi-') && p.accessMode !== 'coding-plan',
   Ollama:    p => p.presetId.startsWith('ollama-') || p.presetId === 'custom',
+};
+
+// Coding Plan 模式下各 Provider 展示的 preset
+const CODING_PLAN_FILTER: Record<string, (p: ModelPreset) => boolean> = {
+  // glm-5-anthropic 是冗余变体，onboarding 不展示
+  GLM:    p => (p.presetId === 'glm-5.1' || p.presetId === 'glm-5-turbo') && p.accessMode === 'coding-plan',
+  MiniMax: p => ['minimax-m2.7-coding', 'minimax-m2.5-coding', 'minimax-m2.7-highspeed-coding', 'minimax-m2.5-highspeed-coding'].includes(p.presetId) && p.accessMode === 'coding-plan',
+  Xiaomi: p => (p.presetId === 'xiaomi-mimo-v2-pro-coding' || p.presetId === 'xiaomi-mimo-v2-omni-coding') && p.accessMode === 'coding-plan',
 };
 
 export function ModelStep({ onNext, onSkip }: Props) {
   const [presets, setPresets]                     = useState<ModelPreset[]>([]);
+  const [mode, setMode]                           = useState<'api' | 'coding-plan'>('api');
   const [provider, setProvider]                   = useState<string | null>(null);
   const [preset, setPreset]                       = useState<ModelPreset | null>(null);
   const [apiKey, setApiKey]                       = useState('');
@@ -52,19 +71,36 @@ export function ModelStep({ onNext, onSkip }: Props) {
     fetchModelPresets().then(setPresets).catch(() => {});
   }, []);
 
-  // Only show text / multimodal models (capabilities must include Text = 0x1)
   const providerPresets = provider
-    ? presets.filter(p => (PROVIDER_FILTER[provider] ?? (() => false))(p) && (p.defaultCapabilities & 1) !== 0)
+    ? mode === 'coding-plan'
+      ? presets.filter(p => (CODING_PLAN_FILTER[provider] ?? (() => false))(p))
+      // 标准 API 模式：只展示文本/多模态模型，过滤掉 coding-plan 专属 preset
+      : presets.filter(p => (PROVIDER_FILTER[provider] ?? (() => false))(p) && (p.defaultCapabilities & 1) !== 0)
     : [];
 
   const isOllama         = !!preset && preset.presetId.startsWith('ollama-');
   const effectiveModelId = customModelId.trim() || preset?.modelId || '';
-  const effectiveBaseUrl = customBaseUrl.trim() || preset?.baseUrl || undefined;
+  const presetBaseUrl = (protocol === 'Anthropic' && preset?.anthropicBaseUrl)
+    ? preset.anthropicBaseUrl
+    : preset?.baseUrl;
+  const effectiveBaseUrl = customBaseUrl.trim() || presetBaseUrl || undefined;
   const needsModelId     = !!preset && preset.modelId === '';
   const needsApiKey      = !!preset && !isOllama;
   const showBaseUrl      = !!preset && (preset.requiresBaseUrl || isOllama);
   const showAdvancedOpt  = !!preset && !preset.requiresBaseUrl && !isOllama;
   const canTest          = !!preset && (!needsModelId || !!effectiveModelId) && (!needsApiKey || !!apiKey);
+
+  function selectMode(m: 'api' | 'coding-plan') {
+    setMode(m);
+    setProvider(null);
+    setPreset(null);
+    setApiKey('');
+    setCustomModelId('');
+    setCustomBaseUrl('');
+    setShowAdvanced(false);
+    setTestResult(null);
+    setSaveError(null);
+  }
 
   function selectProvider(pid: string) {
     setProvider(pid);
@@ -115,7 +151,9 @@ export function ModelStep({ onNext, onSkip }: Props) {
         displayName: customModelId.trim()
           ? `${preset.displayName} (${customModelId.trim()})`
           : preset.displayName,
-        provider: preset.provider === 'Anthropic' ? 'Anthropic' : protocol,
+        provider: (mode === 'coding-plan'
+          ? preset.provider   // AnthropicCompatible，由 preset 决定，不走协议选择器
+          : preset.provider === 'Anthropic' ? 'Anthropic' : protocol) as ModelProviderKind,
         modelId:  effectiveModelId,
         baseUrl:  effectiveBaseUrl ?? null,
         apiKeyEnvironmentVariable: null,
@@ -136,20 +174,44 @@ export function ModelStep({ onNext, onSkip }: Props) {
     <div className="ob-step" data-testid="onboarding-step-model">
       {/* Header */}
       <h1 className="ob-title">配置 AI 模型</h1>
-      <p className="ob-desc">选择一个 Provider，填入 API Key，即可开始对话</p>
+      <p className="ob-desc">选择接入方式，填入密钥，即可开始对话</p>
+
+      {/* 模式切换 */}
+      <div className="ob-mode-tabs" role="tablist" aria-label="接入方式">
+        <button
+          role="tab"
+          aria-selected={mode === 'api'}
+          className={`ob-mode-tab ${mode === 'api' ? 'is-active' : ''}`}
+          data-testid="mode-tab-api"
+          onClick={() => selectMode('api')}
+        >
+          标准 API
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === 'coding-plan'}
+          className={`ob-mode-tab ${mode === 'coding-plan' ? 'is-active' : ''}`}
+          data-testid="mode-tab-coding-plan"
+          onClick={() => selectMode('coding-plan')}
+        >
+          Coding Plan
+        </button>
+      </div>
 
       {/* Provider tabs */}
       <div className="ob-provider-tabs" role="tablist">
-        {PROVIDERS.map(p => (
+        {(mode === 'coding-plan' ? CODING_PLAN_PROVIDERS : PROVIDERS).map(p => (
           <button
             key={p.id}
             role="tab"
             aria-selected={provider === p.id}
-            className={`ob-provider-tab ${provider === p.id ? 'is-active' : ''}`}
+            disabled={p.comingSoon === true}
+            className={`ob-provider-tab ${provider === p.id ? 'is-active' : ''} ${p.comingSoon ? 'is-coming-soon' : ''}`}
             data-testid={`provider-card-${p.id.toLowerCase()}`}
-            onClick={() => selectProvider(p.id)}
+            onClick={() => { if (!p.comingSoon) selectProvider(p.id); }}
           >
             {p.label}
+            {p.comingSoon && <span className="ob-coming-soon-badge">即将支持</span>}
           </button>
         ))}
       </div>
@@ -219,8 +281,8 @@ export function ModelStep({ onNext, onSkip }: Props) {
         </div>
       )}
 
-      {/* Protocol selector (for OpenAI-compatible providers that may also support Anthropic) */}
-      {preset && preset.provider === 'OpenAICompatible' && !isOllama && (
+      {/* Protocol selector (标准 API 模式下的 OpenAI-compatible provider 才显示) */}
+      {mode === 'api' && preset && preset.provider === 'OpenAICompatible' && !isOllama && (
         <div className="ob-field">
           <label>API 协议</label>
           <div className="ob-protocol-tabs">
@@ -241,7 +303,9 @@ export function ModelStep({ onNext, onSkip }: Props) {
       {/* API Key */}
       {needsApiKey && (
         <div className="ob-field">
-          <label htmlFor="ob-apikey">API Key</label>
+          <label htmlFor="ob-apikey">
+            {mode === 'coding-plan' ? 'Coding Plan Key' : 'API Key'}
+          </label>
           <input
             id="ob-apikey"
             type="password"
@@ -251,7 +315,30 @@ export function ModelStep({ onNext, onSkip }: Props) {
             value={apiKey}
             onChange={e => { setApiKey(e.target.value); setTestResult(null); }}
           />
-          <span className="ob-hint">连接测试仅发送 1 token，费用 &lt; $0.0001</span>
+          {mode === 'coding-plan' ? (
+            <span className="ob-hint">
+              前往{' '}
+              <a
+                href={provider === 'Xiaomi'
+                  ? 'https://platform.xiaomimimo.com/#/token-plan'
+                  : provider === 'MiniMax'
+                  ? 'https://platform.minimaxi.com/subscribe/token-plan?code=JV0dA04FuC&source=link'
+                  : 'https://www.bigmodel.cn/glm-coding?ic=HFFPJWPZQN'}
+                target="_blank"
+                rel="noreferrer"
+                className="ob-hint-link"
+              >
+                {provider === 'Xiaomi'
+                  ? '小米 MiMo Token Plan 订阅页'
+                  : provider === 'MiniMax'
+                  ? 'MiniMax Token Plan 订阅页'
+                  : '智谱 Coding Plan 订阅页'}
+              </a>{' '}
+              获取
+            </span>
+          ) : (
+            <span className="ob-hint">连接测试仅发送 1 token，费用 &lt; $0.0001</span>
+          )}
         </div>
       )}
 
@@ -278,9 +365,10 @@ export function ModelStep({ onNext, onSkip }: Props) {
                   className="ob-input"
                   data-testid="custom-base-url-input"
                   placeholder={
-                    preset?.provider === 'Anthropic'
-                      ? 'https://api.anthropic.com（默认）'
-                      : 'https://api.openai.com/v1（默认）'
+                    presetBaseUrl
+                      ?? (preset?.provider === 'Anthropic'
+                          ? 'https://api.anthropic.com（默认）'
+                          : 'https://api.openai.com/v1（默认）')
                   }
                   value={customBaseUrl}
                   onChange={e => { setCustomBaseUrl(e.target.value); setTestResult(null); }}
