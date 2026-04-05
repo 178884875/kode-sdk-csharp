@@ -369,7 +369,10 @@ public sealed class ChannelTurnOrchestrator
             // 向用户发一条提示，避免对话无声消失。
             if (sentTexts.Count == 0 && !progressWasSent && !fallbackDeliveryFailed)
             {
-                const string silentFallback = "（已完成，暂无需要回复的内容。）";
+                // StopReason.Error + 无输出 = 模型返回空响应，大概率是内容安全过滤。
+                var silentFallback = execution.RunResult.StopReason == StopReason.Error
+                    ? "⚠️ 消息未能处理，可能触发了内容安全过滤。请调整后重试。"
+                    : "（已完成，暂无需要回复的内容。）";
                 try
                 {
                     await _deliveryDispatchService.SendNotificationAsync(

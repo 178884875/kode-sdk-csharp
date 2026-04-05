@@ -249,6 +249,7 @@ public sealed class ChannelDeliveryApprovalIntegrationTests
             string botToken,
             long chatId,
             string text,
+            string? parseMode = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, text));

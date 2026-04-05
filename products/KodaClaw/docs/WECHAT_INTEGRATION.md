@@ -597,17 +597,11 @@ var contextToken = _contextTokenCache.TryGetValue($"{accountId}::{draft.External
 
 ---
 
-### 11.4 每个新 Connector 必须在 ChannelDeliveryDispatchService 注册
+### 11.4 ~~每个 Connector 必须在 ChannelDeliveryDispatchService 注册~~（已过时）
 
-**现象**：收到消息、Agent 生成回复、但 audit log 显示"no reply sent"，无任何错误日志。
-**根因**：`ChannelDeliveryDispatchService.SendAsync` 有 `switch(draft.ConnectorKind)`，只处理 Telegram + GenericWebhook，WeChat/Feishu 命中 `default: throw NotSupportedException`。异常被上层 `catch {}` 吞掉，因此无日志。
-**修复**：添加两个 case：
-```csharp
-case ChannelConnectorKind.WeChat:
-    await _weChatConnector.SendAsync(draft, cancellationToken);
-    return;
-```
-**通用教训**：每次加新渠道，`ChannelDeliveryDispatchService` 是必须同步更新的清单，否则出口完全断路。
+> **2026-04-05 更新**：Phase 1 重构后，出站分发改为 `ChannelConnectorKindResolver` 自动索引，不再需要手动在 DispatchService 加 switch case。此条教训已不适用。
+>
+> **原内容（保留作为历史参考）**：`ChannelDeliveryDispatchService.SendAsync` 曾有 `switch(draft.ConnectorKind)`，新增 connector 必须同步添加 case，否则出站消息会静默丢失（异常被 `catch {}` 吞掉）。这个问题在 2026-04-05 的 Connector Registry 重构中彻底解决。
 
 ---
 

@@ -1239,6 +1239,11 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var response = await StreamModelResponseAsync(request, cancellationToken);
         await _hookManager.RunPostModelAsync(response, cancellationToken);
 
+        // Empty content with no tools/text/thinking — likely a content safety filter (silent block).
+        // Throw before writing to _messages to avoid poisoning conversation history.
+        if (response.Content.Count == 0)
+            throw new InvalidOperationException("model_empty_response");
+
         // Add assistant message
         _messages.Add(Message.Assistant(response.Content.ToArray()));
         await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);

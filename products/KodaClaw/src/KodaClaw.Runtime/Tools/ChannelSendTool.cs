@@ -17,6 +17,9 @@ public sealed class ChannelSendArgs
 
     [ToolParameter(Description = "Optional JSON metadata to pass to the connector layer (e.g. DingTalk ActionCard fields). Other connectors ignore this.", Required = false)]
     public string? Metadata { get; init; }
+
+    [ToolParameter(Description = "Message format preference. Options: auto (default, connector decides), plain_text (force plain text), markdown (render Markdown formatting).", Required = false)]
+    public string? Format { get; init; }
 }
 
 public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
@@ -49,7 +52,13 @@ public sealed class ChannelSendTool : ToolBase<ChannelSendArgs>
         ToolContext context,
         CancellationToken cancellationToken)
     {
-        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, args.Metadata, cancellationToken);
+        var format = args.Format?.ToLowerInvariant() switch
+        {
+            "plain_text" or "plaintext" => OutboundMessageFormat.PlainText,
+            "markdown" => OutboundMessageFormat.Markdown,
+            _ => OutboundMessageFormat.Auto,
+        };
+        var result = await _sendService.SendAsync(args.BindingId, args.Text, args.MediaId, args.Metadata, format, cancellationToken);
         return ToolResult.Ok(new
         {
             ok = result.Ok,

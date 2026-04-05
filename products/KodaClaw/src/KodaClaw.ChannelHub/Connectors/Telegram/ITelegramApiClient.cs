@@ -16,6 +16,7 @@ public interface ITelegramApiClient
         string botToken,
         long chatId,
         string text,
+        string? parseMode = null,
         CancellationToken cancellationToken = default);
 
     Task<TelegramSendMessageResult> SendPhotoAsync(

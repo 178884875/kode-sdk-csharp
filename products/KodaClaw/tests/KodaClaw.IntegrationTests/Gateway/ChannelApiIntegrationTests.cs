@@ -637,6 +637,7 @@ public sealed class ChannelApiIntegrationTests
             string botToken,
             long chatId,
             string text,
+            string? parseMode = null,
             CancellationToken cancellationToken = default)
         {
             return Task.FromResult(new TelegramSendMessageResult

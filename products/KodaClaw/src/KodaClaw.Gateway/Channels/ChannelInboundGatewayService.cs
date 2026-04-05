@@ -1,9 +1,4 @@
 using KodaClaw.ChannelHub;
-using KodaClaw.ChannelHub.Connectors.Feishu;
-using KodaClaw.ChannelHub.Connectors.Telegram;
-using KodaClaw.ChannelHub.Connectors.DingTalk;
-using KodaClaw.ChannelHub.Connectors.WeChat;
-using KodaClaw.ChannelHub.Connectors.Relay;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
 
@@ -13,32 +8,20 @@ internal sealed class ChannelInboundGatewayService
 {
     private readonly ChannelEventIngestionService _channelEventIngestionService;
     private readonly ChannelTurnOrchestrator _channelTurnOrchestrator;
-    private readonly TelegramConnector _telegramConnector;
-    private readonly FeishuConnector _feishuConnector;
-    private readonly WeChatConnector _weChatConnector;
-    private readonly DingTalkConnector _dingTalkConnector;
-    private readonly RelayConnector _relayConnector;
+    private readonly ChannelConnectorKindResolver _resolver;
     private readonly IRuntimeConfigurationResolver? _runtimeConfigurationResolver;
     private readonly IDiagnosticsService? _diagnosticsService;
 
     public ChannelInboundGatewayService(
         ChannelEventIngestionService channelEventIngestionService,
         ChannelTurnOrchestrator channelTurnOrchestrator,
-        TelegramConnector telegramConnector,
-        FeishuConnector feishuConnector,
-        WeChatConnector weChatConnector,
-        DingTalkConnector dingTalkConnector,
-        RelayConnector relayConnector,
+        ChannelConnectorKindResolver resolver,
         IRuntimeConfigurationResolver? runtimeConfigurationResolver = null,
         IDiagnosticsService? diagnosticsService = null)
     {
         _channelEventIngestionService = channelEventIngestionService ?? throw new ArgumentNullException(nameof(channelEventIngestionService));
         _channelTurnOrchestrator = channelTurnOrchestrator ?? throw new ArgumentNullException(nameof(channelTurnOrchestrator));
-        _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
-        _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
-        _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
-        _dingTalkConnector = dingTalkConnector ?? throw new ArgumentNullException(nameof(dingTalkConnector));
-        _relayConnector = relayConnector ?? throw new ArgumentNullException(nameof(relayConnector));
+        _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _runtimeConfigurationResolver = runtimeConfigurationResolver;
         _diagnosticsService = diagnosticsService;
     }
@@ -79,127 +62,22 @@ internal sealed class ChannelInboundGatewayService
         }
     }
 
-    public async Task StartTelegramAccountAsync(
+    public async Task StartAccountAsync(
         ChannelAccount account,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
-        if (account.ConnectorKind != ChannelConnectorKind.Telegram)
+
+        if (!_resolver.TryGet(account.ConnectorKind, out var connector))
         {
             return;
         }
 
         try
         {
-            await _telegramConnector.StartAsync(
+            await connector!.StartAsync(
                 account,
                 async (envelope, token) => await ProcessAsync(envelope, token),
-                cancellationToken);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
-        {
-            // Account is already live; keep current polling loop.
-        }
-    }
-
-    public Task StopTelegramAccountAsync(
-        string accountId,
-        CancellationToken cancellationToken = default)
-    {
-        return _telegramConnector.StopAsync(accountId, cancellationToken);
-    }
-
-    public async Task StartFeishuAccountAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(account);
-        if (account.ConnectorKind != ChannelConnectorKind.Feishu)
-        {
-            return;
-        }
-
-        RecordChannelEvent("feishu.account_starting", "info",
-            $"Starting Feishu account: id={account.Id} inboundEnabled={account.InboundEnabled} state={account.State}",
-            account.Id);
-
-        try
-        {
-            await _feishuConnector.StartAsync(
-                account,
-                async (envelope, token) => await ProcessAsync(envelope, token),
-                cancellationToken);
-            RecordChannelEvent("feishu.account_started", "info",
-                $"Feishu account started OK: id={account.Id}", account.Id);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
-        {
-            // 账号已在运行，保持现有连接
-            RecordChannelEvent("feishu.account_already_started", "info",
-                $"Feishu account already started: id={account.Id}", account.Id);
-        }
-        catch (Exception ex)
-        {
-            RecordChannelEvent("feishu.account_start_failed", "error",
-                $"Feishu account start FAILED: id={account.Id} error={ex.Message}", account.Id);
-            throw;
-        }
-    }
-
-    public Task StopFeishuAccountAsync(
-        string accountId,
-        CancellationToken cancellationToken = default)
-    {
-        return _feishuConnector.StopAsync(accountId, cancellationToken);
-    }
-
-    public async Task StartWeChatAccountAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(account);
-        if (account.ConnectorKind != ChannelConnectorKind.WeChat)
-        {
-            return;
-        }
-
-        try
-        {
-            await _weChatConnector.StartAsync(
-                account,
-                async (envelope, token) => await ProcessAsync(envelope, token),
-                cancellationToken);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
-        {
-            // 账号已在运行，保持现有轮询
-        }
-    }
-
-    public Task StopWeChatAccountAsync(
-        string accountId,
-        CancellationToken cancellationToken = default)
-    {
-        return _weChatConnector.StopAsync(accountId, cancellationToken);
-    }
-
-
-    public async Task StartDingTalkAccountAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(account);
-        if (account.ConnectorKind != ChannelConnectorKind.DingTalk)
-        {
-            return;
-        }
-
-        try
-        {
-            await _dingTalkConnector.StartAsync(
-                account,
-                async (envelope, token) =>
-                    await ProcessAsync(envelope, token),
                 cancellationToken);
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
@@ -208,42 +86,14 @@ internal sealed class ChannelInboundGatewayService
         }
     }
 
-    public Task StopDingTalkAccountAsync(
+    public async Task StopAccountAsync(
         string accountId,
         CancellationToken cancellationToken = default)
     {
-        return _dingTalkConnector.StopAsync(accountId, cancellationToken);
-    }
-
-    public async Task StartRelayAccountAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(account);
-        if (account.ConnectorKind != ChannelConnectorKind.Relay)
+        foreach (var connector in _resolver.GetAll())
         {
-            return;
+            await connector.StopAsync(accountId, cancellationToken);
         }
-
-        try
-        {
-            await _relayConnector.StartAsync(
-                account,
-                async (envelope, token) =>
-                    await ProcessAsync(envelope, token),
-                cancellationToken);
-        }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("already started", StringComparison.OrdinalIgnoreCase))
-        {
-            // Account is already live; keep current connection.
-        }
-    }
-
-    public Task StopRelayAccountAsync(
-        string accountId,
-        CancellationToken cancellationToken = default)
-    {
-        return _relayConnector.StopAsync(accountId, cancellationToken);
     }
 
     private void RecordChannelEvent(string eventType, string level, string message, string? accountId = null)

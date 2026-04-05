@@ -204,7 +204,7 @@ public sealed class DingTalkConnector : IChannelConnector
                 }
                 else
                 {
-                    await SendDirectMessageAsync(startedAccount, conversationId, fallbackText, draft.MetadataJson, cancellationToken).ConfigureAwait(false);
+                    await SendDirectMessageAsync(startedAccount, conversationId, fallbackText, draft.MetadataJson, draft.Format, cancellationToken).ConfigureAwait(false);
                 }
             }
             return;
@@ -225,7 +225,7 @@ public sealed class DingTalkConnector : IChannelConnector
         else
         {
             await SendDirectMessageAsync(
-                startedAccount, conversationId, draft.MessageText, draft.MetadataJson, cancellationToken)
+                startedAccount, conversationId, draft.MessageText, draft.MetadataJson, draft.Format, cancellationToken)
                 .ConfigureAwait(false);
         }
     }
@@ -332,6 +332,7 @@ public sealed class DingTalkConnector : IChannelConnector
         string conversationId,
         string messageText,
         string? metadataJson,
+        OutboundMessageFormat format,
         CancellationToken cancellationToken)
     {
         if (!_conversationUserCache.TryGetValue(conversationId, out var recipientUserId)
@@ -368,8 +369,15 @@ public sealed class DingTalkConnector : IChannelConnector
             return;
         }
 
-        // Markdown 检测
-        if (ContainsMarkdown(messageText))
+        // Format 决定是否使用 Markdown
+        var useMarkdown = format switch
+        {
+            OutboundMessageFormat.Markdown => true,
+            OutboundMessageFormat.PlainText => false,
+            _ => ContainsMarkdown(messageText), // Auto：启发式检测
+        };
+
+        if (useMarkdown)
         {
             await _apiClient.SendMarkdownMessageAsync(
                 accessToken, robotCode, userIds, "通知", messageText, cancellationToken)

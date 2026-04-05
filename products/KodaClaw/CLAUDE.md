@@ -264,6 +264,41 @@ ACCEPTANCE_PACK 验收矩阵
 
 > 典型踩坑：只做了步骤 1，跳过步骤 2 → Agent 运行时说"没有这个工具"，但后端日志看不出异常。
 
+### 新增渠道 Connector 的完整 Checklist
+
+新增一个渠道 connector 时，以下 **3 处缺一不可**，漏任何一处 connector 都不会被启动或索引：
+
+1. **加 `ChannelConnectorKind` 枚举值**
+   (`src/KodaClaw.Contracts/Channels/ChannelConnectorKind.cs`)
+   ```csharp
+   Slack = 6,  // 新增
+   ```
+
+2. **实现 `IChannelConnector` 接口**
+   (`src/KodaClaw.ChannelHub/Connectors/{PlatformName}/{PlatformName}Connector.cs`)
+   - 四个成员：`Kind`、`StartAsync`、`StopAsync`、`SendAsync`
+   - 参考 `TelegramConnector`（完整参考）或 `GenericWebhookConnector`（最小参考）
+   - 入站归一化为 `ChannelEventEnvelope`，出站接收 `ChannelOutboundDraft`
+
+3. **DI 注册（3 行）**
+   (`src/KodaClaw.ChannelHub/ServiceCollectionExtensions.cs` 的 `AddKodaClawChannelHub()` 中)
+   ```csharp
+   services.TryAddSingleton<ISlackApiClient, HttpSlackApiClient>();  // 如有 API client
+   services.TryAddSingleton<SlackConnector>();
+   services.AddSingleton<IChannelConnector>(sp => sp.GetRequiredService<SlackConnector>());
+   ```
+
+> **不需要**修改 `ChannelDeliveryDispatchService`、`ChannelInboundGatewayService`、`ChannelConnectorHostedService` — `ChannelConnectorKindResolver` 自动索引。
+
+**必读文档**：
+- `docs/NEW_CONNECTOR_GUIDE.md` — 完整接入指南（接口定义、入站/出站模型、格式处理、已知坑点）
+- `docs/CHANNEL_SPEC.md` — 设计规范（领域模型、安全策略、会话隔离）
+- `docs/WECHAT_INTEGRATION.md` §11 — 接入血泪教训（注意 §11.4 已过时，见标注）
+
+**测试**：参考 `tests/KodaClaw.IntegrationTests/ChannelHub/TelegramConnector*.cs`
+
+---
+
 ## 当前进行中工作（WIP）
 
 **近期完成**（ModelCapabilitySet 重设计，2026-04-02）：

@@ -47,6 +47,7 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
         string botToken,
         long chatId,
         string text,
+        string? parseMode = null,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -54,14 +55,14 @@ public sealed class HttpTelegramApiClient : ITelegramApiClient
             throw new ArgumentException("A non-empty telegram message text is required.", nameof(text));
         }
 
+        object payload = string.IsNullOrEmpty(parseMode)
+            ? new { chat_id = chatId, text }
+            : new { chat_id = chatId, text, parse_mode = parseMode };
+
         return await SendAsync<TelegramSendMessageResult>(
             botToken,
             method: "sendMessage",
-            payload: new
-            {
-                chat_id = chatId,
-                text,
-            },
+            payload: payload,
             cancellationToken).ConfigureAwait(false);
     }
 

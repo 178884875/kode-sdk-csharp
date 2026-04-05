@@ -283,6 +283,7 @@ public sealed class TelegramConnectorIntegrationTests
             string botToken,
             long chatId,
             string text,
+            string? parseMode = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, text));

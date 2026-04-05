@@ -1,3 +1,5 @@
+using KodaClaw.ChannelHub.Connectors.Feishu.Models;
+
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 
 public interface IFeishuApiClient
@@ -78,6 +80,15 @@ public interface IFeishuApiClient
         string receiveIdType,
         string fileKey,
         string? caption,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>发送 Post 富文本消息</summary>
+    Task<string> SendPostMessageAsync(
+        string tenantAccessToken,
+        string receiveId,
+        string receiveIdType,
+        string title,
+        List<FeishuPostContent> content,
         CancellationToken cancellationToken = default);
 
     /// <summary>

@@ -87,6 +87,14 @@ public sealed class AnthropicProvider : IModelProvider
                 continue;
             }
 
+            // Fallback: Anthropic-compatible APIs (e.g. ZhiPu) may not parse cleanly via TryPickStart.
+            // Try raw JSON to extract input_tokens from message_start.
+            if (messageStartInputTokens == 0 && TryParseRawMessageStartTokens(evt.Json, out var rawInputTokens))
+            {
+                messageStartInputTokens = rawInputTokens;
+                continue;
+            }
+
             // Handle content block start
             if (evt.TryPickContentBlockStart(out var startEvent))
             {
@@ -236,6 +244,10 @@ public sealed class AnthropicProvider : IModelProvider
                     : ModelStopReason.EndTurn;
                 var inputTokens = (int)(messageStartInputTokens > 0 ? messageStartInputTokens : (messageDelta.Usage.InputTokens ?? 0));
                 var outputTokens = (int)messageDelta.Usage.OutputTokens;
+
+                // Fallback: if SDK gave us zeros, try raw JSON
+                if (inputTokens == 0 && outputTokens == 0)
+                    TryParseRawMessageDeltaTokens(evt.Json, out inputTokens, out outputTokens);
 
                 streamStopwatch.Stop();
                 providerActivity?.SetTag("gen_ai.usage.input_tokens", inputTokens);
@@ -544,6 +556,42 @@ public sealed class AnthropicProvider : IModelProvider
             toolUseName = nameEl.GetString() ?? string.Empty;
 
         return true;
+    }
+
+    /// <summary>
+    /// Fallback parser: extracts input_tokens from a raw message_start event.
+    /// Used when TryPickStart() fails on Anthropic-compatible APIs.
+    /// </summary>
+    private static bool TryParseRawMessageStartTokens(JsonElement rawJson, out int inputTokens)
+    {
+        inputTokens = 0;
+        if (rawJson.ValueKind != JsonValueKind.Object) return false;
+        if (!rawJson.TryGetProperty("type", out var typeEl) || typeEl.GetString() != "message_start")
+            return false;
+        if (!rawJson.TryGetProperty("message", out var message)) return false;
+        if (!message.TryGetProperty("usage", out var usage)) return false;
+        if (!usage.TryGetProperty("input_tokens", out var inputEl)) return false;
+        inputTokens = inputEl.TryGetInt32(out var v) ? v : 0;
+        return inputTokens > 0;
+    }
+
+    /// <summary>
+    /// Fallback parser: extracts input/output token counts from a raw message_delta event.
+    /// Used when the SDK's MessageDeltaUsage returns zeros on Anthropic-compatible APIs.
+    /// </summary>
+    private static bool TryParseRawMessageDeltaTokens(JsonElement rawJson, out int inputTokens, out int outputTokens)
+    {
+        inputTokens = 0;
+        outputTokens = 0;
+        if (rawJson.ValueKind != JsonValueKind.Object) return false;
+        if (!rawJson.TryGetProperty("type", out var typeEl) || typeEl.GetString() != "message_delta")
+            return false;
+        if (!rawJson.TryGetProperty("usage", out var usage)) return false;
+        if (usage.TryGetProperty("input_tokens", out var inputEl))
+            inputEl.TryGetInt32(out inputTokens);
+        if (usage.TryGetProperty("output_tokens", out var outputEl))
+            outputEl.TryGetInt32(out outputTokens);
+        return inputTokens > 0 || outputTokens > 0;
     }
 }
 

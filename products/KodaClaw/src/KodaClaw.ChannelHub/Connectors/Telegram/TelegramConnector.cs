@@ -96,6 +96,22 @@ public sealed class TelegramConnector : IChannelConnector
         RecordDiagnosticEvent("telegram.account_stopped", "info", $"Telegram account stopped: accountId={accountId}");
     }
 
+    public async Task EnsureStartedAndSendAsync(
+        ChannelAccount account,
+        ChannelOutboundDraft draft,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await StartAsync(account, static (_, _) => Task.CompletedTask, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // Already started by inbound path
+        }
+        await SendAsync(draft, cancellationToken);
+    }
+
     public async Task SendAsync(ChannelOutboundDraft draft, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(draft);
@@ -177,10 +193,12 @@ public sealed class TelegramConnector : IChannelConnector
             }
         }
 
+        var parseMode = draft.Format == OutboundMessageFormat.Markdown ? "Markdown" : null;
         await _apiClient.SendMessageAsync(
             startedAccount.Configuration.BotToken,
             chatId,
             draft.MessageText,
+            parseMode,
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -270,6 +288,69 @@ public sealed class TelegramConnector : IChannelConnector
 
         var chat = message.Chat;
         var text = message.GetText();
+        IReadOnlyList<MediaReference>? mediaAttachments = null;
+        var externalMessageId = message.MessageId.ToString(CultureInfo.InvariantCulture);
+
+        // 媒体消息处理：生成占位文本 + MediaReference（不实际下载文件）
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            if (message.Photo is { Count: > 0 })
+            {
+                // 取最大尺寸的 photo（通常是最后一个）
+                var photo = message.Photo[message.Photo.Count - 1];
+                text = "[图片]";
+                mediaAttachments =
+                [
+                    new MediaReference(
+                        MediaId: photo.FileId,
+                        ContentType: "image/jpeg",
+                        FileName: null,
+                        SizeBytes: photo.FileSize)
+                ];
+            }
+            else if (message.Document is { } doc)
+            {
+                var mimeType = doc.MimeType ?? "application/octet-stream";
+                if (mimeType.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+                {
+                    text = "[语音]";
+                    mediaAttachments =
+                    [
+                        new MediaReference(
+                            MediaId: doc.FileId,
+                            ContentType: mimeType,
+                            FileName: doc.FileName,
+                            SizeBytes: doc.FileSize)
+                    ];
+                }
+                else if (mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                {
+                    text = "[视频]";
+                    mediaAttachments =
+                    [
+                        new MediaReference(
+                            MediaId: doc.FileId,
+                            ContentType: mimeType,
+                            FileName: doc.FileName,
+                            SizeBytes: doc.FileSize)
+                    ];
+                }
+                else
+                {
+                    text = $"[文件: {doc.FileName ?? doc.FileId}]";
+                    mediaAttachments =
+                    [
+                        new MediaReference(
+                            MediaId: doc.FileId,
+                            ContentType: mimeType,
+                            FileName: doc.FileName,
+                            SizeBytes: doc.FileSize)
+                    ];
+                }
+            }
+        }
+
+        // IgnoreNonTextMessages 仍然适用于既无文本也无可识别媒体的消息
         if (_options.IgnoreNonTextMessages && string.IsNullOrWhiteSpace(text))
         {
             return null;
@@ -280,7 +361,6 @@ public sealed class TelegramConnector : IChannelConnector
             ? DateTimeOffset.FromUnixTimeSeconds(message.DateUnixSeconds)
             : DateTimeOffset.UtcNow;
         var externalThreadId = chat.Id.ToString(CultureInfo.InvariantCulture);
-        var externalMessageId = message.MessageId.ToString(CultureInfo.InvariantCulture);
 
         return new ChannelEventEnvelope(
             EventId: $"telegram-{update.UpdateId.ToString(CultureInfo.InvariantCulture)}",
@@ -294,7 +374,8 @@ public sealed class TelegramConnector : IChannelConnector
             Recipient: MapRecipient(chat),
             ExternalMessageId: externalMessageId,
             Text: text,
-            DefaultDeliveryMode: configuration.DefaultDeliveryMode);
+            DefaultDeliveryMode: configuration.DefaultDeliveryMode,
+            MediaAttachments: mediaAttachments);
     }
 
     private static ChannelThreadType ResolveThreadType(string? chatType)

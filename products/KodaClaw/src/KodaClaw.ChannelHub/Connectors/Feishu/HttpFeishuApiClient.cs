@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using KodaClaw.ChannelHub.Connectors.Feishu.Models;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 
@@ -325,6 +326,44 @@ public sealed class HttpFeishuApiClient : IFeishuApiClient
         }
 
         return messageId;
+    }
+
+    public async Task<string> SendPostMessageAsync(
+        string tenantAccessToken,
+        string receiveId,
+        string receiveIdType,
+        string title,
+        List<FeishuPostContent> content,
+        CancellationToken cancellationToken = default)
+    {
+        // 将 content 列表序列化为飞书 Post 期望的格式：
+        // content 字段是 JSON 字符串，结构为 {"zh_cn":{"title":"...","content":[[elem],[elem],...]}
+        // 每个元素单独作为一行（一个 row = 一个单元素列表）
+        var rows = content.Select(elem =>
+        {
+            var row = new Dictionary<string, object?> { ["tag"] = elem.Tag };
+            if (elem.Text is not null) row["text"] = elem.Text;
+            if (elem.Href is not null) row["href"] = elem.Href;
+            if (elem.Language is not null) row["language"] = elem.Language;
+            return new List<Dictionary<string, object?>> { row };
+        }).ToList();
+
+        var postBody = new
+        {
+            zh_cn = new
+            {
+                title,
+                content = rows,
+            }
+        };
+
+        var contentJson = JsonSerializer.Serialize(postBody, JsonOptions);
+        using var request = BuildSendMessageRequest(tenantAccessToken, receiveId, receiveIdType, "post", contentJson);
+
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+
+        return await ParseSendMessageResponse(response, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<FeishuWsEndpoint> GetWsEndpointAsync(

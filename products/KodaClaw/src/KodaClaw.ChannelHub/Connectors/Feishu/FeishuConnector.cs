@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using KodaClaw.Contracts;
 using KodaClaw.Workspace;
 using Microsoft.Extensions.Logging;
+using KodaClaw.ChannelHub.Connectors.Feishu.Models;
 
 namespace KodaClaw.ChannelHub.Connectors.Feishu;
 
@@ -263,6 +264,27 @@ public sealed class FeishuConnector : IChannelConnector
                         cancellationToken).ConfigureAwait(false);
                     return;
                 }
+            }
+        }
+
+        // Format=Markdown 且无媒体附件时，尝试发送 Post 富文本
+        if (draft.Format == OutboundMessageFormat.Markdown
+            && (draft.MediaAttachments is null || draft.MediaAttachments.Count == 0))
+        {
+            try
+            {
+                var postContent = MarkdownToFeishuPostConverter.Convert(draft.MessageText);
+                if (postContent.Count > 0)
+                {
+                    await _apiClient.SendPostMessageAsync(
+                        tenantToken, receiveId, receiveIdType, "通知", postContent, cancellationToken)
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Feishu Post message failed, falling back to text for {ReceiveId}", receiveId);
             }
         }
 

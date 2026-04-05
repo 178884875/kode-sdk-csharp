@@ -178,8 +178,8 @@ public static partial class GatewayApp
         // 注意：必须用 CancellationToken.None，不能用 HTTP 请求 token。
         // 若用 HTTP token，请求结束后 token 取消会杀掉轮询 loop，
         // 且 _startedAccounts 里的死条目会阻止 loop 再次启动。
-        await channelInboundGatewayService.StopWeChatAccountAsync(accountId, CancellationToken.None);
-        await channelInboundGatewayService.StartWeChatAccountAsync(account, CancellationToken.None);
+        await channelInboundGatewayService.StopAccountAsync(accountId, CancellationToken.None);
+        await channelInboundGatewayService.StartAccountAsync(account, CancellationToken.None);
     }
 }
 

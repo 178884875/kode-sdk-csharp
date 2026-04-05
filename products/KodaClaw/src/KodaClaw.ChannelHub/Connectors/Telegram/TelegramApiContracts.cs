@@ -34,6 +34,12 @@ public sealed class TelegramMessage
     [JsonPropertyName("chat")]
     public TelegramChat? Chat { get; init; }
 
+    [JsonPropertyName("photo")]
+    public IReadOnlyList<TelegramPhotoSize>? Photo { get; init; }
+
+    [JsonPropertyName("document")]
+    public TelegramDocument? Document { get; init; }
+
     public string? GetText()
     {
         if (!string.IsNullOrWhiteSpace(Text))
@@ -48,6 +54,30 @@ public sealed class TelegramMessage
 
         return null;
     }
+}
+
+public sealed class TelegramPhotoSize
+{
+    [JsonPropertyName("file_id")]
+    public string FileId { get; init; } = string.Empty;
+
+    [JsonPropertyName("file_size")]
+    public long? FileSize { get; init; }
+}
+
+public sealed class TelegramDocument
+{
+    [JsonPropertyName("file_id")]
+    public string FileId { get; init; } = string.Empty;
+
+    [JsonPropertyName("mime_type")]
+    public string? MimeType { get; init; }
+
+    [JsonPropertyName("file_name")]
+    public string? FileName { get; init; }
+
+    [JsonPropertyName("file_size")]
+    public long? FileSize { get; init; }
 }
 
 public sealed class TelegramUser

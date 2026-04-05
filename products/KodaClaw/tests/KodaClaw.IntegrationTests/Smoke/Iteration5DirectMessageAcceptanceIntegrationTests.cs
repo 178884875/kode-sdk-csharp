@@ -416,6 +416,7 @@ public sealed class Iteration5DirectMessageAcceptanceIntegrationTests
             string botToken,
             long chatId,
             string text,
+            string? parseMode = null,
             CancellationToken cancellationToken = default)
         {
             SendCalls.Add(new SendCall(botToken, chatId, text));

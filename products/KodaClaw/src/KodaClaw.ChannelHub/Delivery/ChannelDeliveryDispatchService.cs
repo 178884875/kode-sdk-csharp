@@ -1,9 +1,5 @@
 using System.Text.Json;
-using KodaClaw.ChannelHub.Connectors.DingTalk;
-using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
-using KodaClaw.ChannelHub.Connectors.WeChat;
-using KodaClaw.ChannelHub.Connectors.Webhook;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.ChannelHub;
@@ -15,31 +11,19 @@ public sealed class ChannelDeliveryDispatchService
 
     private readonly IThreadBindingRepository _threadBindingRepository;
     private readonly IChannelAuditRepository? _channelAuditRepository;
-    private readonly TelegramConnector _telegramConnector;
-    private readonly FeishuConnector _feishuConnector;
-    private readonly WeChatConnector _weChatConnector;
-    private readonly DingTalkConnector _dingTalkConnector;
-    private readonly GenericWebhookConnector _genericWebhookConnector;
+    private readonly ChannelConnectorKindResolver _resolver;
     private readonly IDiagnosticsService? _diagnosticsService;
     private readonly ICorrelationContextAccessor? _correlationContextAccessor;
 
     public ChannelDeliveryDispatchService(
         IThreadBindingRepository threadBindingRepository,
-        TelegramConnector telegramConnector,
-        FeishuConnector feishuConnector,
-        WeChatConnector weChatConnector,
-        DingTalkConnector dingTalkConnector,
-        GenericWebhookConnector genericWebhookConnector,
+        ChannelConnectorKindResolver resolver,
         IChannelAuditRepository? channelAuditRepository = null,
         IDiagnosticsService? diagnosticsService = null,
         ICorrelationContextAccessor? correlationContextAccessor = null)
     {
         _threadBindingRepository = threadBindingRepository ?? throw new ArgumentNullException(nameof(threadBindingRepository));
-        _telegramConnector = telegramConnector ?? throw new ArgumentNullException(nameof(telegramConnector));
-        _feishuConnector = feishuConnector ?? throw new ArgumentNullException(nameof(feishuConnector));
-        _weChatConnector = weChatConnector ?? throw new ArgumentNullException(nameof(weChatConnector));
-        _dingTalkConnector = dingTalkConnector ?? throw new ArgumentNullException(nameof(dingTalkConnector));
-        _genericWebhookConnector = genericWebhookConnector ?? throw new ArgumentNullException(nameof(genericWebhookConnector));
+        _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
         _channelAuditRepository = channelAuditRepository;
         _diagnosticsService = diagnosticsService;
         _correlationContextAccessor = correlationContextAccessor;
@@ -150,6 +134,7 @@ public sealed class ChannelDeliveryDispatchService
         string text,
         IReadOnlyList<MediaReference>? mediaAttachments = null,
         string? metadataJson = null,
+        OutboundMessageFormat format = OutboundMessageFormat.Auto,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(account);
@@ -173,7 +158,8 @@ public sealed class ChannelDeliveryDispatchService
             SessionId: binding.SessionId,
             CorrelationId: _correlationContextAccessor?.CorrelationId,
             MediaAttachments: mediaAttachments,
-            MetadataJson: metadataJson);
+            MetadataJson: metadataJson,
+            Format: format);
 
         await SendAsync(account, notificationDraft, cancellationToken);
     }
@@ -183,45 +169,19 @@ public sealed class ChannelDeliveryDispatchService
         ChannelOutboundDraft draft,
         CancellationToken cancellationToken)
     {
-        switch (account.ConnectorKind)
+        if (!_resolver.TryGet(account.ConnectorKind, out var connector))
         {
-            case ChannelConnectorKind.Telegram:
-                await EnsureTelegramStartedAsync(account, cancellationToken);
-                await _telegramConnector.SendAsync(draft, cancellationToken);
-                return;
-            case ChannelConnectorKind.Feishu:
-                await _feishuConnector.SendAsync(draft, cancellationToken);
-                return;
-            case ChannelConnectorKind.WeChat:
-                await _weChatConnector.SendAsync(draft, cancellationToken);
-                return;
-            case ChannelConnectorKind.DingTalk:
-                await _dingTalkConnector.SendAsync(draft, cancellationToken);
-                return;
-            case ChannelConnectorKind.GenericWebhook:
-                await _genericWebhookConnector.SendAsync(draft, cancellationToken);
-                return;
-            default:
-                throw new NotSupportedException(
-                    $"Connector '{account.ConnectorKind}' does not support channel delivery dispatch.");
+            throw new NotSupportedException(
+                $"Connector '{account.ConnectorKind}' does not support channel delivery dispatch.");
         }
-    }
 
-    private async Task EnsureTelegramStartedAsync(
-        ChannelAccount account,
-        CancellationToken cancellationToken)
-    {
-        try
+        if (connector is TelegramConnector tc)
         {
-            await _telegramConnector.StartAsync(
-                account,
-                static (_, _) => Task.CompletedTask,
-                cancellationToken);
+            await tc.EnsureStartedAndSendAsync(account, draft, cancellationToken);
+            return;
         }
-        catch (InvalidOperationException)
-        {
-            // Already started by another inbound path.
-        }
+
+        await connector!.SendAsync(draft, cancellationToken);
     }
 
     private async Task AppendAuditAsync(

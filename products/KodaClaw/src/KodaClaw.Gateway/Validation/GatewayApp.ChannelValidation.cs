@@ -186,20 +186,7 @@ public static partial class GatewayApp
         ChannelInboundGatewayService channelInboundGatewayService,
         CancellationToken cancellationToken)
     {
-        return account.ConnectorKind switch
-        {
-            ChannelConnectorKind.Telegram =>
-                channelInboundGatewayService.StopTelegramAccountAsync(account.Id, cancellationToken),
-            ChannelConnectorKind.Feishu =>
-                channelInboundGatewayService.StopFeishuAccountAsync(account.Id, cancellationToken),
-            ChannelConnectorKind.WeChat =>
-                channelInboundGatewayService.StopWeChatAccountAsync(account.Id, cancellationToken),
-            ChannelConnectorKind.DingTalk =>
-                channelInboundGatewayService.StopDingTalkAccountAsync(account.Id, cancellationToken),
-            ChannelConnectorKind.Relay =>
-                channelInboundGatewayService.StopRelayAccountAsync(account.Id, cancellationToken),
-            _ => Task.CompletedTask,
-        };
+        return channelInboundGatewayService.StopAccountAsync(account.Id, cancellationToken);
     }
 
     private static Task StartConnectorAccountAsync(
@@ -207,19 +194,6 @@ public static partial class GatewayApp
         ChannelInboundGatewayService channelInboundGatewayService,
         CancellationToken cancellationToken)
     {
-        return account.ConnectorKind switch
-        {
-            ChannelConnectorKind.Telegram =>
-                channelInboundGatewayService.StartTelegramAccountAsync(account, cancellationToken),
-            ChannelConnectorKind.Feishu =>
-                channelInboundGatewayService.StartFeishuAccountAsync(account, cancellationToken),
-            ChannelConnectorKind.WeChat =>
-                channelInboundGatewayService.StartWeChatAccountAsync(account, cancellationToken),
-            ChannelConnectorKind.DingTalk =>
-                channelInboundGatewayService.StartDingTalkAccountAsync(account, cancellationToken),
-            ChannelConnectorKind.Relay =>
-                channelInboundGatewayService.StartRelayAccountAsync(account, cancellationToken),
-            _ => Task.CompletedTask,
-        };
+        return channelInboundGatewayService.StartAccountAsync(account, cancellationToken);
     }
 }

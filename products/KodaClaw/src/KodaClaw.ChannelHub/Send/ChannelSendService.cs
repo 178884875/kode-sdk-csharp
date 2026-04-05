@@ -30,6 +30,7 @@ public sealed class ChannelSendService : IChannelSendService
         string text,
         string? mediaId = null,
         string? metadataJson = null,
+        OutboundMessageFormat format = OutboundMessageFormat.Auto,
         CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(bindingId))
@@ -60,7 +61,7 @@ public sealed class ChannelSendService : IChannelSendService
             }
         }
 
-        await _dispatchService.SendNotificationAsync(account, binding, text, mediaAttachments, metadataJson, cancellationToken);
+        await _dispatchService.SendNotificationAsync(account, binding, text, mediaAttachments, metadataJson, format, cancellationToken);
         _capture?.Record(bindingId, text);
 
         return new ChannelSendResult(Ok: true, BindingId: bindingId, SentAt: DateTimeOffset.UtcNow);
