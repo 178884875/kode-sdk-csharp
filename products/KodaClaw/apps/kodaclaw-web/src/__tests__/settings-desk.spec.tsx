@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SettingsDesk } from "../components/SettingsDesk";
 import { I18nProvider } from "../i18n/I18nProvider";
 
@@ -11,10 +12,13 @@ function jsonResponse(data: unknown, status = 200) {
 }
 
 function renderDesk() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <I18nProvider>
-      <SettingsDesk />
-    </I18nProvider>,
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider>
+        <SettingsDesk />
+      </I18nProvider>
+    </QueryClientProvider>,
   );
 }
 

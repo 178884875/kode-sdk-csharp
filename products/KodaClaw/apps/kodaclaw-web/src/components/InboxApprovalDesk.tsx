@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -244,17 +246,30 @@ export function InboxApprovalDesk() {
     },
   });
 
-  const [inboxItems, setInboxItems] = useState<InboxItem[]>([]);
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<InboxStatusFilter>("Open");
+  const { data: inboxData, isLoading, isFetching, error: inboxQueryError } = useQuery({
+    queryKey: queryKeys.inbox(statusFilter === "all" ? undefined : statusFilter),
+    queryFn: () => fetchInbox({ limit: 50, status: statusFilter === "all" ? undefined : statusFilter }),
+    retry: false,
+  });
+  const { data: approvalsData } = useQuery({
+    queryKey: queryKeys.approvals(),
+    queryFn: () => fetchApprovals({ limit: 50 }),
+    retry: false,
+  });
+  const inboxItems: InboxItem[] = inboxData?.items ?? [];
+  const approvals: Approval[] = approvalsData?.items ?? [];
+  const isRefreshing = isFetching && !isLoading;
+  const [error, setError] = useState<string | null>(null);
   const [approvalNotes, setApprovalNotes] = useState<Record<string, string>>({});
   const [pendingApprovalIds, setPendingApprovalIds] = useState<Record<string, boolean>>({});
   const [pendingInboxIds, setPendingInboxIds] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [kindFilter, setKindFilter] = useState<"all" | "approvals" | "automations">("all");
+  // Local overrides for approval decisions and inbox status — merged for instant UI feedback
+  const [approvalOverrides, setApprovalOverrides] = useState<Record<string, Approval>>({});
+  const [inboxStatusOverrides, setInboxStatusOverrides] = useState<Record<string, InboxItemStatus>>({});
 
   const formatTimestamp = (value?: string | null) => formatDateTime(value, text.common.none);
   const formatKind = (kind: InboxItem["kind"] | Approval["kind"]) => text.kindLabels[kind] ?? kind;
@@ -304,41 +319,27 @@ export function InboxApprovalDesk() {
     });
   }, [inboxItems]);
 
-  async function loadData(mode: "initial" | "refresh") {
-    if (mode === "initial") setIsLoading(true);
-    else setIsRefreshing(true);
-    setError(null);
-
-    try {
-      const [inboxResult, approvalResult] = await Promise.all([
-        fetchInbox({ limit: 50, status: statusFilter === "all" ? undefined : statusFilter }),
-        fetchApprovals({ limit: 50 }),
-      ]);
-      setInboxItems([...inboxResult.items]);
-      setApprovals([...approvalResult.items]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : text.errors.loadFailed);
-    } finally {
-      if (mode === "initial") setIsLoading(false);
-      else setIsRefreshing(false);
-    }
-  }
-
   useEffect(() => {
-    void loadData("initial");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+    if (inboxQueryError) {
+      setError(inboxQueryError instanceof Error ? inboxQueryError.message : text.errors.loadFailed);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inboxQueryError]);
 
   async function handleRefresh() {
-    await loadData("refresh");
+    await queryClient.invalidateQueries({ queryKey: ['inbox'] });
+    await queryClient.invalidateQueries({ queryKey: ['approvals'] });
   }
 
   async function handleApprovalDecision(approvalId: string, approve: boolean) {
     setPendingApprovalIds((cur) => ({ ...cur, [approvalId]: true }));
     try {
       const note = approvalNotes[approvalId] ?? "";
-      await submitApprovalDecision(approvalId, approve, note);
-      await loadData("refresh");
+      const updatedApproval = await submitApprovalDecision(approvalId, approve, note);
+      // Immediately reflect the decision in local state for instant UI feedback
+      setApprovalOverrides((cur) => ({ ...cur, [approvalId]: updatedApproval }));
+      void queryClient.invalidateQueries({ queryKey: ['inbox'] });
+      void queryClient.invalidateQueries({ queryKey: ['approvals'] });
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.decisionFailed);
     } finally {
@@ -354,7 +355,8 @@ export function InboxApprovalDesk() {
     setPendingInboxIds((cur) => ({ ...cur, [inboxId]: true }));
     try {
       await updateInboxStatus(inboxId, status);
-      await loadData("refresh");
+      setInboxStatusOverrides((cur) => ({ ...cur, [inboxId]: status }));
+      void queryClient.invalidateQueries({ queryKey: ['inbox'] });
     } catch (err) {
       setError(err instanceof Error ? err.message : text.errors.updateFailed);
     } finally {
@@ -369,8 +371,10 @@ export function InboxApprovalDesk() {
   const approvalsMap = useMemo(() => {
     const map: Record<string, Approval> = {};
     for (const a of approvals) map[a.id] = a;
+    // Merge local decision overrides for immediate feedback before query refetch settles
+    for (const [id, override] of Object.entries(approvalOverrides)) map[id] = override;
     return map;
-  }, [approvals]);
+  }, [approvals, approvalOverrides]);
 
   const filteredItems = useMemo(() => {
     if (kindFilter === "approvals") return inboxItems.filter((i) => i.kind !== "AutomationResult");
@@ -378,10 +382,12 @@ export function InboxApprovalDesk() {
     return inboxItems;
   }, [inboxItems, kindFilter]);
 
-  const selectedItem = useMemo(
-    () => inboxItems.find((i) => i.id === selectedId) ?? null,
-    [inboxItems, selectedId],
-  );
+  const selectedItem = useMemo(() => {
+    const item = inboxItems.find((i) => i.id === selectedId) ?? null;
+    if (!item) return null;
+    const statusOverride = inboxStatusOverrides[item.id];
+    return statusOverride ? { ...item, status: statusOverride } : item;
+  }, [inboxItems, selectedId, inboxStatusOverrides]);
 
   const linkedApproval = useMemo(() => {
     if (!selectedItem?.approvalId) return null;
@@ -631,7 +637,7 @@ export function InboxApprovalDesk() {
                       <PushToChannelButton
                         inboxId={selectedItem.id}
                         channels={notificationChannels}
-                        onSuccess={() => { void loadData("refresh"); }}
+                        onSuccess={() => { void handleRefresh(); }}
                       />
                     ) : null}
                   </div>

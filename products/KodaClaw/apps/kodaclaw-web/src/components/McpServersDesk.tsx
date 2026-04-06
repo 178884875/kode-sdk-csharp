@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import {
   CheckCircle2, XCircle, Loader2, Trash2, Plus, RefreshCw,
   Terminal, Globe, Network, Pencil, ChevronDown, ChevronUp,
@@ -103,9 +105,13 @@ function entryToForm(name: string, entry: WorkspaceMcpServerEntry): ServerFormSt
 /* ── Main component ─────────────────────────────────── */
 
 export function McpServersDesk() {
-  const [config, setConfig] = useState<WorkspaceMcpConfig | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data: mcpData, isLoading: loading, error: loadError } = useQuery({
+    queryKey: queryKeys.mcpServers,
+    queryFn: () => fetchMcpServers(),
+  });
+  const config: WorkspaceMcpConfig | null = mcpData ?? null;
+  const [saveError, setSaveError] = useState<string | null>(loadError instanceof Error ? loadError.message : null);
   const [saving, setSaving] = useState(false);
   const [testStatus, setTestStatus] = useState<Record<string, ServerTestStatus>>({});
   const [expandedPanels, setExpandedPanels] = useState<Set<string>>(new Set());
@@ -113,25 +119,12 @@ export function McpServersDesk() {
   const [modalTarget, setModalTarget] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  async function load() {
-    setLoading(true);
-    setSaveError(null);
-    try {
-      setConfig(await fetchMcpServers());
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { void load(); }, []);
-
   async function saveConfig(next: WorkspaceMcpConfig) {
     setSaving(true);
     setSaveError(null);
     try {
-      setConfig(await saveMcpServers(next));
+      await saveMcpServers(next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "保存失败");
     } finally {
@@ -189,8 +182,8 @@ export function McpServersDesk() {
     });
   }
 
-  function handleSaved(updated: WorkspaceMcpConfig, oldName?: string) {
-    setConfig(updated);
+  function handleSaved(_updated: WorkspaceMcpConfig, oldName?: string) {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers });
     setModalTarget(null);
     // If name changed, migrate test status
     if (oldName) {
@@ -221,7 +214,7 @@ export function McpServersDesk() {
           <Button
             variant="ghost"
             size="control"
-            onClick={() => void load()}
+            onClick={() => void queryClient.invalidateQueries({ queryKey: queryKeys.mcpServers })}
             disabled={loading}
             aria-label="刷新"
           >

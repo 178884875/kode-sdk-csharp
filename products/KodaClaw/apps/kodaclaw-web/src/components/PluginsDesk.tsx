@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { Button } from "./ui/Button";
@@ -338,6 +340,7 @@ export function PluginsDesk() {
     },
   });
 
+  const queryClient = useQueryClient();
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PluginDetail | null>(null);
@@ -574,6 +577,7 @@ export function PluginsDesk() {
     try {
       if (action === "discover") {
         await discoverPlugins();
+        void queryClient.invalidateQueries({ queryKey: ['plugins'] });
         setNote(text.notes.discoveryCompleted);
         await loadPlugins("refresh", selectedPluginId);
         return;
@@ -587,6 +591,7 @@ export function PluginsDesk() {
         }
 
         const installed = await installLocalPlugin({ path: normalizedPath });
+        void queryClient.invalidateQueries({ queryKey: ['plugins'] });
         setInstallPath("");
         setNote(`${text.notes.installed} ${installed.record.manifest.name}。`);
         await loadPlugins("refresh", installed.record.id);
@@ -615,6 +620,7 @@ export function PluginsDesk() {
         setNote(text.notes.stopped);
       }
 
+      void queryClient.invalidateQueries({ queryKey: ['plugins'] });
       await loadPlugins("refresh", selectedPluginId);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : text.errors.actionFailed);

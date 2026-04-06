@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchDiagnosticsStats } from '../lib/api';
 import { getLastSeen, SEEN_EVENT } from '../lib/diagLastSeen';
+import { queryKeys } from '../lib/queryKeys';
 
 const POLL_INTERVAL_MS = 30_000;
 const WINDOW_MS = 3_600_000; // 1 hour
@@ -13,29 +15,26 @@ function effectiveSince(): string {
 }
 
 export function useDiagnosticsHealth() {
-  const [errorCount, setErrorCount] = useState(0);
-  const [warningCount, setWarningCount] = useState(0);
+  const queryClient = useQueryClient();
+  const since = effectiveSince();
+  const { data } = useQuery({
+    queryKey: queryKeys.diagnosticsStats(since),
+    queryFn: () => fetchDiagnosticsStats({ since }),
+    refetchInterval: POLL_INTERVAL_MS,
+    retry: false,
+  });
 
-  const poll = useCallback(async () => {
-    try {
-      const stats = await fetchDiagnosticsStats({ since: effectiveSince() });
-      setErrorCount(stats.errorCount);
-      setWarningCount(stats.warningCount);
-    } catch {
-      // ignore — keep last known values
-    }
-  }, []);
-
+  // Re-invalidate on SEEN_EVENT so unread count resets promptly
   useEffect(() => {
-    void poll();
-    const id = setInterval(poll, POLL_INTERVAL_MS);
-
-    window.addEventListener(SEEN_EVENT, poll);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener(SEEN_EVENT, poll);
+    const handler = () => {
+      void queryClient.invalidateQueries({ queryKey: ['diagnosticsStats'] });
     };
-  }, [poll]);
+    window.addEventListener(SEEN_EVENT, handler);
+    return () => window.removeEventListener(SEEN_EVENT, handler);
+  }, [queryClient]);
 
-  return { errorCount, warningCount };
+  return {
+    errorCount: data?.errorCount ?? 0,
+    warningCount: data?.warningCount ?? 0,
+  };
 }

@@ -1,5 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { fetchWorkspaceFile, updateWorkspaceFile } from '../../lib/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 import { PersonaSelector } from './PersonaSelector';
 import { Skeleton } from '../ui/Skeleton';
 import { useLocaleText } from '../../i18n/I18nProvider';
@@ -14,6 +16,11 @@ type FileState = {
 };
 
 function useWorkspaceFile(target: 'identity' | 'soul' | 'user') {
+  const queryClient = useQueryClient();
+  const { data: fileData, isLoading, error: queryError } = useQuery({
+    queryKey: queryKeys.workspaceFile(target),
+    queryFn: () => fetchWorkspaceFile(target),
+  });
   const [state, setState] = useState<FileState>({
     content: '',
     saved: '',
@@ -22,21 +29,21 @@ function useWorkspaceFile(target: 'identity' | 'soul' | 'user') {
     error: null,
     success: false,
   });
-  const abortRef = useRef<AbortController | null>(null);
-
   useEffect(() => {
-    const ac = new AbortController();
-    abortRef.current = ac;
-    fetchWorkspaceFile(target, ac.signal)
-      .then(r => setState(s => ({ ...s, content: r.content ?? '', saved: r.content ?? '', loading: false })))
-      .catch(e => { if (!ac.signal.aborted) setState(s => ({ ...s, error: String(e), loading: false })); });
-    return () => ac.abort();
-  }, [target]);
+    if (fileData && state.loading) {
+      setState(s => ({ ...s, content: fileData.content ?? '', saved: fileData.content ?? '', loading: false }));
+    }
+    if (!isLoading && queryError && state.loading) {
+      setState(s => ({ ...s, error: String(queryError), loading: false }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fileData, isLoading, queryError]);
 
   const save = async () => {
     setState(s => ({ ...s, saving: true, error: null, success: false }));
     try {
       await updateWorkspaceFile(target, state.content);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceFile(target) });
       setState(s => ({ ...s, saved: s.content, saving: false, success: true }));
       setTimeout(() => setState(s => ({ ...s, success: false })), 3000);
     } catch (e) {

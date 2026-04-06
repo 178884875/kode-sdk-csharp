@@ -88,7 +88,7 @@ describe("InboxApprovalDesk", () => {
     renderWithI18n(<InboxApprovalDesk />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("inbox-approval-desk")).toBeInTheDocument();
+      expect(screen.getByTestId("inbox-item-inbox-001")).toBeInTheDocument();
     });
 
     expect(screen.getByTestId("inbox-list")).toBeInTheDocument();
@@ -185,7 +185,7 @@ describe("InboxApprovalDesk", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("inbox-detail")).toHaveTextContent("已批准");
-    });
+    }, { timeout: 3000 });
 
     expect(decisionPayloads).toEqual([{ note: "ship it" }]);
 

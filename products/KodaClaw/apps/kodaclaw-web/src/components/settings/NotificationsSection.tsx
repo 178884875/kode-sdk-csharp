@@ -4,6 +4,8 @@ import { Skeleton } from '../ui/Skeleton';
 import { Toggle } from '../ui/Toggle';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import type { KodaClawSettings } from '../../types/contracts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 
 export function NotificationsSection() {
   const text = useLocaleText({
@@ -39,21 +41,16 @@ export function NotificationsSection() {
     },
   });
 
+  const queryClient = useQueryClient();
+  const { data: settingsData, isLoading } = useQuery({ queryKey: queryKeys.settings, queryFn: () => fetchSettings() });
   const [draft, setDraft] = useState<KodaClawSettings | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    fetchSettings()
-      .then(s => { if (!cancelled) { setDraft(s); setIsLoading(false); } })
-      .catch(() => { if (!cancelled) { setError(text.loadError); setIsLoading(false); } });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (settingsData && draft === null) setDraft(settingsData);
+  }, [settingsData, draft]);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -64,6 +61,7 @@ export function NotificationsSection() {
     try {
       const saved = await saveSettings(draft);
       setDraft(saved);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
       setNote(text.saved);
     } catch {
       setError(text.saveError);

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -348,6 +350,9 @@ export function AutomationsDesk() {
     },
   });
 
+  const queryClient = useQueryClient();
+  const { data: settingsData } = useQuery({ queryKey: queryKeys.settings, queryFn: () => fetchSettings() });
+  const automationsEngineEnabled: boolean | null = settingsData?.automationsEnabled ?? null;
   const [automations, setAutomations] = useState<AutomationDefinition[]>([]);
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<AutomationRunRecord[]>([]);
@@ -362,7 +367,6 @@ export function AutomationsDesk() {
   const [pendingTriggerIds, setPendingTriggerIds] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [promptDiagnosticsError, setPromptDiagnosticsError] = useState<string | null>(null);
-  const [automationsEngineEnabled, setAutomationsEngineEnabled] = useState<boolean | null>(null);
   const [isTogglingEngine, setIsTogglingEngine] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>(null);
   const [isPolling, setIsPolling] = useState(false);
@@ -705,12 +709,6 @@ export function AutomationsDesk() {
   }, [isPolling]);
 
   useEffect(() => {
-    fetchSettings()
-      .then((s) => setAutomationsEngineEnabled(s.automationsEnabled))
-      .catch(() => setAutomationsEngineEnabled(null));
-  }, []);
-
-  useEffect(() => {
     void loadAutomations("initial");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabledFilter, sourceFilter]);
@@ -741,6 +739,7 @@ export function AutomationsDesk() {
 
     try {
       await updateAutomationDefinition(automation.id, !automation.enabled);
+      void queryClient.invalidateQueries({ queryKey: ['automations'] });
       await loadAutomations("refresh");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : text.updateAutomationError);
@@ -800,7 +799,7 @@ export function AutomationsDesk() {
     try {
       const next = !automationsEngineEnabled;
       await setAutomationsEnabled(next);
-      setAutomationsEngineEnabled(next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
     } catch {
       // Keep current state on failure
     } finally {

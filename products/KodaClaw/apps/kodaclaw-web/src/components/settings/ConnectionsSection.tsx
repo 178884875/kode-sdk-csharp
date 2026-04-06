@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { Plug } from 'lucide-react';
 import { fetchChannelAccounts } from '../../lib/api';
 import type { ChannelAccount } from '../../types/contracts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 import { ChannelSetupWizard } from './ChannelSetupWizard';
 import { Modal } from '../ui/Modal';
 import { Skeleton } from '../ui/Skeleton';
@@ -10,8 +12,12 @@ import { useLocaleText } from '../../i18n/I18nProvider';
 import '../ui/Modal.css';
 
 export function ConnectionsSection() {
-  const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: accountsData, isLoading: loading } = useQuery({
+    queryKey: queryKeys.channelAccounts(),
+    queryFn: () => fetchChannelAccounts(),
+  });
+  const accounts: ChannelAccount[] = Array.isArray(accountsData) ? accountsData : [];
   const [wizardOpen, setWizardOpen] = useState(false);
 
   const text = useLocaleText({
@@ -35,19 +41,9 @@ export function ConnectionsSection() {
     },
   });
 
-  const loadAccounts = useCallback(() => {
-    setLoading(true);
-    fetchChannelAccounts()
-      .then(r => setAccounts(Array.isArray(r) ? r : []))
-      .catch(() => setAccounts([]))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { loadAccounts(); }, [loadAccounts]);
-
   function handleWizardClose() {
     setWizardOpen(false);
-    loadAccounts();
+    void queryClient.invalidateQueries({ queryKey: queryKeys.channelAccounts() });
   }
 
   return (

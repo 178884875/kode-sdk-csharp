@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { Sun, Monitor, Moon } from 'lucide-react';
 import { fetchSettings, saveSettings } from '../lib/api';
 import type { ThemeMode } from '../types/contracts';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../lib/queryKeys';
 
 function readThemeFromDom(): ThemeMode {
   const t = document.documentElement.dataset.theme;
@@ -24,20 +26,24 @@ const SEGMENTS: { mode: ThemeMode; icon: React.ReactNode; label: string }[] = [
 ];
 
 export function ThemeToggle() {
+  const queryClient = useQueryClient();
+  const { data: settingsData } = useQuery({ queryKey: queryKeys.settings, queryFn: () => fetchSettings() });
   const [current, setCurrent] = useState<ThemeMode>(() => readThemeFromDom());
 
-  // 与 AppearanceSection 保持一致：挂载时从后端补确认
+  // 与 AppearanceSection 保持一致：从后端确认主题
   useEffect(() => {
-    fetchSettings().then(s => setCurrent(s.theme)).catch(() => {});
-  }, []);
+    if (settingsData) setCurrent(settingsData.theme);
+  }, [settingsData]);
 
   function handleChange(mode: ThemeMode) {
     setCurrent(mode);
     applyTheme(mode);
-    // 后台 fetch-merge-save，与 AppearanceSection 同一持久化路径
-    fetchSettings()
-      .then(s => saveSettings({ ...s, theme: mode }))
-      .catch(() => {});
+    // 后台 merge-save，与 AppearanceSection 同一持久化路径
+    if (settingsData) {
+      saveSettings({ ...settingsData, theme: mode })
+        .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.settings }))
+        .catch(() => {});
+    }
   }
 
   return (

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -143,6 +145,7 @@ export function CanvasDesk() {
     },
   });
 
+  const queryClient = useQueryClient();
   const [kindFilter, setKindFilter] = useState<CanvasKindFilter>("all");
   const [artifacts, setArtifacts] = useState<CanvasArtifact[]>([]);
   const [selectedArtifact, setSelectedArtifact] = useState<CanvasArtifact | null>(null);
@@ -247,6 +250,7 @@ export function CanvasDesk() {
   }, [kindFilter]);
 
   async function handleRefresh() {
+    void queryClient.invalidateQueries({ queryKey: ['canvas'] });
     await loadDesk("refresh");
   }
 

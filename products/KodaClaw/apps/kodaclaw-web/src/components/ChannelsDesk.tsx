@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import {
   createChannelAccount,
   deleteChannelAccount,
@@ -398,14 +400,19 @@ export function ChannelsDesk() {
     },
   });
 
-  const [connectors, setConnectors] = useState<ChannelConnectorDescriptor[]>([]);
+  const queryClient = useQueryClient();
+  const [connectorFilter, setConnectorFilter] = useState<ConnectorFilter>("all");
+  const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
+  const { data: connectorsData } = useQuery({
+    queryKey: queryKeys.channelConnectors,
+    queryFn: () => fetchChannelConnectors(),
+  });
+  const connectors: ChannelConnectorDescriptor[] = connectorsData ?? [];
   const [accounts, setAccounts] = useState<ChannelAccount[]>([]);
   const [threads, setThreads] = useState<ChannelThreadSummary[]>([]);
   const [selectedBindingId, setSelectedBindingId] = useState<string | null>(null);
   const [threadDetail, setThreadDetail] = useState<ChannelThreadDetail | null>(null);
   const [threadAudit, setThreadAudit] = useState<ChannelAuditEntry[]>([]);
-  const [connectorFilter, setConnectorFilter] = useState<ConnectorFilter>("all");
-  const [accountFilter, setAccountFilter] = useState<AccountFilter>("all");
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
@@ -659,8 +666,7 @@ export function ChannelsDesk() {
     setError(null);
 
     try {
-      const [connectorsPayload, accountsPayload, threadsPayload] = await Promise.all([
-        fetchChannelConnectors(),
+      const [accountsPayload, threadsPayload] = await Promise.all([
         fetchChannelAccounts({
           connectorKind: connectorFilter === "all" ? undefined : connectorFilter,
           limit: THREAD_LIMIT,
@@ -676,7 +682,6 @@ export function ChannelsDesk() {
         return;
       }
 
-      setConnectors(connectorsPayload);
       setAccounts(accountsPayload);
       setThreads(threadsPayload.items);
 
@@ -690,7 +695,6 @@ export function ChannelsDesk() {
         return;
       }
 
-      setConnectors([]);
       setAccounts([]);
       setThreads([]);
       setSelectedBindingId(null);
@@ -847,6 +851,8 @@ export function ChannelsDesk() {
       };
 
       await createChannelAccount(request);
+      void queryClient.invalidateQueries({ queryKey: ['channelAccounts'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.channelConnectors });
       setShowAddForm(false);
       await loadDesk("refresh");
     } catch (nextError) {
@@ -924,6 +930,7 @@ export function ChannelsDesk() {
       await updateChannelAccount(editingAccount.id, {
         configurationJson: JSON.stringify(config),
       });
+      void queryClient.invalidateQueries({ queryKey: ['channelAccounts'] });
       setEditingAccount(null);
       await handleRefresh();
     } catch (nextError) {
@@ -936,6 +943,7 @@ export function ChannelsDesk() {
   async function handleDeleteAccount(accountId: string) {
     try {
       await deleteChannelAccount(accountId);
+      void queryClient.invalidateQueries({ queryKey: ['channelAccounts'] });
       await loadDesk("refresh");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to delete channel account.");
@@ -945,6 +953,7 @@ export function ChannelsDesk() {
   async function handleToggleAccount(account: ChannelAccount) {
     try {
       await updateChannelAccount(account.id, { enabled: !account.inboundEnabled });
+      void queryClient.invalidateQueries({ queryKey: ['channelAccounts'] });
       await loadDesk("refresh");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Failed to update channel account.");

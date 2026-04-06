@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import { fetchSkills } from "../lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import { type SkillDescriptor } from "../types/contracts";
 import { useLocaleText } from "../i18n/I18nProvider";
 import { Skeleton } from "./ui/Skeleton";
@@ -78,51 +79,14 @@ export function SkillsDesk() {
     },
   });
 
-  const [skills, setSkills] = useState<SkillDescriptor[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
-
-  async function loadSkills(mode: "initial" | "refresh") {
-    const requestId = ++requestIdRef.current;
-
-    if (mode === "initial") {
-      setIsLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
-
-    try {
-      const items = await fetchSkills();
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      setSkills(items);
-    } catch (nextError) {
-      if (requestIdRef.current !== requestId) {
-        return;
-      }
-
-      setSkills([]);
-      setError(nextError instanceof Error ? nextError.message : text.loadError);
-    } finally {
-      if (requestIdRef.current === requestId) {
-        if (mode === "initial") {
-          setIsLoading(false);
-        } else {
-          setIsRefreshing(false);
-        }
-      }
-    }
-  }
-
-  useEffect(() => {
-    void loadSkills("initial");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const queryClient = useQueryClient();
+  const { data: skillsData, isLoading, isFetching, error: queryError } = useQuery({
+    queryKey: queryKeys.skills,
+    queryFn: () => fetchSkills(),
+  });
+  const skills: SkillDescriptor[] = skillsData ?? [];
+  const isRefreshing = isFetching && !isLoading;
+  const error: string | null = queryError instanceof Error ? queryError.message : null;
 
   const groupedSkills = SOURCE_ORDER
     .map((source) => ({
@@ -151,7 +115,7 @@ export function SkillsDesk() {
           variant="secondary"
           data-testid="skills-refresh"
           disabled={isLoading || isRefreshing}
-          onClick={() => { void loadSkills("refresh"); }}
+          onClick={() => { void queryClient.invalidateQueries({ queryKey: queryKeys.skills }); }}
         >
           {isRefreshing ? text.refreshing : text.refresh}
         </Button>

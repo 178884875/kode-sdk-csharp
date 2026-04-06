@@ -1,4 +1,6 @@
 import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../lib/queryKeys";
 import { Skeleton } from "./ui/Skeleton";
 import { EmptyState } from "./ui/EmptyState";
 import { Button } from "./ui/Button";
@@ -388,12 +390,19 @@ export function ModelsSettingsDesk() {
     },
   });
 
-  const [models, setModels] = useState<ModelEndpoint[]>([]);
+  const queryClient = useQueryClient();
+  const { data: modelsData, isLoading, error: queryError } = useQuery({
+    queryKey: queryKeys.models,
+    queryFn: () => fetchModels(),
+  });
+  const models: ModelEndpoint[] = modelsData?.items ?? [];
+
   const [modelDraft, setModelDraft] = useState<ModelDraft>(DEFAULT_MODEL_DRAFT);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isMutating, setIsMutating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // mutation 错误；加载错误来自 queryError
+  const [mutationError, setError] = useState<string | null>(null);
+  const error = mutationError ?? (queryError instanceof Error ? queryError.message : null);
   const [note, setNote] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [endpointModalOpen, setEndpointModalOpen] = useState(false);
@@ -418,34 +427,8 @@ export function ModelsSettingsDesk() {
   };
 
   async function refreshDesk() {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const { items: nextModels } = await fetchModels();
-      const nextSelectedModelId =
-        selectedModelId && nextModels.some((item) => item.id === selectedModelId)
-          ? selectedModelId
-          : nextModels.find((item) => item.isDefault)?.id ?? nextModels[0]?.id ?? null;
-
-      setModels(nextModels);
-      setSelectedModelId(nextSelectedModelId);
-
-      const nextSelectedModel = nextModels.find((item) => item.id === nextSelectedModelId) ?? null;
-      setModelDraft(nextSelectedModel ? toDraft(nextSelectedModel) : DEFAULT_MODEL_DRAFT);
-
-    } catch (nextError) {
-      const detail = nextError instanceof Error ? nextError.message : text.errors.loadDesk;
-      setError(detail);
-    } finally {
-      setIsLoading(false);
-    }
+    await queryClient.invalidateQueries({ queryKey: queryKeys.models });
   }
-
-  useEffect(() => {
-    void refreshDesk();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     fetchModelPresets().then(setPresets).catch(() => {});
@@ -456,10 +439,10 @@ export function ModelsSettingsDesk() {
       if (current && models.some((item) => item.id === current)) {
         return current;
       }
-
       return models.find((item) => item.isDefault)?.id ?? models[0]?.id ?? null;
     });
-  }, [models]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelsData]);
 
   useEffect(() => {
     if (!selectedModel) {
@@ -477,8 +460,7 @@ export function ModelsSettingsDesk() {
 
     try {
       const created = await createModelEndpoint(toCreateRequest(modelDraft));
-      const nextModels = [created, ...models];
-      setModels(nextModels);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.models });
       setSelectedModelId(created.id);
       setModelDraft(toDraft(created));
       setJustCreatedId(created.id);
@@ -503,7 +485,7 @@ export function ModelsSettingsDesk() {
 
     try {
       const updated = await updateModelEndpoint(selectedModelId, toUpdateRequest(modelDraft));
-      setModels((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.models });
       setModelDraft(toDraft(updated));
       setNote(text.notes.modelUpdated);
       setEndpointModalOpen(false);
@@ -522,16 +504,7 @@ export function ModelsSettingsDesk() {
 
     try {
       const updatedDefault = await setDefaultModelEndpoint(id);
-      setModels((current) =>
-        current.map((item) =>
-          item.id === updatedDefault.id
-            ? updatedDefault
-            : {
-                ...item,
-                isDefault: false,
-              },
-        ),
-      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.models });
       if (selectedModelId === updatedDefault.id) {
         setModelDraft(toDraft(updatedDefault));
       }
@@ -551,8 +524,7 @@ export function ModelsSettingsDesk() {
 
     try {
       await deleteModelEndpoint(id);
-      const nextModels = models.filter((item) => item.id !== id);
-      setModels(nextModels);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.models });
       if (selectedModelId === id) {
         setSelectedModelId(null);
         setModelDraft(DEFAULT_MODEL_DRAFT);

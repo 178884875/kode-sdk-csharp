@@ -1,5 +1,7 @@
 import './MemorySection.css';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 import { Brain, ArrowUpCircle } from 'lucide-react';
 import { fetchWorkspaceFile, updateWorkspaceFile, fetchMemoryStats, fetchMemoryEntries, promoteMemoryEntry } from '../../lib/api';
 import type { MemoryStats, MemoryEntryItem } from '../../lib/api';
@@ -21,15 +23,21 @@ function formatDate(iso: string): string {
 }
 
 export function MemorySection() {
+  const queryClient = useQueryClient();
+  const { data: memoryFileData, isLoading: loading, error: memoryFileError } = useQuery({
+    queryKey: queryKeys.workspaceFile('memory'),
+    queryFn: () => fetchWorkspaceFile('memory'),
+  });
+  const { data: statsData } = useQuery({
+    queryKey: queryKeys.memoryStats,
+    queryFn: () => fetchMemoryStats(),
+  });
+  const stats: MemoryStats | null = statsData ?? null;
   const [content, setContent] = useState('');
   const [saved, setSaved] = useState('');
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(memoryFileError instanceof Error ? memoryFileError.message : null);
   const [success, setSuccess] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const [stats, setStats] = useState<MemoryStats | null>(null);
   const [entries, setEntries] = useState<MemoryEntryItem[]>([]);
   const [entriesFilter, setEntriesFilter] = useState<FilterKey>('active');
   const [entriesLoading, setEntriesLoading] = useState(false);
@@ -90,27 +98,13 @@ export function MemorySection() {
   };
 
   useEffect(() => {
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setLoading(true);
-    fetchWorkspaceFile('memory', ac.signal)
-      .then(r => {
-        const t = r.content ?? '';
-        setContent(t);
-        setSaved(t);
-        setLoading(false);
-      })
-      .catch(e => {
-        if (!ac.signal.aborted) {
-          setError(String(e));
-          setLoading(false);
-        }
-      });
-
-    fetchMemoryStats(ac.signal).then(setStats).catch(() => {});
-
-    return () => ac.abort();
-  }, []);
+    if (memoryFileData && !content) {
+      const t = memoryFileData.content ?? '';
+      setContent(t);
+      setSaved(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoryFileData]);
 
   const loadEntries = useCallback(async (status: FilterKey) => {
     setEntriesLoading(true);
@@ -133,6 +127,7 @@ export function MemorySection() {
     setSuccess(false);
     try {
       await updateWorkspaceFile('memory', content);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.workspaceFile('memory') });
       setSaved(content);
       setSaving(false);
       setSuccess(true);
@@ -148,7 +143,7 @@ export function MemorySection() {
     try {
       await promoteMemoryEntry(key);
       await loadEntries(entriesFilter);
-      fetchMemoryStats().then(setStats).catch(() => {});
+      void queryClient.invalidateQueries({ queryKey: queryKeys.memoryStats });
     } catch {
       // silently fail
     }

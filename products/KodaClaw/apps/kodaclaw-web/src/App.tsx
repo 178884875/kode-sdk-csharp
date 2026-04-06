@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { ChatComposer, type AttachedMedia } from './components/ChatComposer';
 import { MessageTimeline } from './components/MessageTimeline';
@@ -14,6 +15,7 @@ import {
   type DesktopLaunchTarget,
 } from './lib/config';
 import { fetchOnboardingState, rotateSession, fetchModels, setDefaultModelEndpoint, uploadMedia } from './lib/api';
+import { queryKeys } from './lib/queryKeys';
 import type { ModelOption } from './components/ChatComposer';
 import { OnboardingShell } from './onboarding/OnboardingShell';
 import { AppShell } from './shell/AppShell';
@@ -178,32 +180,32 @@ export default function App() {
 
   const activeSessionId = snapshot?.activeMainSessionId ?? null;
 
-  // KC-4403/4404: model info + attachment state
-  const [modelName, setModelName] = useState<string | null>(null);
-  const [modelCapabilities, setModelCapabilities] = useState<number>(0);
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
+  // KC-6702: models via TanStack Query — shared cache with ModelsSettingsDesk
+  const queryClient = useQueryClient();
+  const { data: modelsData } = useQuery({
+    queryKey: queryKeys.models,
+    queryFn: () => fetchModels(),
+    enabled: !isLoading && !!snapshot,
+  });
+  const CAP_TEXT = 1;
+  const availableModels = useMemo<ModelOption[]>(() => {
+    const items = modelsData?.items ?? [];
+    return items
+      .filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0)
+      .map(m => ({ id: m.id, displayName: m.displayName }));
+  }, [modelsData]);
+  const defaultEndpoint = useMemo(() => {
+    const items = modelsData?.items ?? [];
+    const eligible = items.filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0);
+    return eligible.find(m => m.isDefault) ?? eligible[0] ?? null;
+  }, [modelsData]);
+  const modelName = defaultEndpoint?.displayName ?? null;
+  const modelCapabilities = defaultEndpoint?.capabilities ?? 0;
+  const selectedModelId = defaultEndpoint?.id ?? null;
+
   // KC-BUG-303: pending model switch confirm
   const [pendingModelChange, setPendingModelChange] = useState<{ id: string; displayName: string } | null>(null);
   const [attachedMedia, setAttachedMedia] = useState<AttachedMedia[]>([]);
-
-  // Load available chat models once gateway is ready (snapshot present, not loading)
-  const modelsLoadedRef = useRef(false);
-  useEffect(() => {
-    if (isLoading || !snapshot || modelsLoadedRef.current) return;
-    modelsLoadedRef.current = true;
-    const CAP_TEXT = 1;
-    fetchModels()
-      .then(res => {
-        const eligible = res.items.filter(m => m.enabled && (m.capabilities & CAP_TEXT) !== 0);
-        setAvailableModels(eligible.map(m => ({ id: m.id, displayName: m.displayName })));
-        const ep = eligible.find(m => m.isDefault) ?? eligible[0];
-        setModelName(ep?.displayName ?? null);
-        setModelCapabilities(ep?.capabilities ?? 0);
-        setSelectedModelId(ep?.id ?? null);
-      })
-      .catch(() => { modelsLoadedRef.current = false; }); // allow retry on error
-  }, [isLoading, snapshot]);
 
   // KC-BUG-303: show confirm before rotating session on model change
   const handleModelChange = useCallback((modelId: string) => {
@@ -217,15 +219,13 @@ export default function App() {
     const { id, displayName } = pendingModelChange;
     setPendingModelChange(null);
     try {
-      const updated = await setDefaultModelEndpoint(id);
-      setModelName(updated.displayName);
-      setModelCapabilities(updated.capabilities);
-      setSelectedModelId(updated.id);
+      await setDefaultModelEndpoint(id);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.models });
     } catch { /* ignore, pill stays on old model */ return; }
     try { await rotateSession(); } catch { /* ignore */ }
     clearMessages(text.chat.modelSwitchedNote(displayName));
     refresh();
-  }, [pendingModelChange, clearMessages, text.chat, refresh]);
+  }, [pendingModelChange, queryClient, clearMessages, text.chat, refresh]);
 
   const handleModelChangeCancel = useCallback(() => {
     setPendingModelChange(null);

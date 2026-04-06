@@ -2,6 +2,46 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## Iter 67 — 前端服务端状态现代化 Phase 1：基础设施 + models 迁移
+
+> FREEZE doc: `docs/ITERATION_W4_FREEZE.md`（2026-04-06，设计参考文档）
+> 类型：优化/重构
+> 不改动任何 API contract 和后端代码
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6701 | kodaclaw-web 基础设施 | 安装 `@tanstack/react-query` v5；`main.tsx` 在 `I18nProvider` 内层加 `QueryClientProvider`；新建 `src/lib/queryKeys.ts` 定义 models / settings / channels / inbox / approvals / automations / plugins / canvas / sessions / workspaceFiles / skills / mcpServers / diagnostics 全量 queryKey 常量；不改动任何业务组件 | `npm run typecheck`；`npm run build` | Completed |
+| KC-6702 | kodaclaw-web / App.tsx + ModelsSettingsDesk | 删除 App.tsx 的 `modelsLoadedRef` + 手动 fetch 块，改为 `useQuery(queryKeys.models, fetchModels)`；`availableModels`/`selectedModelId`/`modelName`/`modelCapabilities` 从 query data 派生；`ModelsSettingsDesk` 4 个 mutation（create/update/delete/setDefault）改用 `useMutation`，`onSuccess` 调 `invalidateQueries(queryKeys.models)`；两个组件共享同一 query cache，任意一方写入后另一方自动刷新；补 `test-utils.tsx`/`app-shell.spec.tsx` 的 QueryClientProvider | `npm run typecheck`；`npm run build`；L5 Dogfood：添加模型→回 chat→选择器立即可见，无需刷新 | Completed |
+
+## Iter 68 — 前端服务端状态现代化 Phase 2：settings + channels
+
+> FREEZE doc: `docs/ITERATION_W4_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6801 | kodaclaw-web / Settings sections | `BehaviorSection`、`AppearanceSection`、`NotificationsSection`、`SessionConfigSection`、`ThemeToggle` 5 处各自独立的 `fetchSettings()` + `useState` 替换为 `useQuery(queryKeys.settings, fetchSettings)`；各 Section `saveSettings()` 改 `useMutation`，`onSuccess` invalidate settings；5 个组件共享同一份缓存，任意 Section 保存后其他立即感知 | `npm run typecheck` | Completed |
+| KC-6802 | kodaclaw-web / ChannelsDesk + ConnectionsSection | `ChannelsDesk` 和 `ConnectionsSection` 的 `fetchChannelAccounts()` 改为 `useQuery(queryKeys.channelAccounts)`；create/update/delete account mutation `onSuccess` 调 `invalidateQueries(queryKeys.channelAccounts)`；`fetchChannelConnectors`/`fetchChannelThreads`/`fetchChannelThreadDetail` 同步迁移，queryKey 含 accountId 参数实现精准 invalidate；ChannelsDesk 删除账号后 ConnectionsSection 立即同步 | `npm run typecheck` | Completed |
+
+## Iter 69 — 前端服务端状态现代化 Phase 3：inbox + automations + plugins
+
+> FREEZE doc: `docs/ITERATION_W4_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-6901 | kodaclaw-web / InboxApprovalDesk | `fetchInbox`/`fetchApprovals` 改为 `useQuery`（queryKey 含 filter 参数）；审批决策用 local state override 实现即时 UI 反馈，同时 invalidate inbox/approvals 做后台刷新；`approvalOverrides`/`inboxStatusOverrides` 合并到 approvalsMap/selectedItem，解决 Vitest 环境 useSyncExternalStore 不触发重渲染的问题 | `npm run typecheck`；5/5 inbox tests pass | Completed |
+| KC-6902 | kodaclaw-web / AutomationsDesk | `fetchAutomations`/`fetchAutomation`/`fetchAutomationRuns` 改为 `useQuery`；`triggerAutomation`/`updateAutomationDefinition` 改 `useMutation`，`onSuccess` invalidate 对应 queryKey；trigger 后 runs 列表自动更新 | `npm run typecheck` | Completed |
+| KC-6903 | kodaclaw-web / PluginsDesk | `fetchPlugins`/`fetchPlugin`/`fetchPluginLogs` 改为 `useQuery`；enable/disable/start/stop/trust/install/discover 全部改 `useMutation`，`onSuccess` invalidate plugins | `npm run typecheck` | Completed |
+
+## Iter 70 — 前端服务端状态现代化 Phase 4：剩余组件 + 收尾
+
+> FREEZE doc: `docs/ITERATION_W4_FREEZE.md`
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-7001 | kodaclaw-web / CanvasDesk + SessionsDiagnosticsDesk | CanvasDesk artifacts/artifact/defaultEntry 改 `useQuery`，publish 改 `useMutation`；SessionsDiagnosticsDesk sessions/sessionDetail/sessionMessages 改 `useQuery`；resume/delete session 改 `useMutation` | `npm run typecheck` | Completed |
+| KC-7002 | kodaclaw-web / WorkspaceFiles + McpServersDesk + SkillsDesk | WorkspaceIdentityEditor/MemorySection 中 `fetchWorkspaceFile` 改 `useQuery`，`updateWorkspaceFile` 改 `useMutation`；McpServersDesk fetchMcpServers/saveMcpServers 迁移；SkillsDesk fetchSkills 迁移；memory stats/entries/promote 迁移 | `npm run typecheck` | Completed |
+| KC-7003 | kodaclaw-web / hooks + E2E | `useInboxUnreadCount`/`useDiagnosticsHealth` 的 `setInterval` 轮询改为 `useQuery` + `refetchInterval` 选项；删除因迁移成为死代码的 `modelsLoadedRef`、手动 `isLoading` state 等；`npm run test:e2e` 全量 Playwright 通过 | `npm run typecheck`；`npm run build`；`npm run test:e2e` | Completed |
+
 ## Iter 66 — Onboarding UX 优化 + GLM Coding Plan 接入（2026-04-05）
 
 > FREEZE doc: `docs/ITERATION_66_FREEZE.md`

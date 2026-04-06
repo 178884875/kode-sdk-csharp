@@ -4,6 +4,7 @@ import { ReadableStream } from "node:stream/web";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import App from "../App";
 import { I18nProvider } from "../i18n/I18nProvider";
 import {
@@ -15,10 +16,13 @@ import {
 const originalFetch = global.fetch;
 
 function renderApp() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <I18nProvider>
-      <App />
-    </I18nProvider>,
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    </QueryClientProvider>,
   );
 }
 

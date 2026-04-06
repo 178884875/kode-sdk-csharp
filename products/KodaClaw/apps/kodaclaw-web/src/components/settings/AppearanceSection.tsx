@@ -3,6 +3,8 @@ import { fetchSettings, saveSettings } from '../../lib/api';
 import { Skeleton } from '../ui/Skeleton';
 import { useLocaleText } from '../../i18n/I18nProvider';
 import { ThemeToggle } from '../ThemeToggle';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryKeys';
 
 export function AppearanceSection() {
   const text = useLocaleText({
@@ -30,21 +32,16 @@ export function AppearanceSection() {
     },
   });
 
+  const queryClient = useQueryClient();
+  const { data: settingsData, isLoading } = useQuery({ queryKey: queryKeys.settings, queryFn: () => fetchSettings() });
   const [landingRoute, setLandingRoute] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    setIsLoading(true);
-    fetchSettings()
-      .then(s => { if (!cancelled) { setLandingRoute(s.defaultLandingRoute ?? ''); setIsLoading(false); } })
-      .catch(() => { if (!cancelled) { setError(text.loadError); setIsLoading(false); } });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (settingsData && landingRoute === null) setLandingRoute(settingsData.defaultLandingRoute ?? '');
+  }, [settingsData, landingRoute]);
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -53,9 +50,11 @@ export function AppearanceSection() {
     setNote(null);
     setError(null);
     try {
-      // fetch fresh to avoid overwriting theme already persisted by ThemeToggle
-      const current = await fetchSettings();
+      // use cached settings to avoid overwriting theme already persisted by ThemeToggle
+      const current = settingsData;
+      if (!current) return;
       await saveSettings({ ...current, defaultLandingRoute: landingRoute });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
       setNote(text.saved);
     } catch {
       setError(text.saveError);
