@@ -24,14 +24,15 @@ internal static class SubAgentRunner
     ];
 
     /// <summary>
-    /// Hard whitelist: write/channel tools are always stripped.
-    /// Sub-agents must not produce side effects in the parent's world.
+    /// Hard whitelist: channel/approval tools are always stripped.
+    /// Sub-agents can read/write files and run shell commands.
     /// </summary>
     internal static readonly HashSet<string> AllowedTools = new(StringComparer.OrdinalIgnoreCase)
     {
         "fs_read", "fs_glob", "fs_grep", "fs_list",
+        "fs_write", "fs_edit", "fs_rm",
         "bash_run", "bash_logs", "bash_kill",
-        "todo_read",
+        "todo_read", "todo_write",
     };
 
     /// <summary>
