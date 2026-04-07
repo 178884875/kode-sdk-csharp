@@ -115,20 +115,46 @@ public sealed class RelayConnector : IChannelConnector
     {
         var eventType = GetOptionalString(eventJson, "eventType");
 
-        if (eventType == "community_notification")
+        if (RelayEventFrameParser.IsNotificationEventType(eventType))
         {
+            RecordDiagnosticEvent(
+                "relay.notification_received",
+                "info",
+                "Relay notification event received.",
+                attributes: BuildEventAttributes(eventJson, eventType));
             await HandleNotificationAsync(eventJson, configuration).ConfigureAwait(false);
             return;
         }
 
-        var envelope = MapToEnvelope(accountId, configuration, eventJson);
-        if (envelope is null)
+        if (!RelayEventFrameParser.TryParse(accountId, configuration, eventJson, out var envelope, out var error))
         {
-            _logger.LogWarning("Failed to map relay event to envelope");
+            _logger.LogWarning("Failed to map relay event to envelope: {Error}", error);
+            RecordDiagnosticEvent(
+                "relay.event_rejected",
+                "warning",
+                error ?? "Relay event rejected.",
+                attributes: BuildEventAttributes(eventJson, eventType, extra: new Dictionary<string, string?>
+                {
+                    ["error"] = error,
+                }));
             return;
         }
 
-        await onEvent(envelope, cancellationToken).ConfigureAwait(false);
+        RecordDiagnosticEvent(
+            "relay.event_dispatched",
+            "info",
+            $"Relay event dispatched: eventId={envelope!.EventId} eventType={envelope.EventType}",
+            attributes: new Dictionary<string, string?>
+            {
+                ["accountId"] = accountId,
+                ["eventId"] = envelope.EventId,
+                ["eventType"] = envelope.EventType.ToString(),
+                ["threadType"] = envelope.ThreadType.ToString(),
+                ["externalThreadId"] = envelope.ExternalThreadId,
+                ["externalMessageId"] = envelope.ExternalMessageId,
+                ["correlationId"] = envelope.CorrelationId,
+            });
+        await onEvent(envelope!, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task HandleNotificationAsync(JsonElement root, RelayConnectorConfiguration configuration)
@@ -171,37 +197,6 @@ public sealed class RelayConnector : IChannelConnector
             $"Community notification handled: {title}");
     }
 
-    private static ChannelEventEnvelope? MapToEnvelope(
-        string accountId,
-        RelayConnectorConfiguration configuration,
-        JsonElement root)
-    {
-        var eventId = GetOptionalString(root, "eventId") ?? $"relay-{Guid.NewGuid():N}";
-
-        DateTimeOffset occurredAt = DateTimeOffset.UtcNow;
-        if (root.TryGetProperty("occurredAt", out var oaProp)
-            && DateTimeOffset.TryParse(oaProp.GetString(), out var parsedOa))
-        {
-            occurredAt = parsedOa;
-        }
-
-        var correlationId = GetOptionalString(root, "correlationId");
-
-        return new ChannelEventEnvelope(
-            EventId: eventId,
-            EventType: ChannelEventType.MessageReceived,
-            ConnectorKind: ChannelConnectorKind.Relay,
-            AccountId: accountId,
-            ExternalThreadId: $"relay-{eventId}",
-            ThreadType: ChannelThreadType.DirectMessage,
-            OccurredAt: occurredAt,
-            Sender: null,
-            Text: null,
-            CorrelationId: correlationId,
-            MetadataJson: root.GetRawText(),
-            DefaultDeliveryMode: configuration.DefaultDeliveryMode);
-    }
-
     private static string? GetOptionalString(JsonElement element, string propertyName)
     {
         if (element.TryGetProperty(propertyName, out var prop)
@@ -222,7 +217,37 @@ public sealed class RelayConnector : IChannelConnector
         return accountId.Trim();
     }
 
-    private void RecordDiagnosticEvent(string eventType, string level, string message)
+    private static IReadOnlyDictionary<string, string?> BuildEventAttributes(
+        JsonElement eventJson,
+        string? eventType,
+        IReadOnlyDictionary<string, string?>? extra = null)
+    {
+        var attributes = new Dictionary<string, string?>
+        {
+            ["eventId"] = GetOptionalString(eventJson, "eventId"),
+            ["eventType"] = eventType,
+            ["threadType"] = GetOptionalString(eventJson, "threadType"),
+            ["externalThreadId"] = GetOptionalString(eventJson, "externalThreadId"),
+            ["externalMessageId"] = GetOptionalString(eventJson, "externalMessageId"),
+            ["correlationId"] = GetOptionalString(eventJson, "correlationId"),
+        };
+
+        if (extra is not null)
+        {
+            foreach (var pair in extra)
+            {
+                attributes[pair.Key] = pair.Value;
+            }
+        }
+
+        return attributes;
+    }
+
+    private void RecordDiagnosticEvent(
+        string eventType,
+        string level,
+        string message,
+        IReadOnlyDictionary<string, string?>? attributes = null)
     {
         _diagnosticsService?.Record(new DiagnosticEvent(
             Id: Guid.NewGuid().ToString("N"),
@@ -230,7 +255,8 @@ public sealed class RelayConnector : IChannelConnector
             EventType: eventType,
             Level: level,
             Message: message,
-            Timestamp: DateTimeOffset.UtcNow));
+            Timestamp: DateTimeOffset.UtcNow,
+            Attributes: attributes));
     }
 
     private sealed record StartedAccount(

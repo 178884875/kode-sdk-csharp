@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchDiagnosticsStats } from '../lib/api';
 import { getLastSeen, SEEN_EVENT } from '../lib/diagLastSeen';
@@ -16,7 +16,8 @@ function effectiveSince(): string {
 
 export function useDiagnosticsHealth() {
   const queryClient = useQueryClient();
-  const since = effectiveSince();
+  // 用 useState 稳定 since，避免每次渲染 Date.now() 不同导致 queryKey 持续变化产生死循环
+  const [since, setSince] = useState(effectiveSince);
   const { data } = useQuery({
     queryKey: queryKeys.diagnosticsStats(since),
     queryFn: () => fetchDiagnosticsStats({ since }),
@@ -27,6 +28,7 @@ export function useDiagnosticsHealth() {
   // Re-invalidate on SEEN_EVENT so unread count resets promptly
   useEffect(() => {
     const handler = () => {
+      setSince(effectiveSince());
       void queryClient.invalidateQueries({ queryKey: ['diagnosticsStats'] });
     };
     window.addEventListener(SEEN_EVENT, handler);
