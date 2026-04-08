@@ -1,4 +1,5 @@
 using KodaClaw.BrowserHub;
+using KodaClaw.BrowserHub.Models;
 using KodaClaw.BrowserHub.Connection;
 using KodaClaw.BrowserHub.Device;
 using KodaClaw.BrowserHub.Screenshot;
@@ -176,6 +177,77 @@ public static partial class GatewayApp
                 return Results.BadRequest(new { error = ex.Message });
             }
         });
+
+
+        // TEMPORARY: Test endpoint for browser actions (will be removed after verification)
+        browser.MapPost("/test/action", async (
+            HttpContext context,
+            IBrowserHubService browserHubService,
+            BridgeConnectionManager connectionManager,
+            CancellationToken cancellationToken) =>
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var body = await reader.ReadToEndAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(body))
+                return Results.BadRequest(new { error = "Empty body" });
+
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var action = root.GetProperty("action").GetString()!;
+            var tabId = root.TryGetProperty("tabId", out var tid) ? tid.GetString() : null;
+            var deviceIds = connectionManager.ConnectedDeviceIds;
+            if (deviceIds.Count == 0)
+                return Results.Ok(new { ok = false, error = "No connected devices" });
+            var deviceId = deviceIds.First();
+
+            try
+            {
+                object? result = action switch
+                {
+                    "list_tabs" => await browserHubService.ListTabsAsync(cancellationToken),
+                    "navigate" => await browserHubService.NavigateAsync(root.GetProperty("url").GetString()!, tabId, cancellationToken),
+                    "get_url" => await browserHubService.GetUrlAsync(tabId!, cancellationToken),
+                    "snapshot" => await browserHubService.SnapshotAsync(tabId!, null, cancellationToken),
+                    "screenshot" => await browserHubService.ScreenshotAsync(tabId!, ScreenshotFormat.Jpeg, 80, cancellationToken),
+                    "click" => await browserHubService.ClickAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), null, null, cancellationToken),
+                    "type" => await browserHubService.TypeAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("text").GetString()!, false, 0, cancellationToken),
+                    "scroll" => await browserHubService.ScrollAsync(deviceId, tabId, Enum.Parse<ScrollDirection>(root.GetProperty("direction").GetString()!, ignoreCase: true), null, null, cancellationToken),
+                    "key_press" => await browserHubService.KeyPressAsync(deviceId, tabId, root.GetProperty("key").GetString()!, cancellationToken),
+                    "go_back" => await browserHubService.GoBackAsync(deviceId, tabId, cancellationToken),
+                    "close_tab" => await browserHubService.CloseTabAsync(deviceId, tabId!, cancellationToken),
+                    "switch_tab" => await browserHubService.SwitchTabAsync(deviceId, tabId!, cancellationToken),
+                    "evaluate" => await browserHubService.EvaluateAsync(deviceId, tabId, root.GetProperty("script").GetString()!, true, cancellationToken),
+                    "evaluate_write" => await browserHubService.EvaluateWriteAsync(deviceId, tabId, root.GetProperty("script").GetString()!, cancellationToken),
+                    "cookies" => await browserHubService.GetCookiesAsync(deviceId, tabId, null, cancellationToken),
+                    "form_state" => await browserHubService.GetFormStateAsync(deviceId, tabId, cancellationToken),
+                    "console" => await browserHubService.GetConsoleMessagesAsync(deviceId, tabId, null, cancellationToken),
+                    "upload_file" => await browserHubService.UploadFileAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("filePath").GetString()!, cancellationToken),
+                    "wait" => await browserHubService.WaitAsync(deviceId, tabId, null, null, null, cancellationToken),
+                    "intercept" => await browserHubService.StartInterceptAsync(deviceId, tabId, null, null, false, false, cancellationToken),
+                    "intercept_clear" => await browserHubService.StopInterceptAsync(deviceId, tabId, cancellationToken),
+                    "intercept_result" => await browserHubService.GetInterceptedRequestsAsync(deviceId, tabId, null, null, null, 50, cancellationToken),
+                    _ => null
+                };
+
+                if (result is null)
+                    return Results.BadRequest(new { error = $"Unknown action: {action}" });
+
+                var okProp = result.GetType().GetProperty("Ok");
+                var dataProp = result.GetType().GetProperty("Data");
+                var errorProp = result.GetType().GetProperty("Error");
+                return Results.Ok(new
+                {
+                    ok = okProp?.GetValue(result),
+                    data = dataProp?.GetValue(result),
+                    error = errorProp?.GetValue(result), errorCode = result.GetType().GetProperty("ErrorCode")?.GetValue(result)
+                });
+            }
+            catch (Exception ex)
+            {
+                return Results.Ok(new { ok = false, error = ex.Message, errorCode = "TEST_ERROR" });
+            }
+        });
+
 
         app.Map("/ws/bridge", async (
             HttpContext context,

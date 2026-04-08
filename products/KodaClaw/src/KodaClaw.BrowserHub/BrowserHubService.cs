@@ -293,11 +293,12 @@ public sealed class BrowserHubService : IBrowserHubService
         string tabId,
         CancellationToken ct = default)
     {
+        var payload = new { tabId };
         return await SendRequestAsync<SwitchTabResult>(
             deviceId: deviceId,
             action: "switch_tab",
-            payload: null,
-            tabId: tabId,
+            payload: payload,
+            tabId: null,
             timeoutMs: DefaultRequestTimeoutMs,
             ct: ct).ConfigureAwait(false);
     }

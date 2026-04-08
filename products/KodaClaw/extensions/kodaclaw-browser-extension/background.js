@@ -623,7 +623,7 @@ async function handleBridgeRequest(req) {
 async function executeCdpAction(action, tabId, payload) {
   switch (action) {
     case 'navigate':     return cdpNavigate(tabId, payload.url);
-    case 'snapshot':     return cdpSnapshot(tabId, payload.selector);
+    case 'snapshot':     return cdpSnapshot(tabId, payload && payload.selector);
     case 'screenshot':   return cdpScreenshot(tabId, payload);
     case 'list_tabs':    return cdpListTabs();
     case 'get_url':      return cdpGetUrl(tabId);
@@ -687,7 +687,7 @@ async function cdpSnapshot(tabId, selector) {
 
   const script = selector
     ? `(function(){var el=document.querySelector(${JSON.stringify(selector)});return el?el.innerHTML:'';})() `
-    : `(function(){return window.__kodaclaw_snapshot?window.__kodaclaw_snapshot():{html:document.documentElement.outerHTML,title:document.title,url:location.href};})()`;
+    : `(function(){return window.__kodaclaw_snapshot?window.__kodaclaw_snapshot():document.documentElement.outerHTML;})()`;
 
   return cdpEvalRaw(chromeTabId, script);
 }
@@ -1015,7 +1015,7 @@ async function cdpCookies(tabId, payload) {
     path: c.path,
     httpOnly: c.httpOnly,
     secure: c.secure,
-    expires: c.expires,
+    expires: Number.isFinite(c.expires) ? Math.trunc(c.expires) : null,
   }));
   return { cookies };
 }
@@ -1026,14 +1026,26 @@ async function cdpFormState(tabId) {
   await ensureDebuggerAttached(chromeTabId);
 
   const script = `(function(){
+    if (window.__kodaclaw_snapshot) {
+      try { window.__kodaclaw_snapshot(); } catch (_) {}
+    }
+    var isVisible = function(el) {
+      if (!el) return false;
+      var style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      var rect = el.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    };
     var results = [];
     var els = document.querySelectorAll('input, textarea, select');
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
+      if (!isVisible(el)) continue;
       var tag = el.tagName.toLowerCase();
       var elementIndex = el.getAttribute('data-kc-index') !== null
         ? el.getAttribute('data-kc-index')
         : String(i);
+      var isCheckable = el.type === 'checkbox' || el.type === 'radio';
       var entry = {
         elementIndex: elementIndex,
         tagName: tag,
@@ -1041,7 +1053,7 @@ async function cdpFormState(tabId) {
         name: el.name || null,
         id: el.id || null,
         value: (tag === 'input' && el.type === 'password') ? '***' : (el.value || null),
-        checked: (el.checked !== undefined && el.type === 'checkbox' || el.type === 'radio') ? el.checked : null,
+        checked: isCheckable ? el.checked : null,
         placeholder: el.placeholder || null,
         selectedOptions: null,
       };
@@ -1105,12 +1117,29 @@ async function cdpUploadFile(tabId, payload) {
 
 /** 等待条件满足（轮询，每 200ms 检查一次） */
 async function cdpWait(tabId, payload) {
-  const { condition, timeoutMs = 10000 } = payload || {};
-  if (!condition) throw new Error('缺少 condition 参数');
+  const {
+    condition,
+    timeoutMs = 10000,
+    durationMs,
+    waitForSelector,
+    waitUntil,
+  } = payload || {};
   const chromeTabId = await resolveTabId(tabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const start = Date.now();
+
+  if (typeof durationMs === 'number' && durationMs > 0) {
+    await new Promise(r => setTimeout(r, durationMs));
+    return { waited: true, elapsedMs: Date.now() - start };
+  }
+
+  const selector = waitForSelector || (condition === 'element' ? '[data-kc-index]' : null);
+  const navigationTarget = waitUntil || (condition === 'navigation' ? 'load' : null);
+
+  if (!selector && !navigationTarget) {
+    return { waited: true, elapsedMs: 0 };
+  }
 
   while (true) {
     const elapsed = Date.now() - start;
@@ -1119,14 +1148,20 @@ async function cdpWait(tabId, payload) {
     }
 
     try {
-      if (condition === 'element') {
-        const found = await cdpEvalRaw(chromeTabId, `document.querySelectorAll('[data-kc-index]').length > 0`);
+      if (selector) {
+        const found = await cdpEvalRaw(chromeTabId, `document.querySelector(${JSON.stringify(selector)}) !== null`);
         if (found) return { waited: true, elapsedMs: Date.now() - start };
-      } else if (condition === 'navigation') {
+      } else if (navigationTarget) {
         const state = await cdpEvalRaw(chromeTabId, `document.readyState`);
-        if (state === 'complete') return { waited: true, elapsedMs: Date.now() - start };
+        if (
+          navigationTarget === 'domcontentloaded'
+            ? state === 'interactive' || state === 'complete'
+            : state === 'complete'
+        ) {
+          return { waited: true, elapsedMs: Date.now() - start };
+        }
       } else {
-        throw new Error(`不支持的 condition：${condition}`);
+        throw new Error(`不支持的 condition：${condition || navigationTarget}`);
       }
     } catch (err) {
       if (!err.message.includes('不支持的')) {
@@ -1345,7 +1380,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     const entry = {
       type: params.type,
       text: (params.args || []).map(a => (a.value !== undefined ? String(a.value) : (a.description || ''))).join(' '),
-      timestamp: params.timestamp,
+      timestamp: Number.isFinite(params.timestamp) ? Math.trunc(params.timestamp) : 0,
       url: frame ? (frame.url || '') : '',
       lineNumber: frame ? (frame.lineNumber || 0) : 0,
     };

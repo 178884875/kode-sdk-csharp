@@ -54,7 +54,7 @@ public sealed record CookieItem(
     [property: JsonPropertyName("value")] string Value,
     [property: JsonPropertyName("httpOnly")] bool HttpOnly,
     [property: JsonPropertyName("secure")] bool Secure,
-    [property: JsonPropertyName("expires")] long? Expires);
+    [property: JsonPropertyName("expires")] JsonElement? Expires);
 
 public sealed record CookiesResult(
     [property: JsonPropertyName("cookies")] IReadOnlyList<CookieItem> Cookies);
