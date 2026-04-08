@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\KodaClaw.Automation\KodaClaw.Automation.csproj" />
+    <ProjectReference Include="..\KodaClaw.BrowserHub\KodaClaw.BrowserHub.csproj" />
     <ProjectReference Include="..\KodaClaw.ChannelHub\KodaClaw.ChannelHub.csproj" />
     <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
     <ProjectReference Include="..\KodaClaw.ControlPlane\KodaClaw.ControlPlane.csproj" />

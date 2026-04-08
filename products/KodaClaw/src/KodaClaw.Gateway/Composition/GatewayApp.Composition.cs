@@ -1,5 +1,6 @@
 using Kode.Agent.Sdk.Diagnostics;
 using KodaClaw.Automation;
+using KodaClaw.BrowserHub;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
@@ -147,6 +148,7 @@ public static partial class GatewayApp
         builder.Services.AddModelRegistry();
         builder.Services.AddKodaClawMcpHub();
         builder.Services.AddKodaClawPluginHost();
+        builder.Services.AddKodaClawBrowserHub();
         builder.Services.AddSingleton<IPluginGatewayService, PluginGatewayService>();
         builder.Services.AddSingleton<IRuntimeConfigurationResolver, GatewayRuntimeConfigurationResolver>();
         builder.Services.AddKodaClawRuntime(options =>
@@ -191,6 +193,8 @@ public static partial class GatewayApp
         });
 
         app.UseCors(GatewayCorsPolicyName);
+
+        app.UseWebSockets();
     }
 
     private static void MapGatewayEndpoints(WebApplication app)
@@ -216,6 +220,7 @@ public static partial class GatewayApp
         MapWeChatAuthEndpoints(app);
         MapSystemEventsEndpoints(app);
         MapRootEndpoint(app);
+        MapBrowserEndpoints(app);
     }
 
     private static bool IsStartupRepairEnabled(IConfiguration configuration)

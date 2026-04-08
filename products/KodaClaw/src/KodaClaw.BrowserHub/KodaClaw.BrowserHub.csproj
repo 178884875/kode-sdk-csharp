@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>KodaClaw.BrowserHub</AssemblyName>
+    <RootNamespace>KodaClaw.BrowserHub</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\KodaClaw.Contracts\KodaClaw.Contracts.csproj" />
+    <ProjectReference Include="..\KodaClaw.Runtime\KodaClaw.Runtime.csproj" />
+  </ItemGroup>
+</Project>
