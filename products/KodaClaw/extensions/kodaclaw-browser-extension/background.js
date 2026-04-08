@@ -857,16 +857,8 @@ async function cdpType(tabId, payload) {
     await cdpSend(chromeTabId, 'Input.dispatchKeyEvent', { type: 'keyUp',   key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
   }
 
-  if (text.length > 20) {
-    await cdpSend(chromeTabId, 'Input.insertText', { text });
-  } else {
-    for (const char of text) {
-      await cdpSend(chromeTabId, 'Input.dispatchKeyEvent', { type: 'keyDown', key: char, text: char });
-      await cdpSend(chromeTabId, 'Input.insertText', { text: char });
-      await cdpSend(chromeTabId, 'Input.dispatchKeyEvent', { type: 'keyUp',   key: char, text: char });
-      if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
-    }
-  }
+
+  await cdpSend(chromeTabId, 'Input.insertText', { text });
 
   return { typed: true, elementIndex, charCount: text.length };
 }
