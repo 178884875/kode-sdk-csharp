@@ -53,7 +53,7 @@ public sealed class AskSpecialistToolTests
     public async Task ExecuteAsync_Fails_When_All_Tools_Stripped()
     {
         var result = await CreateTool().ExecuteAsync(
-            new AskSpecialistArgs { Task = "test", SpecialistRole = "expert", Tools = ["fs_write"] },
+            new AskSpecialistArgs { Task = "test", SpecialistRole = "expert", Tools = ["channel_send", "inbox_create"] },
             CreateContext());
         result.Success.Should().BeFalse();
         result.Error.Should().Contain("No allowed tools remain");

@@ -159,7 +159,8 @@ public static class ServiceCollectionExtensions
                     modelProvider,
                     options.DefaultModel ?? string.Empty,
                     sandboxFactory,
-                    loggerFactory);
+                    loggerFactory,
+                    skillsPaths: workspaceService.GetSkillsPaths());
             }
 
             return new DefaultMainSessionAgentDependenciesFactory(new MainSessionDependencies

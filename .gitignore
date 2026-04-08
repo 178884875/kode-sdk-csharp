@@ -133,3 +133,7 @@ examples/**/.env
 *.bakup
 *_backup
 *_old
+
+
+# IDE-specific cache files
+*.csproj.lscache

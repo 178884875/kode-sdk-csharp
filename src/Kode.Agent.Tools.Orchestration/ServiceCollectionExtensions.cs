@@ -16,7 +16,8 @@ public static class ServiceCollectionExtensions
         IModelProvider modelProvider,
         string modelId,
         ISandboxFactory sandboxFactory,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        IReadOnlyList<string>? skillsPaths = null)
     {
         registry.Register("isolate_task",
             _ => new IsolateTaskTool(modelProvider, modelId, registry, sandboxFactory, loggerFactory));
@@ -38,6 +39,8 @@ public static class ServiceCollectionExtensions
             _ => new MapReduceTool(modelProvider, modelId, registry, sandboxFactory, loggerFactory));
         registry.Register("debate",
             _ => new DebateTool(modelProvider, modelId, registry, sandboxFactory, loggerFactory));
+        registry.Register("spawn_agent",
+            _ => new SpawnAgentTool(modelProvider, modelId, registry, sandboxFactory, loggerFactory, skillsPaths));
         return registry;
     }
 }

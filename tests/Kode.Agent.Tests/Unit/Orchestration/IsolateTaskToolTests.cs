@@ -69,7 +69,7 @@ public sealed class IsolateTaskToolTests
         var args = new IsolateTaskArgs
         {
             Task  = "test",
-            Tools = ["fs_write", "channel_send", "inbox_create"],
+            Tools = ["channel_send", "inbox_create"],
         };
 
         var result = await tool.ExecuteAsync(args, CreateContext());

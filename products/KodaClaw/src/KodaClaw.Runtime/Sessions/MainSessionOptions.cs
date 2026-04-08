@@ -43,6 +43,7 @@ public sealed class MainSessionOptions
         "ask_specialist",
         "context_distill",
         "validate_and_fix",
+        "spawn_agent",
         // fan_out_fan_in, map_reduce, debate — gated behind koda-orchestration skill
     ];
 
