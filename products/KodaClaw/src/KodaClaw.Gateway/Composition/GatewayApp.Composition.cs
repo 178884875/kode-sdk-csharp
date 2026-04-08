@@ -186,6 +186,23 @@ public static partial class GatewayApp
             {
                 await next();
             }
+            catch (Exception ex)
+            {
+                var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Gateway");
+                logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
+                
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.StatusCode = 500;
+                    context.Response.ContentType = "application/json";
+                    await context.Response.WriteAsJsonAsync(new 
+                    { 
+                        error = "Internal server error",
+                        detail = ex.Message,
+                        correlationId = context.Items[CorrelationHeaderName]?.ToString()
+                    });
+                }
+            }
             finally
             {
                 correlationContextAccessor.CorrelationId = null;
