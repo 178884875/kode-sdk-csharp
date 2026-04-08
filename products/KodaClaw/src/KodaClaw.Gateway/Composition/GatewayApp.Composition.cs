@@ -1,6 +1,8 @@
 using Kode.Agent.Sdk.Diagnostics;
 using KodaClaw.Automation;
 using KodaClaw.BrowserHub;
+using KodaClaw.BrowserHub.Tools;
+using Kode.Agent.Sdk.Core.Abstractions;
 using KodaClaw.ChannelHub;
 using KodaClaw.Contracts;
 using KodaClaw.ControlPlane;
@@ -168,6 +170,15 @@ public static partial class GatewayApp
 
     private static void ConfigureGatewayMiddleware(WebApplication app)
     {
+        // Register BrowserHub tools (Runtime can't reference BrowserHub due to circular dep).
+        var browserHubService = app.Services.GetService<KodaClaw.BrowserHub.IBrowserHubService>();
+        var toolRegistry = app.Services.GetRequiredService<IToolRegistry>();
+        if (browserHubService is not null)
+        {
+            toolRegistry.Register("browser_action",
+                _ => new BrowserActionTool(browserHubService));
+        }
+
         var diagnosticsService = app.Services.GetRequiredService<IDiagnosticsService>();
         var correlationContextAccessor = app.Services.GetRequiredService<ICorrelationContextAccessor>();
         var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
