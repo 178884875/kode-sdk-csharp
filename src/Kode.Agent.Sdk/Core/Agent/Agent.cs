@@ -720,7 +720,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             return new AgentRunResult
             {
                 Success = false,
-                StopReason = StopReason.Error
+                StopReason = StopReason.Error,
+                ErrorMessage = message
             };
         }
         catch (Exception ex)
@@ -747,7 +748,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             return new AgentRunResult
             {
                 Success = false,
-                StopReason = StopReason.Error
+                StopReason = StopReason.Error,
+                ErrorMessage = ex.Message
             };
         }
         finally
@@ -1239,10 +1241,48 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         var response = await StreamModelResponseAsync(request, cancellationToken);
         await _hookManager.RunPostModelAsync(response, cancellationToken);
 
-        // Empty content with no tools/text/thinking — likely a content safety filter (silent block).
-        // Throw before writing to _messages to avoid poisoning conversation history.
+        // Empty content with no tools/text/thinking.
+        // Some models (e.g. GLM-5-Turbo) return empty on context overflow rather than an error code.
+        // Attempt one forced compression + retry before giving up.
         if (response.Content.Count == 0)
-            throw new InvalidOperationException("model_empty_response");
+        {
+            var forced = await _contextManager.CompressAsync(
+                _messages, _eventBus.GetTimelineSnapshot(),
+                _filePool, _sandbox, systemPromptTokens, cancellationToken);
+
+            if (forced != null)
+            {
+                _messages.Clear();
+                _messages.AddRange(forced.RetainedMessages);
+                await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+                await SaveStateAsync(cancellationToken);
+
+                _eventBus.EmitMonitor(new ContextCompressionEvent
+                {
+                    Type = "context_compression",
+                    Phase = "end",
+                    Summary = string.Join("\n", forced.Summary.Content.OfType<TextContent>().Select(t => t.Text)),
+                    Ratio = forced.Ratio
+                });
+                KodeAgentMetrics.ContextCompressions.Add(1);
+
+                // Re-sanitize after force-compress (same as normal compress path).
+                if (await SanitizeOrphanToolResultsAsync(cancellationToken) > 0)
+                    await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+                await AutoSealDanglingToolUsesAsync("Sealed after force-compress retry.", cancellationToken);
+
+                // Rebuild request with compressed _messages; _nextModelToolsOverride already null from
+                // first BuildModelRequest() call above, so this safely uses the normal tool list.
+                var retryRequest = BuildModelRequest();
+                await _hookManager.RunPreModelAsync(retryRequest, cancellationToken);
+                _breakpointManager.TransitionTo(BreakpointState.StreamingModel);
+                response = await StreamModelResponseAsync(retryRequest, cancellationToken);
+                await _hookManager.RunPostModelAsync(response, cancellationToken);
+            }
+
+            if (response.Content.Count == 0)
+                throw new InvalidOperationException("model_empty_response");
+        }
 
         // Add assistant message
         _messages.Add(Message.Assistant(response.Content.ToArray()));

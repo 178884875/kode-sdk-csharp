@@ -178,6 +178,9 @@ public record AgentRunResult
 
     /// <summary>Total tokens used in this run.</summary>
     public TokenUsage? TokenUsage { get; init; }
+
+    /// <summary>Error message when StopReason is Error.</summary>
+    public string? ErrorMessage { get; init; }
 }
 
 /// <summary>

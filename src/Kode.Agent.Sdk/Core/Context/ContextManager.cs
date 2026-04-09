@@ -211,7 +211,7 @@ public class ContextManager
         return new ContextUsage(
             TotalTokens: totalTokens,
             MessageCount: messages.Count,
-            ShouldCompress: totalTokens > _options.MaxTokens
+            ShouldCompress: totalTokens > (int)(_options.MaxTokens * 0.9)
         );
     }
 
@@ -560,11 +560,12 @@ public class ContextManager
 
     /// <summary>
     /// Estimates token count for a string.
-    /// CJK Unified Ideographs, Hiragana, Katakana, and Hangul count as 1.5 tokens/char.
+    /// CJK Unified Ideographs, Hiragana, Katakana, and Hangul count as 2.0 tokens/char.
     /// Other characters use the English baseline of 0.25 tokens/char (4:1 ratio).
     /// Source: "Language Model Tokenizers Introduce Unfairness Between Languages"
     ///         (Petrov et al., NeurIPS 2023, arxiv 2305.15425) — Mandarin measured at 1.76×.
-    ///         We use 1.5× as a conservative estimate covering most CJK scripts.
+    ///         We use 2.0× (up from 1.5×) to cover GLM-series and other tokenizers that exceed
+    ///         the 1.76× figure, reducing the risk of context overflow on Chinese-heavy sessions.
     /// </summary>
     private static int EstimateTextTokens(string text)
     {
@@ -580,7 +581,7 @@ public class ContextManager
         }
 
         var other = text.Length - cjk;
-        return (int)(cjk * 1.5 + other * 0.25) + 1;
+        return (int)(cjk * 2.0 + other * 0.25) + 1;
     }
 
     // ── Pinned message detection ──────────────────────────────────────────────
