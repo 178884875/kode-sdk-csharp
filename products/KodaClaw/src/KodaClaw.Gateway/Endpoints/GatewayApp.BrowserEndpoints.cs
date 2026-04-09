@@ -217,6 +217,16 @@ public static partial class GatewayApp
             var action = root.GetProperty("action").GetString()!;
             var tabId = root.TryGetProperty("tabId", out var tid) ? tid.GetString() : null;
             var requestedDeviceId = root.TryGetProperty("deviceId", out var did) ? did.GetString() : null;
+            var framePath = root.TryGetProperty("framePath", out var framePathElement) && framePathElement.ValueKind == JsonValueKind.Array
+                ? framePathElement.EnumerateArray()
+                    .Where(item => item.ValueKind == JsonValueKind.String)
+                    .Select(item => item.GetString())
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .Select(item => item!.Trim())
+                    .ToArray()
+                : root.TryGetProperty("frameSelector", out var frameSelectorElement) && frameSelectorElement.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(frameSelectorElement.GetString())
+                    ? [frameSelectorElement.GetString()!.Trim()]
+                    : null;
             var deviceIds = connectionManager.ConnectedDeviceIds;
             if (deviceIds.Count == 0)
                 return Results.Ok(new { ok = false, error = "No connected devices" });
@@ -229,17 +239,17 @@ public static partial class GatewayApp
                     "list_tabs" => await browserHubService.ListTabsAsync(cancellationToken),
                     "navigate" => await browserHubService.NavigateAsync(root.GetProperty("url").GetString()!, tabId, deviceId, cancellationToken),
                     "get_url" => await browserHubService.GetUrlAsync(tabId!, deviceId, cancellationToken),
-                    "snapshot" => await browserHubService.SnapshotAsync(tabId!, null, deviceId, cancellationToken),
+                    "snapshot" => await browserHubService.SnapshotAsync(tabId!, null, framePath, deviceId, cancellationToken),
                     "screenshot" => await browserHubService.ScreenshotAsync(tabId!, ScreenshotFormat.Jpeg, 80, deviceId, cancellationToken),
-                    "click" => await browserHubService.ClickAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), null, null, cancellationToken),
-                    "type" => await browserHubService.TypeAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("text").GetString()!, false, 0, cancellationToken),
-                    "scroll" => await browserHubService.ScrollAsync(deviceId, tabId, Enum.Parse<ScrollDirection>(root.GetProperty("direction").GetString()!, ignoreCase: true), null, null, cancellationToken),
+                    "click" => await browserHubService.ClickAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), framePath, null, null, cancellationToken),
+                    "type" => await browserHubService.TypeAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("text").GetString()!, framePath, false, 0, cancellationToken),
+                    "scroll" => await browserHubService.ScrollAsync(deviceId, tabId, Enum.Parse<ScrollDirection>(root.GetProperty("direction").GetString()!, ignoreCase: true), null, null, framePath, cancellationToken),
                     "key_press" => await browserHubService.KeyPressAsync(deviceId, tabId, root.GetProperty("key").GetString()!, cancellationToken),
                     "go_back" => await browserHubService.GoBackAsync(deviceId, tabId, cancellationToken),
                     "close_tab" => await browserHubService.CloseTabAsync(deviceId, tabId!, cancellationToken),
                     "switch_tab" => await browserHubService.SwitchTabAsync(deviceId, tabId!, cancellationToken),
                     "evaluate" => await browserHubService.EvaluateAsync(deviceId, tabId, root.GetProperty("script").GetString()!, true, cancellationToken),
-                    "evaluate_dom" => await browserHubService.EvaluateDomAsync(deviceId, tabId, root.GetProperty("script").GetString()!, cancellationToken),
+                    "evaluate_dom" => await browserHubService.EvaluateDomAsync(deviceId, tabId, root.GetProperty("script").GetString()!, framePath, cancellationToken),
                     "extract_links" => await browserHubService.ExtractLinksAsync(
                         deviceId,
                         tabId,
@@ -247,6 +257,7 @@ public static partial class GatewayApp
                         root.TryGetProperty("linkSelector", out var linkSelector) ? linkSelector.GetString() : null,
                         root.TryGetProperty("limit", out var linkLimit) ? linkLimit.GetInt32() : 20,
                         root.TryGetProperty("sameOriginOnly", out var sameOriginLinks) && sameOriginLinks.GetBoolean(),
+                        framePath,
                         cancellationToken),
                     "extract_results" => await browserHubService.ExtractResultsAsync(
                         deviceId,
@@ -259,13 +270,22 @@ public static partial class GatewayApp
                         root.TryGetProperty("strategy", out var strategy) ? strategy.GetString() : null,
                         root.TryGetProperty("limit", out var resultLimit) ? resultLimit.GetInt32() : 10,
                         root.TryGetProperty("sameOriginOnly", out var sameOriginResults) && sameOriginResults.GetBoolean(),
+                        framePath,
                         cancellationToken),
-                    "evaluate_write" => await browserHubService.EvaluateWriteAsync(deviceId, tabId, root.GetProperty("script").GetString()!, cancellationToken),
+                    "evaluate_write" => await browserHubService.EvaluateWriteAsync(deviceId, tabId, root.GetProperty("script").GetString()!, framePath, cancellationToken),
                     "cookies" => await browserHubService.GetCookiesAsync(deviceId, tabId, null, cancellationToken),
-                    "form_state" => await browserHubService.GetFormStateAsync(deviceId, tabId, cancellationToken),
+                    "form_state" => await browserHubService.GetFormStateAsync(deviceId, tabId, framePath, cancellationToken),
                     "console" => await browserHubService.GetConsoleMessagesAsync(deviceId, tabId, null, cancellationToken),
-                    "upload_file" => await browserHubService.UploadFileAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("filePath").GetString()!, cancellationToken),
-                    "wait" => await browserHubService.WaitAsync(deviceId, tabId, null, null, null, cancellationToken),
+                    "upload_file" => await browserHubService.UploadFileAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("filePath").GetString()!, framePath, cancellationToken),
+                    "wait" => await browserHubService.WaitAsync(
+                        deviceId,
+                        tabId,
+                        root.TryGetProperty("durationMs", out var durationMs) ? durationMs.GetInt32() : null,
+                        root.TryGetProperty("timeoutMs", out var timeoutMs) ? timeoutMs.GetInt32() : null,
+                        root.TryGetProperty("waitForSelector", out var waitForSelector) ? waitForSelector.GetString() : null,
+                        root.TryGetProperty("waitUntil", out var waitUntil) ? waitUntil.GetString() : null,
+                        framePath,
+                        cancellationToken),
                     "intercept" => await browserHubService.StartInterceptAsync(deviceId, tabId, null, null, false, false, cancellationToken),
                     "intercept_clear" => await browserHubService.StopInterceptAsync(deviceId, tabId, cancellationToken),
                     "intercept_result" => await browserHubService.GetInterceptedRequestsAsync(deviceId, tabId, null, null, null, 50, cancellationToken),
@@ -313,8 +333,37 @@ public static partial class GatewayApp
             await connectionManager.RunReceiveLoopAsync(deviceId, webSocket, context.RequestAborted).ConfigureAwait(false);
         });
 
-
     }
+
+    private static IResult ToBrowserOperationResult<T>(BrowserResult<T> result)
+    {
+        if (result.Ok)
+        {
+            return Results.Ok(result.Data);
+        }
+
+        var (statusCode, category, retryable) = MapBrowserError(result.ErrorCode);
+        return Results.Json(
+            new
+            {
+                ok = false,
+                error = result.Error,
+                errorCode = result.ErrorCode,
+                category,
+                retryable,
+            },
+            statusCode: statusCode);
+    }
+
+    private static (int StatusCode, string Category, bool Retryable) MapBrowserError(string? errorCode)
+        => errorCode switch
+        {
+            "BRIDGE_002" => (StatusCodes.Status404NotFound, "tab_not_found", true),
+            "BRIDGE_001" => (StatusCodes.Status409Conflict, "device_unavailable", true),
+            "BRIDGE_004" => (StatusCodes.Status408RequestTimeout, "timeout", true),
+            "BRIDGE_007" => (StatusCodes.Status502BadGateway, "bridge_send_failed", true),
+            _ => (StatusCodes.Status400BadRequest, "browser_operation_failed", false),
+        };
 }
 
 internal sealed record PairingChallengeRequest(string Token);
@@ -326,3 +375,4 @@ internal sealed record PairingCompleteRequest(
     string ExtEcdhPubKey,
     string DeviceId,
     string? Label = null);
+

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Linq;
 using FluentAssertions;
 using KodaClaw.BrowserHub;
 using KodaClaw.BrowserHub.Models;
@@ -97,7 +98,7 @@ public sealed class BrowserActionToolTests
         ArrangeSingleConnectedDevice();
         var largeHtml = "<html>" + new string('x', 20_000) + "</html>";
         _serviceMock
-            .Setup(s => s.SnapshotAsync("tab-42", null, "device-1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.SnapshotAsync("tab-42", null, null, "device-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<string>(Ok: true, Data: largeHtml));
 
         var result = await ExecuteAsync(new BrowserActionArgs
@@ -134,7 +135,7 @@ public sealed class BrowserActionToolTests
             """;
 
         _serviceMock
-            .Setup(s => s.SnapshotAsync("tab-42", null, "device-1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.SnapshotAsync("tab-42", null, null, "device-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<string>(Ok: true, Data: snapshotJson));
 
         var result = await ExecuteAsync(new BrowserActionArgs
@@ -176,7 +177,7 @@ public sealed class BrowserActionToolTests
     {
         ArrangeSingleConnectedDevice();
         _serviceMock
-            .Setup(s => s.SnapshotAsync("tab-5", null, "device-1", It.IsAny<CancellationToken>()))
+            .Setup(s => s.SnapshotAsync("tab-5", null, null, "device-1", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<string>(
                 Ok: false,
                 Data: null,
@@ -199,7 +200,7 @@ public sealed class BrowserActionToolTests
     {
         ArrangeSingleConnectedDevice();
         _serviceMock
-            .Setup(s => s.EvaluateDomAsync("device-1", "tab-9", "Array.from(document.links).length", It.IsAny<CancellationToken>()))
+            .Setup(s => s.EvaluateDomAsync("device-1", "tab-9", "Array.from(document.links).length", null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<object?>(Ok: true, Data: 12));
 
         var result = await ExecuteAsync(new BrowserActionArgs
@@ -219,7 +220,7 @@ public sealed class BrowserActionToolTests
     {
         ArrangeSingleConnectedDevice();
         _serviceMock
-            .Setup(s => s.ExtractResultsAsync("device-1", "tab-4", null, null, null, null, null, "auto", 10, false, It.IsAny<CancellationToken>()))
+            .Setup(s => s.ExtractResultsAsync("device-1", "tab-4", null, null, null, null, null, "auto", 10, false, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<ResultExtractionResult>(
                 Ok: false,
                 Data: null,
@@ -247,7 +248,7 @@ public sealed class BrowserActionToolTests
     {
         ArrangeSingleConnectedDevice();
         _serviceMock
-            .Setup(s => s.ExtractLinksAsync("device-1", "tab-3", "main", "a[href]", 5, false, It.IsAny<CancellationToken>()))
+            .Setup(s => s.ExtractLinksAsync("device-1", "tab-3", "main", "a[href]", 5, false, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<LinkExtractionResult>(
                 Ok: true,
                 Data: new LinkExtractionResult(
@@ -290,7 +291,7 @@ public sealed class BrowserActionToolTests
     {
         ArrangeSingleConnectedDevice();
         _serviceMock
-            .Setup(s => s.ExtractResultsAsync("device-1", "tab-4", null, null, null, null, null, "auto", 10, false, It.IsAny<CancellationToken>()))
+            .Setup(s => s.ExtractResultsAsync("device-1", "tab-4", null, null, null, null, null, "auto", 10, false, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BrowserResult<ResultExtractionResult>(
                 Ok: true,
                 Data: new ResultExtractionResult(
@@ -325,6 +326,35 @@ public sealed class BrowserActionToolTests
         var json = ToJson(result.Value);
         json.GetProperty("kind").GetString().Should().Be("result_extract");
         json.GetProperty("results")[0].GetProperty("title").GetString().Should().Be("OpenClaw");
+    }
+
+    [Fact]
+    public async Task Execute_snapshot_routes_same_origin_frame_selector_as_frame_path()
+    {
+        ArrangeSingleConnectedDevice();
+        _serviceMock
+            .Setup(s => s.SnapshotAsync(
+                "tab-55",
+                "main",
+                It.Is<IReadOnlyList<string>?>(path => path != null && path.SequenceEqual(new[] { "iframe[name='content']" })),
+                "device-1",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BrowserResult<string>(Ok: true, Data: "{\"kind\":\"dom_snapshot\",\"scope\":\"main\"}"));
+
+        var result = await ExecuteAsync(new BrowserActionArgs
+        {
+            Action = "snapshot",
+            TabId = "tab-55",
+            DeviceId = "device-1",
+            Params = new Dictionary<string, object?>
+            {
+                ["selector"] = "main",
+                ["frameSelector"] = "iframe[name='content']",
+            },
+        });
+
+        result.Success.Should().BeTrue();
+        ToJson(result.Value).GetProperty("kind").GetString().Should().Be("dom_snapshot");
     }
 
     private void ArrangeSingleConnectedDevice()

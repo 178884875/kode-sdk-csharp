@@ -140,11 +140,19 @@ public sealed class BrowserHubService : IBrowserHubService
     public async Task<BrowserResult<string>> SnapshotAsync(
         string tabId,
         string? selector = null,
+        IReadOnlyList<string>? framePath = null,
         string? deviceId = null,
         CancellationToken ct = default)
     {
         var resolvedDeviceId = ResolveDeviceId(tabId, deviceId);
-        var payload = selector is not null ? new { selector } : (object?)null;
+        var normalizedFramePath = NormalizeFramePath(framePath);
+        var payload = selector is not null || normalizedFramePath is not null
+            ? new
+            {
+                selector,
+                framePath = normalizedFramePath,
+            }
+            : (object?)null;
         return resolvedDeviceId is null
             ? await SendRequestAsync<string>(
                 action: "snapshot",
@@ -277,11 +285,18 @@ public sealed class BrowserHubService : IBrowserHubService
         string deviceId,
         string? tabId,
         int elementIndex,
+        IReadOnlyList<string>? framePath = null,
         int? offsetX = null,
         int? offsetY = null,
         CancellationToken ct = default)
     {
-        var payload = new { elementIndex, offsetX, offsetY };
+        var payload = new
+        {
+            elementIndex,
+            framePath = NormalizeFramePath(framePath),
+            offsetX,
+            offsetY,
+        };
         return await SendRequestAsync<ClickResult>(
             deviceId: deviceId,
             action: "click",
@@ -297,11 +312,19 @@ public sealed class BrowserHubService : IBrowserHubService
         string? tabId,
         int elementIndex,
         string text,
+        IReadOnlyList<string>? framePath = null,
         bool clearFirst = false,
         int delayMs = 50,
         CancellationToken ct = default)
     {
-        var payload = new { elementIndex, text, clearFirst, delayMs };
+        var payload = new
+        {
+            elementIndex,
+            text,
+            framePath = NormalizeFramePath(framePath),
+            clearFirst,
+            delayMs,
+        };
         return await SendRequestAsync<TypeResult>(
             deviceId: deviceId,
             action: "type",
@@ -318,6 +341,7 @@ public sealed class BrowserHubService : IBrowserHubService
         ScrollDirection direction,
         int? amount = null,
         int? elementIndex = null,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
         var payload = new
@@ -325,6 +349,7 @@ public sealed class BrowserHubService : IBrowserHubService
             direction = direction.ToString().ToLowerInvariant(),
             amount,
             elementIndex,
+            framePath = NormalizeFramePath(framePath),
         };
         return await SendRequestAsync<ScrollResult>(
             deviceId: deviceId,
@@ -421,9 +446,14 @@ public sealed class BrowserHubService : IBrowserHubService
         string deviceId,
         string? tabId,
         string script,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
-        var payload = new { script };
+        var payload = new
+        {
+            script,
+            framePath = NormalizeFramePath(framePath),
+        };
         return await SendRequestAsync<object?>(
             deviceId: deviceId,
             action: "evaluate_dom",
@@ -441,6 +471,7 @@ public sealed class BrowserHubService : IBrowserHubService
         string? linkSelector = null,
         int limit = 20,
         bool sameOriginOnly = false,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
         var payload = new
@@ -449,6 +480,7 @@ public sealed class BrowserHubService : IBrowserHubService
             linkSelector,
             limit,
             sameOriginOnly,
+            framePath = NormalizeFramePath(framePath),
         };
 
         return await SendRequestAsync<LinkExtractionResult>(
@@ -472,6 +504,7 @@ public sealed class BrowserHubService : IBrowserHubService
         string? strategy = null,
         int limit = 10,
         bool sameOriginOnly = false,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
         var payload = new
@@ -484,6 +517,7 @@ public sealed class BrowserHubService : IBrowserHubService
             strategy,
             limit,
             sameOriginOnly,
+            framePath = NormalizeFramePath(framePath),
         };
 
         return await SendRequestAsync<ResultExtractionResult>(
@@ -500,9 +534,15 @@ public sealed class BrowserHubService : IBrowserHubService
         string deviceId,
         string? tabId,
         string script,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
-        var payload = new { script, sandboxed = false };
+        var payload = new
+        {
+            script,
+            framePath = NormalizeFramePath(framePath),
+            sandboxed = false,
+        };
         return await SendRequestAsync<EvaluateResult>(
             deviceId: deviceId,
             action: "evaluate_write",
@@ -533,12 +573,16 @@ public sealed class BrowserHubService : IBrowserHubService
     public async Task<BrowserResult<FormStateResult>> GetFormStateAsync(
         string deviceId,
         string? tabId,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
+        var payload = NormalizeFramePath(framePath) is { } normalizedFramePath
+            ? new { framePath = normalizedFramePath }
+            : null;
         return await SendRequestAsync<FormStateResult>(
             deviceId: deviceId,
             action: "form_state",
-            payload: null,
+            payload: payload,
             tabId: tabId,
             timeoutMs: DefaultRequestTimeoutMs,
             ct: ct).ConfigureAwait(false);
@@ -566,20 +610,31 @@ public sealed class BrowserHubService : IBrowserHubService
         string deviceId,
         string? tabId,
         int? durationMs = null,
+        int? timeoutMs = null,
         string? waitForSelector = null,
         string? waitUntil = null,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
-        var payload = new { durationMs, waitForSelector, waitUntil };
-        var timeoutMs = durationMs.HasValue
+        var payload = new
+        {
+            durationMs,
+            timeoutMs,
+            waitForSelector,
+            waitUntil,
+            framePath = NormalizeFramePath(framePath),
+        };
+        var requestTimeoutMs = durationMs.HasValue
             ? Math.Max(DefaultRequestTimeoutMs, durationMs.Value + 5_000)
+            : timeoutMs.HasValue
+                ? Math.Max(DefaultRequestTimeoutMs, timeoutMs.Value + 5_000)
             : DefaultRequestTimeoutMs;
         return await SendRequestAsync<WaitResult>(
             deviceId: deviceId,
             action: "wait",
             payload: payload,
             tabId: tabId,
-            timeoutMs: timeoutMs,
+            timeoutMs: requestTimeoutMs,
             ct: ct).ConfigureAwait(false);
     }
 
@@ -589,9 +644,15 @@ public sealed class BrowserHubService : IBrowserHubService
         string? tabId,
         int elementIndex,
         string filePath,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default)
     {
-        var payload = new { elementIndex, filePath };
+        var payload = new
+        {
+            elementIndex,
+            filePath,
+            framePath = NormalizeFramePath(framePath),
+        };
         return await SendRequestAsync<UploadFileResult>(
             deviceId: deviceId,
             action: "upload_file",
@@ -826,6 +887,21 @@ public sealed class BrowserHubService : IBrowserHubService
         }
     }
 
+    private static string[]? NormalizeFramePath(IReadOnlyList<string>? framePath)
+    {
+        if (framePath is null || framePath.Count == 0)
+        {
+            return null;
+        }
+
+        var normalized = framePath
+            .Where(selector => !string.IsNullOrWhiteSpace(selector))
+            .Select(selector => selector.Trim())
+            .ToArray();
+
+        return normalized.Length == 0 ? null : normalized;
+    }
+
     // ── Response correlation ──────────────────────────────────────────────────
 
     /// <summary>
@@ -951,4 +1027,5 @@ public sealed class BrowserHubService : IBrowserHubService
         options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
         return options;
     }
+
 }

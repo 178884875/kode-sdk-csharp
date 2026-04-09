@@ -369,9 +369,8 @@ public sealed class ChannelTurnOrchestrator
             // 向用户发一条提示，避免对话无声消失。
             if (sentTexts.Count == 0 && !progressWasSent && !fallbackDeliveryFailed)
             {
-                // StopReason.Error + 无输出 = 模型返回空响应，大概率是内容安全过滤。
                 var silentFallback = execution.RunResult.StopReason == StopReason.Error
-                    ? "⚠️ 消息未能处理，可能触发了内容安全过滤。请调整后重试。"
+                    ? FormatChannelError(execution.RunResult.ErrorMessage)
                     : "（已完成，暂无需要回复的内容。）";
                 try
                 {
@@ -420,6 +419,25 @@ public sealed class ChannelTurnOrchestrator
 
     internal static bool IsSessionResetCommand(string text) =>
         SessionResetCommands.Contains(text);
+
+    internal static string FormatChannelError(string? errorMessage)
+    {
+        if (errorMessage == "model_empty_response")
+            return "⚠️ 消息可能触发了内容安全过滤，请调整后重试。";
+        if (errorMessage != null && (
+                errorMessage.Contains("访问量过大") ||
+                errorMessage.Contains("overloaded", StringComparison.OrdinalIgnoreCase) ||
+                errorMessage.Contains("rate limit", StringComparison.OrdinalIgnoreCase) ||
+                errorMessage.Contains("429")))
+            return "⚠️ 模型当前访问量过大，请稍后重试。";
+        if (errorMessage != null && (
+                errorMessage.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+                errorMessage.Contains("timeout", StringComparison.OrdinalIgnoreCase)))
+            return "⚠️ 模型响应超时，请稍后重试。";
+        if (errorMessage != null)
+            return $"⚠️ 消息处理失败：{errorMessage}";
+        return "⚠️ 消息处理失败，请稍后重试。";
+    }
 
     private static bool ShouldExecuteTurn(ChannelEventEnvelope envelope)
     {

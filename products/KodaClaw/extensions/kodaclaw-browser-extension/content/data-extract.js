@@ -36,13 +36,78 @@
     return (value || '').replace(/\s+/g, ' ').trim();
   }
 
-  function toAbsoluteUrl(rawHref) {
+  function normalizeFramePath(options) {
+    if (options && Array.isArray(options.framePath)) {
+      const normalized = options.framePath
+        .filter(selector => typeof selector === 'string')
+        .map(selector => selector.trim())
+        .filter(selector => selector.length > 0);
+      return normalized.length > 0 ? normalized : [];
+    }
+
+    if (options && typeof options.frameSelector === 'string') {
+      const selector = options.frameSelector.trim();
+      return selector ? [selector] : [];
+    }
+
+    return [];
+  }
+
+  function resolveFrameContext(framePath) {
+    let currentWindow = window;
+    let currentDocument = document;
+
+    for (let index = 0; index < framePath.length; index++) {
+      const selector = framePath[index];
+      const frameEl = currentDocument.querySelector(selector);
+      if (!frameEl) {
+        throw new Error(`FRAME_NOT_FOUND: iframe selector "${selector}" did not match any iframe.`);
+      }
+
+      const tagName = frameEl.tagName ? frameEl.tagName.toLowerCase() : '';
+      if (tagName !== 'iframe' && tagName !== 'frame') {
+        throw new Error(`FRAME_NOT_IFRAME: selector "${selector}" matched a ${tagName || 'node'}, not an iframe.`);
+      }
+
+      let nextWindow;
+      try {
+        nextWindow = frameEl.contentWindow;
+      } catch (_) {
+        throw new Error(`FRAME_ACCESS_DENIED: iframe selector "${selector}" is not same-origin.`);
+      }
+
+      if (!nextWindow) {
+        throw new Error(`FRAME_UNAVAILABLE: iframe selector "${selector}" has no active window.`);
+      }
+
+      let nextDocument;
+      try {
+        nextDocument = nextWindow.document;
+      } catch (_) {
+        throw new Error(`FRAME_ACCESS_DENIED: iframe selector "${selector}" is not same-origin.`);
+      }
+
+      if (!nextDocument) {
+        throw new Error(`FRAME_UNAVAILABLE: iframe selector "${selector}" has no active document.`);
+      }
+
+      currentWindow = nextWindow;
+      currentDocument = nextDocument;
+    }
+
+    return {
+      window: currentWindow,
+      document: currentDocument,
+    };
+  }
+
+  function toAbsoluteUrl(rawHref, baseUrl) {
     if (!rawHref) {
       return null;
     }
 
     try {
-      return new URL(rawHref, location.href).toString();
+      return new URL(rawHref, baseUrl).toString();
     } catch (_) {
       return null;
     }
@@ -52,12 +117,12 @@
     return typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'));
   }
 
-  function getRoot(selector) {
+  function getRoot(targetDocument, selector) {
     if (!selector) {
-      return document;
+      return targetDocument;
     }
 
-    return document.querySelector(selector);
+    return targetDocument.querySelector(selector);
   }
 
   function safeQuery(root, selector) {
@@ -104,8 +169,8 @@
     );
   }
 
-  function buildLinkEntry(anchor) {
-    const href = toAbsoluteUrl(anchor.href || anchor.getAttribute('href'));
+  function buildLinkEntry(anchor, targetWindow) {
+    const href = toAbsoluteUrl(anchor.href || anchor.getAttribute('href'), targetWindow.location.href);
     if (!isHttpUrl(href)) {
       return null;
     }
@@ -125,7 +190,7 @@
       href,
       title: title || undefined,
       host,
-      sameOrigin: host === location.hostname,
+      sameOrigin: host === targetWindow.location.hostname,
     };
   }
 
@@ -147,9 +212,12 @@
     const linkSelector = options && options.linkSelector ? options.linkSelector : 'a[href]';
     const limit = clampLimit(options && options.limit, DEFAULT_LINK_LIMIT);
     const sameOriginOnly = !!(options && options.sameOriginOnly);
-    const root = getRoot(selector);
+    const framePath = normalizeFramePath(options);
 
-    if (!root) {
+    let context;
+    try {
+      context = resolveFrameContext(framePath);
+    } catch (err) {
       return {
         kind: 'link_extract',
         url: location.href,
@@ -159,13 +227,32 @@
         totalMatches: 0,
         returnedCount: 0,
         sameOriginOnly,
+        framePath: framePath.length > 0 ? framePath : undefined,
+        links: [],
+        error: err.message,
+      };
+    }
+
+    const root = getRoot(context.document, selector);
+
+    if (!root) {
+      return {
+        kind: 'link_extract',
+        url: context.window.location.href,
+        title: context.document.title,
+        selector: selector || 'document',
+        linkSelector,
+        totalMatches: 0,
+        returnedCount: 0,
+        sameOriginOnly,
+        framePath: framePath.length > 0 ? framePath : undefined,
         links: [],
         error: `selector 未匹配：${selector}`,
       };
     }
 
     const rawLinks = safeQuery(root, linkSelector)
-      .map(buildLinkEntry)
+      .map(anchor => buildLinkEntry(anchor, context.window))
       .filter(Boolean)
       .filter(link => !sameOriginOnly || link.sameOrigin);
 
@@ -177,22 +264,23 @@
 
     return {
       kind: 'link_extract',
-      url: location.href,
-      title: document.title,
+      url: context.window.location.href,
+      title: context.document.title,
       selector: selector || 'document',
       linkSelector,
       totalMatches: dedupedLinks.length,
       returnedCount: limitedLinks.length,
       sameOriginOnly,
+      framePath: framePath.length > 0 ? framePath : undefined,
       links: limitedLinks,
       note,
     };
   }
 
-  function genericResultFromContainer(container, config) {
+  function genericResultFromContainer(container, config, targetWindow) {
     const title = pickText(container, [config.titleSelector, 'h1', 'h2', 'h3', 'a[href]']);
     const linkNode = firstMatch(container, [config.linkSelector, 'a[href]']);
-    const url = linkNode ? toAbsoluteUrl(linkNode.href || linkNode.getAttribute('href')) : null;
+    const url = linkNode ? toAbsoluteUrl(linkNode.href || linkNode.getAttribute('href'), targetWindow.location.href) : null;
     const snippet = pickText(container, [config.snippetSelector, 'p', 'div']);
 
     if (!title || !isHttpUrl(url)) {
@@ -216,12 +304,12 @@
     };
   }
 
-  function extractResultsWithConfig(root, config, limit, sameOriginOnly) {
+  function extractResultsWithConfig(root, config, limit, sameOriginOnly, targetWindow) {
     const items = safeQuery(root, config.itemSelector);
     const rawResults = items
-      .map(item => genericResultFromContainer(item, config))
+      .map(item => genericResultFromContainer(item, config, targetWindow))
       .filter(Boolean)
-      .filter(result => !sameOriginOnly || result.host === location.hostname);
+      .filter(result => !sameOriginOnly || result.host === targetWindow.location.hostname);
 
     const deduped = dedupeBy(rawResults, result => `${result.url}|${result.title}`);
     return {
@@ -237,15 +325,15 @@
     };
   }
 
-  function detectSearchConfig(root, requestedStrategy) {
-    const host = location.hostname;
+  function detectSearchConfig(targetWindow, root, requestedStrategy) {
+    const host = targetWindow.location.hostname;
     const strategy = requestedStrategy && requestedStrategy !== 'auto'
       ? requestedStrategy
       : (function () {
           if (/(\.|^)google\./i.test(host)) return 'google';
           if (/(\.|^)bing\.com$/i.test(host)) return 'bing';
           if (/(\.|^)duckduckgo\.com$/i.test(host)) return 'duckduckgo';
-          if (/(\.|^)github\.com$/i.test(host) && location.pathname.includes('/search')) return 'github';
+          if (/(\.|^)github\.com$/i.test(host) && targetWindow.location.pathname.includes('/search')) return 'github';
           return 'generic';
         })();
 
@@ -289,7 +377,7 @@
       default:
         return {
           strategy: 'generic',
-          selector: root === document ? 'document' : null,
+          selector: root === targetWindow.document ? 'document' : null,
           itemSelector: 'main article, main li, article, [role="article"], .result, .search-result, li',
           titleSelector: 'h1, h2, h3, h4, a[href]',
           linkSelector: 'a[href]',
@@ -298,9 +386,9 @@
     }
   }
 
-  function extractGenericFallback(root, limit, sameOriginOnly) {
+  function extractGenericFallback(root, limit, sameOriginOnly, targetWindow) {
     const anchors = safeQuery(root, 'a[href]')
-      .map(buildLinkEntry)
+      .map(anchor => buildLinkEntry(anchor, targetWindow))
       .filter(Boolean)
       .filter(link => !!link.text && (!sameOriginOnly || link.sameOrigin));
 
@@ -318,9 +406,12 @@
     const requestedStrategy = options && options.strategy ? String(options.strategy).toLowerCase() : 'auto';
     const limit = clampLimit(options && options.limit, DEFAULT_RESULT_LIMIT);
     const sameOriginOnly = !!(options && options.sameOriginOnly);
-    const root = getRoot(requestedSelector);
+    const framePath = normalizeFramePath(options);
 
-    if (!root) {
+    let context;
+    try {
+      context = resolveFrameContext(framePath);
+    } catch (err) {
       return {
         kind: 'result_extract',
         url: location.href,
@@ -330,6 +421,25 @@
         totalMatches: 0,
         returnedCount: 0,
         sameOriginOnly,
+        framePath: framePath.length > 0 ? framePath : undefined,
+        results: [],
+        error: err.message,
+      };
+    }
+
+    const root = getRoot(context.document, requestedSelector);
+
+    if (!root) {
+      return {
+        kind: 'result_extract',
+        url: context.window.location.href,
+        title: context.document.title,
+        strategy: requestedStrategy,
+        selector: requestedSelector || 'document',
+        totalMatches: 0,
+        returnedCount: 0,
+        sameOriginOnly,
+        framePath: framePath.length > 0 ? framePath : undefined,
         results: [],
         error: `selector 未匹配：${requestedSelector}`,
       };
@@ -344,16 +454,16 @@
           linkSelector: options.linkSelector || 'a[href]',
           snippetSelector: options.snippetSelector || 'p',
         }
-      : detectSearchConfig(root, requestedStrategy);
+      : detectSearchConfig(context.window, root, requestedStrategy);
 
     const configuredRoot = customConfig.selector && customConfig.selector !== 'document'
-      ? (document.querySelector(customConfig.selector) || root)
+      ? (context.document.querySelector(customConfig.selector) || root)
       : root;
 
-    const extracted = extractResultsWithConfig(configuredRoot, customConfig, limit, sameOriginOnly);
+    const extracted = extractResultsWithConfig(configuredRoot, customConfig, limit, sameOriginOnly, context.window);
     const results = extracted.results.length > 0
       ? extracted.results
-      : extractGenericFallback(configuredRoot, limit, sameOriginOnly);
+      : extractGenericFallback(configuredRoot, limit, sameOriginOnly, context.window);
     const totalMatches = extracted.results.length > 0 ? extracted.totalMatches : results.length;
 
     let note;
@@ -365,14 +475,15 @@
 
     return {
       kind: 'result_extract',
-      url: location.href,
-      title: document.title,
+      url: context.window.location.href,
+      title: context.document.title,
       strategy: customConfig.strategy,
       selector: customConfig.selector || requestedSelector || 'document',
       itemSelector: customConfig.itemSelector,
       totalMatches,
       returnedCount: results.length,
       sameOriginOnly,
+      framePath: framePath.length > 0 ? framePath : undefined,
       results,
       note,
     };

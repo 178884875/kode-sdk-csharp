@@ -2,10 +2,12 @@ using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Linq;
 using FluentAssertions;
 using KodaClaw.BrowserHub;
 using KodaClaw.BrowserHub.Connection;
 using KodaClaw.BrowserHub.Device;
+using KodaClaw.BrowserHub.Models;
 using KodaClaw.Contracts;
 using Xunit;
 
@@ -64,6 +66,7 @@ public sealed class BrowserHubServiceTests : IAsyncLifetime
             "device-a",
             "11",
             "({ count: document.links.length, firstHref: document.links[0]?.href ?? null })",
+            null,
             _cts.Token);
 
         result.Ok.Should().BeTrue();
@@ -108,7 +111,7 @@ public sealed class BrowserHubServiceTests : IAsyncLifetime
             }),
         ]);
 
-        var result = await service.ExtractLinksAsync("device-a", "11", "main", "a[href]", 5, false, _cts.Token);
+        var result = await service.ExtractLinksAsync("device-a", "11", "main", "a[href]", 5, false, null, _cts.Token);
 
         result.Ok.Should().BeTrue();
         capturedAction.Should().Be("extract_links");
@@ -150,7 +153,7 @@ public sealed class BrowserHubServiceTests : IAsyncLifetime
             }),
         ]);
 
-        var result = await service.ExtractResultsAsync("device-a", "11", strategy: "auto", limit: 10, ct: _cts.Token);
+        var result = await service.ExtractResultsAsync("device-a", "11", strategy: "auto", limit: 10, framePath: null, ct: _cts.Token);
 
         result.Ok.Should().BeTrue();
         capturedAction.Should().Be("extract_results");
@@ -159,6 +162,33 @@ public sealed class BrowserHubServiceTests : IAsyncLifetime
         capturedPayload.Value.GetProperty("limit").GetInt32().Should().Be(10);
         result.Data!.Results.Should().ContainSingle();
         result.Data.Results[0].Title.Should().Be("OpenClaw");
+    }
+
+    [Fact]
+    public async Task SnapshotAsync_includes_same_origin_frame_path_in_payload()
+    {
+        JsonElement? capturedPayload = null;
+
+        var service = CreateService([
+            new DeviceScript("device-a", request =>
+            {
+                capturedPayload = request.GetProperty("payload").Clone();
+                return BuildResponse(request, "{\"kind\":\"dom_snapshot\"}");
+            }),
+        ]);
+
+        var result = await service.SnapshotAsync(
+            tabId: "11",
+            selector: "main",
+            framePath: ["iframe[name='shell']", "iframe#content"],
+            deviceId: "device-a",
+            ct: _cts.Token);
+
+        result.Ok.Should().BeTrue();
+        capturedPayload.Should().NotBeNull();
+        capturedPayload!.Value.GetProperty("selector").GetString().Should().Be("main");
+        capturedPayload.Value.GetProperty("framePath").EnumerateArray().Select(item => item.GetString())
+            .Should().Equal("iframe[name='shell']", "iframe#content");
     }
 
     public Task InitializeAsync() => Task.CompletedTask;
@@ -195,7 +225,8 @@ public sealed class BrowserHubServiceTests : IAsyncLifetime
         }
     }
 
-    private BrowserHubService CreateService(IEnumerable<DeviceScript> deviceScripts)
+    private BrowserHubService CreateService(
+        IEnumerable<DeviceScript> deviceScripts)
     {
         Directory.CreateDirectory(_workspaceRoot);
         var store = new BrowserDeviceStore(_workspaceRoot);

@@ -77,6 +77,7 @@ public interface IBrowserHubService
     Task<BrowserResult<string>> SnapshotAsync(
         string tabId,
         string? selector = null,
+        IReadOnlyList<string>? framePath = null,
         string? deviceId = null,
         CancellationToken ct = default);
 
@@ -138,6 +139,7 @@ public interface IBrowserHubService
         string deviceId,
         string? tabId,
         int elementIndex,
+        IReadOnlyList<string>? framePath = null,
         int? offsetX = null,
         int? offsetY = null,
         CancellationToken ct = default);
@@ -153,6 +155,7 @@ public interface IBrowserHubService
         string? tabId,
         int elementIndex,
         string text,
+        IReadOnlyList<string>? framePath = null,
         bool clearFirst = false,
         int delayMs = 50,
         CancellationToken ct = default);
@@ -169,6 +172,7 @@ public interface IBrowserHubService
         ScrollDirection direction,
         int? amount = null,
         int? elementIndex = null,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -233,6 +237,7 @@ public interface IBrowserHubService
         string deviceId,
         string? tabId,
         string script,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -247,6 +252,7 @@ public interface IBrowserHubService
         string? linkSelector = null,
         int limit = 20,
         bool sameOriginOnly = false,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -264,6 +270,7 @@ public interface IBrowserHubService
         string? strategy = null,
         int limit = 10,
         bool sameOriginOnly = false,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -274,6 +281,7 @@ public interface IBrowserHubService
         string deviceId,
         string? tabId,
         string script,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -292,6 +300,7 @@ public interface IBrowserHubService
     Task<BrowserResult<FormStateResult>> GetFormStateAsync(
         string deviceId,
         string? tabId,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -309,14 +318,17 @@ public interface IBrowserHubService
     /// Mirrors the <c>cdpWait</c> handler in the extension.
     /// </summary>
     /// <param name="durationMs">Fixed wait in milliseconds; mutually exclusive with <paramref name="waitForSelector"/> and <paramref name="waitUntil"/>.</param>
+    /// <param name="timeoutMs">Maximum polling time in milliseconds for selector/navigation waits.</param>
     /// <param name="waitForSelector">CSS selector to wait for.</param>
     /// <param name="waitUntil">Navigation condition to wait for (e.g. <c>load</c>, <c>domcontentloaded</c>).</param>
     Task<BrowserResult<WaitResult>> WaitAsync(
         string deviceId,
         string? tabId,
         int? durationMs = null,
+        int? timeoutMs = null,
         string? waitForSelector = null,
         string? waitUntil = null,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -329,6 +341,7 @@ public interface IBrowserHubService
         string? tabId,
         int elementIndex,
         string filePath,
+        IReadOnlyList<string>? framePath = null,
         CancellationToken ct = default);
 
     // ── Network intercept ─────────────────────────────────────────────────────
@@ -374,4 +387,5 @@ public interface IBrowserHubService
         string[]? resourceTypes = null,
         int limit = 50,
         CancellationToken ct = default);
+
 }

@@ -115,6 +115,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                     await _browserHubService.SnapshotAsync(
                         tabId: GetRequiredTabId(args),
                         selector: GetOptionalStringParam(args.Params, "selector"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         deviceId: deviceId,
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
@@ -148,6 +149,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         deviceId: deviceId!,
                         tabId: args.TabId,
                         elementIndex: GetRequiredIntParam(args.Params, "elementIndex"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         offsetX: GetOptionalIntParam(args.Params, "offsetX"),
                         offsetY: GetOptionalIntParam(args.Params, "offsetY"),
                         ct: cancellationToken).ConfigureAwait(false),
@@ -160,6 +162,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         tabId: args.TabId,
                         elementIndex: GetRequiredIntParam(args.Params, "elementIndex"),
                         text: GetRequiredStringParam(args.Params, "text"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         clearFirst: GetOptionalBoolParam(args.Params, "clearFirst") ?? false,
                         delayMs: GetOptionalIntParam(args.Params, "delayMs") ?? 50,
                         ct: cancellationToken).ConfigureAwait(false),
@@ -173,6 +176,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         direction: GetOptionalEnumParam(args.Params, "direction", ScrollDirection.Down),
                         amount: GetOptionalIntParam(args.Params, "amount"),
                         elementIndex: GetOptionalIntParam(args.Params, "elementIndex"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -225,6 +229,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         deviceId: deviceId!,
                         tabId: args.TabId,
                         script: GetRequiredStringParam(args.Params, "script"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -237,6 +242,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         linkSelector: GetOptionalStringParam(args.Params, "linkSelector"),
                         limit: GetOptionalIntParam(args.Params, "limit") ?? 20,
                         sameOriginOnly: GetOptionalBoolParam(args.Params, "sameOriginOnly") ?? false,
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -253,6 +259,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         strategy: GetOptionalStringParam(args.Params, "strategy"),
                         limit: GetOptionalIntParam(args.Params, "limit") ?? 10,
                         sameOriginOnly: GetOptionalBoolParam(args.Params, "sameOriginOnly") ?? false,
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -262,6 +269,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         deviceId: deviceId!,
                         tabId: args.TabId,
                         script: GetRequiredStringParam(args.Params, "script"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -279,6 +287,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                     await _browserHubService.GetFormStateAsync(
                         deviceId: deviceId!,
                         tabId: args.TabId,
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -297,8 +306,10 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         deviceId: deviceId!,
                         tabId: args.TabId,
                         durationMs: GetOptionalIntParam(args.Params, "durationMs"),
+                        timeoutMs: GetOptionalIntParam(args.Params, "timeoutMs"),
                         waitForSelector: GetOptionalStringParam(args.Params, "waitForSelector"),
                         waitUntil: GetOptionalStringParam(args.Params, "waitUntil"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -309,6 +320,7 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                         tabId: args.TabId,
                         elementIndex: GetRequiredIntParam(args.Params, "elementIndex"),
                         filePath: GetRequiredStringParam(args.Params, "filePath"),
+                        framePath: GetOptionalFramePathParam(args.Params),
                         ct: cancellationToken).ConfigureAwait(false),
                     action,
                     context.ContextPressure),
@@ -437,11 +449,6 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
             return "Call `list_tabs` to refresh the current tab/device mapping, then retry with the correct top-level `deviceId` and `tabId`.";
         }
 
-        if (string.Equals(errorCode, "BRIDGE_009", StringComparison.OrdinalIgnoreCase))
-        {
-            return "Retry once. If it persists, the gateway and browser extension may be out of sync.";
-        }
-
         if (string.Equals(errorCode, "BRIDGE_001", StringComparison.OrdinalIgnoreCase))
         {
             return "Ensure the browser extension is connected. If multiple devices are available, call `list_tabs` and retry with the matching top-level `deviceId`.";
@@ -474,6 +481,16 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
                     "The page may still be navigating or re-rendering. Call `wait` for a stable selector or readyState, then retry the read on the current tab.",
                 "evaluate" or "screenshot" or "cookies" or "get_url" =>
                     "The page may still be navigating. Wait briefly or call `wait`, then retry once on the same tab.",
+                _ => null
+            };
+        }
+
+        if (LooksLikeFrameResolutionFailure(error))
+        {
+            return action switch
+            {
+                "snapshot" or "click" or "type" or "scroll" or "evaluate_dom" or "extract_links" or "extract_results" or "evaluate_write" or "form_state" or "wait" or "upload_file" =>
+                    "If the target lives inside a same-origin iframe, retry with `params.frameSelector` or `params.framePath`. Cross-origin iframe content is not directly supported.",
                 _ => null
             };
         }
@@ -533,6 +550,18 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
             || error.Contains("Loader has changed while resolving nodes", StringComparison.OrdinalIgnoreCase)
             || error.Contains("No frame with given id", StringComparison.OrdinalIgnoreCase)
             || error.Contains("Frame with the given id was not found", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool LooksLikeFrameResolutionFailure(string? error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return false;
+        }
+
+        return error.Contains("FRAME_", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("same-origin iframe", StringComparison.OrdinalIgnoreCase)
+            || error.Contains("iframe selector", StringComparison.OrdinalIgnoreCase);
     }
 
     private static object? ProtectLargeResult<T>(string action, T? value, float contextPressure)
@@ -775,6 +804,26 @@ public sealed class BrowserActionTool : ToolBase<BrowserActionArgs>
             IEnumerable enumerable => enumerable.Cast<object?>().Select(item => ConvertToString(item) ?? throw new ArgumentException($"Parameter '{name}' must be an array of strings.")).ToArray(),
             _ => throw new ArgumentException($"Parameter '{name}' must be an array of strings."),
         };
+    }
+
+    private static string[]? GetOptionalFramePathParam(IReadOnlyDictionary<string, object?>? parameters)
+    {
+        var framePath = GetOptionalStringArrayParam(parameters, "framePath");
+        if (framePath is { Length: > 0 })
+        {
+            return framePath
+                .Where(selector => !string.IsNullOrWhiteSpace(selector))
+                .Select(selector => selector.Trim())
+                .ToArray();
+        }
+
+        var frameSelector = GetOptionalStringParam(parameters, "frameSelector");
+        if (!string.IsNullOrWhiteSpace(frameSelector))
+        {
+            return [frameSelector.Trim()];
+        }
+
+        return null;
     }
 
     private static object? GetParamValue(IReadOnlyDictionary<string, object?>? parameters, string name)

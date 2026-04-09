@@ -659,12 +659,12 @@ async function executeCdpActionWithRetry(action, tabId, payload, tracker) {
 async function executeCdpAction(action, tabId, payload, tracker) {
   switch (action) {
     case 'navigate':     return cdpNavigate(tabId, payload.url, tracker);
-    case 'snapshot':     return cdpSnapshot(tabId, payload && payload.selector, tracker);
+    case 'snapshot':     return cdpSnapshot(tabId, payload, tracker);
     case 'screenshot':   return cdpScreenshot(tabId, payload, tracker);
     case 'list_tabs':    return cdpListTabs();
     case 'get_url':      return cdpGetUrl(tabId, tracker);
     case 'evaluate':     return cdpEvaluate(tabId, payload.script, tracker);
-    case 'evaluate_dom': return cdpEvaluateDom(tabId, payload.script, tracker);
+    case 'evaluate_dom': return cdpEvaluateDom(tabId, payload, tracker);
     case 'extract_links': return cdpExtractLinks(tabId, payload, tracker);
     case 'extract_results': return cdpExtractResults(tabId, payload, tracker);
     case 'heartbeat':    return { status: 'ok' };
@@ -677,7 +677,7 @@ async function executeCdpAction(action, tabId, payload, tracker) {
     case 'switch_tab':      return cdpSwitchTab(payload);
     case 'evaluate_write':  return cdpEvaluateWrite(tabId, payload, tracker);
     case 'cookies':         return cdpCookies(tabId, payload, tracker);
-    case 'form_state':      return cdpFormState(tabId, tracker);
+    case 'form_state':      return cdpFormState(tabId, payload, tracker);
     case 'console':         return cdpConsole(tabId, payload);
     case 'upload_file':     return cdpUploadFile(tabId, payload, tracker);
     case 'wait':            return cdpWait(tabId, payload, tracker);
@@ -715,13 +715,22 @@ async function cdpNavigate(tabId, url, tracker) {
 }
 
 /** DOM 快照 */
-async function cdpSnapshot(tabId, selector, tracker) {
+async function cdpSnapshot(tabId, payload, tracker) {
   const chromeTabId = await resolveTabId(tabId);
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  const optionsLiteral = selector
-    ? JSON.stringify({ selector })
+  const framePath = normalizeFramePath(payload);
+  const selector = payload && payload.selector ? payload.selector : null;
+  const snapshotOptions = {};
+  if (selector) {
+    snapshotOptions.selector = selector;
+  }
+  if (framePath) {
+    snapshotOptions.framePath = framePath;
+  }
+  const optionsLiteral = Object.keys(snapshotOptions).length > 0
+    ? JSON.stringify(snapshotOptions)
     : 'null';
 
   const script = `(function(){
@@ -817,38 +826,46 @@ async function cdpEvaluate(tabId, script, tracker) {
   return cdpEvalRaw(chromeTabId, sandboxScript);
 }
 
-/** 主页面 DOM 只读求值（支持 querySelector/querySelectorAll 等） */
-async function cdpEvaluateDom(tabId, script, tracker) {
+async function cdpEvaluateDom(tabId, payload, tracker) {
+  const script = payload && payload.script;
   if (!script) throw new Error('缺少 script 参数');
+  const framePath = normalizeFramePath(payload);
   const chromeTabId = await resolveTabId(tabId);
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  return new Promise((resolve, reject) => {
-    chrome.debugger.sendCommand(
-      { tabId: chromeTabId },
-      'Runtime.evaluate',
-      {
-        expression: script,
-        returnByValue: true,
-        awaitPromise: false,
-        throwOnSideEffect: true,
-      },
-      result => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
+  if (!framePath) {
+    return new Promise((resolve, reject) => {
+      chrome.debugger.sendCommand(
+        { tabId: chromeTabId },
+        'Runtime.evaluate',
+        {
+          expression: script,
+          returnByValue: true,
+          awaitPromise: false,
+          throwOnSideEffect: true,
+        },
+        result => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          if (result.exceptionDetails) {
+            const details = result.exceptionDetails;
+            const description = details.exception && details.exception.description;
+            reject(new Error(description || details.text || '只读 DOM 求值失败'));
+            return;
+          }
+          resolve(result.result && result.result.value !== undefined ? result.result.value : null);
         }
-        if (result.exceptionDetails) {
-          const details = result.exceptionDetails;
-          const description = details.exception && details.exception.description;
-          reject(new Error(description || details.text || '只读 DOM 求值失败'));
-          return;
-        }
-        resolve(result.result && result.result.value !== undefined ? result.result.value : null);
-      }
-    );
-  });
+      );
+    });
+  }
+
+  const frameAwareScript = buildFrameAwareExpression(framePath, `
+    return __kcWindow.eval(${JSON.stringify(script)});
+  `);
+  return cdpEvalRaw(chromeTabId, frameAwareScript);
 }
 
 /** 提取链接列表（高层只读动作） */
@@ -857,7 +874,16 @@ async function cdpExtractLinks(tabId, payload, tracker) {
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  const optionsLiteral = JSON.stringify(payload || {});
+  const framePath = normalizeFramePath(payload);
+  const options = Object.assign({}, payload || {});
+  if (framePath) {
+    options.framePath = framePath;
+  } else {
+    delete options.framePath;
+    delete options.frameSelector;
+  }
+
+  const optionsLiteral = JSON.stringify(options);
   const script = `(function(){
     if (!window.__kodaclaw_extract_links) {
       throw new Error('EXTRACT_HELPER_UNAVAILABLE: link extraction helper is not ready on this page. Retry once after reloading the extension or page.');
@@ -874,7 +900,16 @@ async function cdpExtractResults(tabId, payload, tracker) {
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  const optionsLiteral = JSON.stringify(payload || {});
+  const framePath = normalizeFramePath(payload);
+  const options = Object.assign({}, payload || {});
+  if (framePath) {
+    options.framePath = framePath;
+  } else {
+    delete options.framePath;
+    delete options.frameSelector;
+  }
+
+  const optionsLiteral = JSON.stringify(options);
   const script = `(function(){
     if (!window.__kodaclaw_extract_results) {
       throw new Error('EXTRACT_HELPER_UNAVAILABLE: result extraction helper is not ready on this page. Retry once after reloading the extension or page.');
@@ -932,6 +967,123 @@ function cdpSend(tabId, method, params = {}) {
   });
 }
 
+function normalizeFramePath(payload) {
+  if (payload && Array.isArray(payload.framePath)) {
+    const normalized = payload.framePath
+      .filter(selector => typeof selector === 'string')
+      .map(selector => selector.trim())
+      .filter(selector => selector.length > 0);
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  if (payload && typeof payload.frameSelector === 'string') {
+    const selector = payload.frameSelector.trim();
+    return selector ? [selector] : null;
+  }
+
+  return null;
+}
+
+function buildFrameHelpersExpression(framePath) {
+  const framePathLiteral = JSON.stringify(framePath || []);
+  return `
+    function __kcResolveFrameContext() {
+      var selectors = ${framePathLiteral};
+      var currentWindow = window;
+      var currentDocument = document;
+
+      for (var i = 0; i < selectors.length; i++) {
+        var selector = selectors[i];
+        if (typeof selector !== 'string' || selector.trim() === '') {
+          throw new Error('FRAME_PATH_INVALID: iframe selector at index ' + i + ' must be a non-empty string.');
+        }
+
+        var frameEl = currentDocument.querySelector(selector);
+        if (!frameEl) {
+          throw new Error('FRAME_NOT_FOUND: iframe selector "' + selector + '" did not match any iframe.');
+        }
+
+        var tagName = frameEl.tagName ? frameEl.tagName.toLowerCase() : '';
+        if (tagName !== 'iframe' && tagName !== 'frame') {
+          throw new Error('FRAME_NOT_IFRAME: selector "' + selector + '" matched a ' + (tagName || 'node') + ', not an iframe.');
+        }
+
+        var nextWindow;
+        try {
+          nextWindow = frameEl.contentWindow;
+        } catch (_) {
+          throw new Error('FRAME_ACCESS_DENIED: iframe selector "' + selector + '" is not same-origin.');
+        }
+
+        if (!nextWindow) {
+          throw new Error('FRAME_UNAVAILABLE: iframe selector "' + selector + '" has no active window.');
+        }
+
+        var nextDocument;
+        try {
+          nextDocument = nextWindow.document;
+        } catch (_) {
+          throw new Error('FRAME_ACCESS_DENIED: iframe selector "' + selector + '" is not same-origin.');
+        }
+
+        if (!nextDocument) {
+          throw new Error('FRAME_UNAVAILABLE: iframe selector "' + selector + '" has no active document.');
+        }
+
+        currentWindow = nextWindow;
+        currentDocument = nextDocument;
+      }
+
+      return {
+        window: currentWindow,
+        document: currentDocument,
+        framePath: selectors,
+      };
+    }
+
+    function __kcGetAbsoluteRect(element) {
+      if (!element) {
+        return null;
+      }
+
+      var rect = element.getBoundingClientRect();
+      var left = rect.left;
+      var top = rect.top;
+      var currentWindow = element.ownerDocument && element.ownerDocument.defaultView;
+
+      while (currentWindow && currentWindow !== window.top) {
+        var frameEl = currentWindow.frameElement;
+        if (!frameEl) {
+          break;
+        }
+
+        var frameRect = frameEl.getBoundingClientRect();
+        left += frameRect.left;
+        top += frameRect.top;
+        currentWindow = frameEl.ownerDocument && frameEl.ownerDocument.defaultView;
+      }
+
+      return {
+        left: left,
+        top: top,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+  `;
+}
+
+function buildFrameAwareExpression(framePath, bodySource) {
+  return `(function(){
+    ${buildFrameHelpersExpression(framePath)}
+    var __kcContext = __kcResolveFrameContext();
+    var __kcWindow = __kcContext.window;
+    var __kcDocument = __kcContext.document;
+    var __kcFramePath = __kcContext.framePath;
+    ${bodySource}
+  })()`;
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -978,6 +1130,7 @@ function createActionTracker() {
 
 /** 点击元素（通过 data-kc-index 定位） */
 async function cdpClick(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const { elementIndex, offsetX = 0, offsetY = 0 } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   const chromeTabId = await resolveTabId(tabId);
@@ -985,17 +1138,33 @@ async function cdpClick(tabId, payload, tracker) {
   await ensureDebuggerAttached(chromeTabId);
 
   const evalResult = await cdpSend(chromeTabId, 'Runtime.evaluate', {
-    expression: `document.querySelector('[data-kc-index="${elementIndex}"]')`,
+    expression: buildFrameAwareExpression(framePath, `
+      return __kcDocument.querySelector('[data-kc-index="${elementIndex}"]');
+    `),
     returnByValue: false,
   });
   if (!evalResult.result || evalResult.result.subtype === 'null' || !evalResult.result.objectId) {
     throw new Error(`未找到 elementIndex=${elementIndex} 的元素`);
   }
 
-  const boxResult = await cdpSend(chromeTabId, 'DOM.getBoxModel', { objectId: evalResult.result.objectId });
-  const quad = boxResult.model.content; // [x1,y1, x2,y2, x3,y3, x4,y4]
-  const x = (quad[0] + quad[4]) / 2 + offsetX;
-  const y = (quad[1] + quad[5]) / 2 + offsetY;
+  const point = await cdpEvalRaw(chromeTabId, buildFrameAwareExpression(framePath, `
+    var element = __kcDocument.querySelector('[data-kc-index="${elementIndex}"]');
+    if (!element) {
+      throw new Error('未找到 elementIndex=${elementIndex} 的元素');
+    }
+
+    var rect = __kcGetAbsoluteRect(element);
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      throw new Error('目标元素不可见，无法点击');
+    }
+
+    return {
+      x: rect.left + (rect.width / 2) + ${offsetX},
+      y: rect.top + (rect.height / 2) + ${offsetY},
+    };
+  `));
+  const x = point.x;
+  const y = point.y;
 
   await cdpSend(chromeTabId, 'Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   await cdpSend(chromeTabId, 'Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
@@ -1005,6 +1174,7 @@ async function cdpClick(tabId, payload, tracker) {
 
 /** 输入文本 */
 async function cdpType(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const { elementIndex, text, clearFirst = false, delayMs = 0 } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   if (text === undefined) throw new Error('缺少 text 参数');
@@ -1012,7 +1182,19 @@ async function cdpType(tabId, payload, tracker) {
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  await cdpEvalRaw(chromeTabId, `(function(){var el=document.querySelector('[data-kc-index="${elementIndex}"]');if(el)el.focus();})() `);
+  await cdpEvalRaw(chromeTabId, buildFrameAwareExpression(framePath, `
+    var el = __kcDocument.querySelector('[data-kc-index="${elementIndex}"]');
+    if (!el) {
+      throw new Error('未找到 elementIndex=${elementIndex} 的元素');
+    }
+
+    if (__kcWindow.frameElement && typeof __kcWindow.frameElement.focus === 'function') {
+      try { __kcWindow.frameElement.focus(); } catch (_) {}
+    }
+
+    el.focus();
+    return true;
+  `));
 
   if (clearFirst) {
     await cdpSend(chromeTabId, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', code: 'KeyA', modifiers: 2 });
@@ -1029,25 +1211,38 @@ async function cdpType(tabId, payload, tracker) {
 
 /** 滚动页面 */
 async function cdpScroll(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const { direction, amount = 300 } = payload || {};
   if (!direction) throw new Error('缺少 direction 参数');
   const chromeTabId = await resolveTabId(tabId);
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  let script;
+  const target = payload && payload.elementIndex !== undefined
+    ? `var __kcScrollTarget = __kcDocument.querySelector('[data-kc-index="${payload.elementIndex}"]'); if (!__kcScrollTarget) { throw new Error('未找到 elementIndex=${payload.elementIndex} 的元素'); }`
+    : 'var __kcScrollTarget = __kcWindow;';
+  let scrollStatement;
   switch (direction) {
-    case 'up':     script = `window.scrollBy(0, -${amount})`; break;
-    case 'down':   script = `window.scrollBy(0, ${amount})`;  break;
-    case 'left':   script = `window.scrollBy(-${amount}, 0)`; break;
-    case 'right':  script = `window.scrollBy(${amount}, 0)`;  break;
-    case 'top':    script = 'window.scrollTo(0, 0)'; break;
-    case 'bottom': script = 'window.scrollTo(0, document.body.scrollHeight)'; break;
+    case 'up':     scrollStatement = `__kcScrollTarget.scrollBy(0, -${amount})`; break;
+    case 'down':   scrollStatement = `__kcScrollTarget.scrollBy(0, ${amount})`;  break;
+    case 'left':   scrollStatement = `__kcScrollTarget.scrollBy(-${amount}, 0)`; break;
+    case 'right':  scrollStatement = `__kcScrollTarget.scrollBy(${amount}, 0)`;  break;
+    case 'top':    scrollStatement = '__kcScrollTarget.scrollTo(0, 0)'; break;
+    case 'bottom': scrollStatement = `__kcScrollTarget.scrollTo(0, (__kcScrollTarget.document ? __kcScrollTarget.document.body.scrollHeight : __kcScrollTarget.scrollHeight))`; break;
     default: throw new Error(`不支持的滚动方向：${direction}`);
   }
 
-  await cdpEvalRaw(chromeTabId, script);
-  const pos = await cdpEvalRaw(chromeTabId, '({scrollY: window.scrollY, scrollX: window.scrollX})');
+  await cdpEvalRaw(chromeTabId, buildFrameAwareExpression(framePath, `
+    ${target}
+    ${scrollStatement};
+    return true;
+  `));
+  const pos = await cdpEvalRaw(chromeTabId, buildFrameAwareExpression(framePath, `
+    return {
+      scrollY: __kcWindow.scrollY,
+      scrollX: __kcWindow.scrollX,
+    };
+  `));
   return { scrolled: true, scrollY: pos.scrollY, scrollX: pos.scrollX };
 }
 
@@ -1131,17 +1326,24 @@ async function cdpSwitchTab(payload) {
 
 /** 写入型 JS 执行（不走沙箱，高风险） */
 async function cdpEvaluateWrite(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const { script } = payload || {};
   if (!script) throw new Error('缺少 script 参数');
   const chromeTabId = await resolveTabId(tabId);
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
+  const expression = framePath
+    ? buildFrameAwareExpression(framePath, `
+        return __kcWindow.eval(${JSON.stringify(script)});
+      `)
+    : script;
+
   return new Promise(resolve => {
     chrome.debugger.sendCommand(
       { tabId: chromeTabId },
       'Runtime.evaluate',
-      { expression: script, returnByValue: true, awaitPromise: true },
+      { expression, returnByValue: true, awaitPromise: true },
       result => {
         if (chrome.runtime.lastError) {
           resolve({ value: null, error: chrome.runtime.lastError.message });
@@ -1182,24 +1384,25 @@ async function cdpCookies(tabId, payload, tracker) {
 }
 
 /** 获取表单元素状态 */
-async function cdpFormState(tabId, tracker) {
+async function cdpFormState(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const chromeTabId = await resolveTabId(tabId);
   beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  const script = `(function(){
+  const script = buildFrameAwareExpression(framePath, `
     if (window.__kodaclaw_snapshot) {
-      try { window.__kodaclaw_snapshot(); } catch (_) {}
+      try { window.__kodaclaw_snapshot({ framePath: __kcFramePath }); } catch (_) {}
     }
     var isVisible = function(el) {
       if (!el) return false;
-      var style = window.getComputedStyle(el);
+      var style = __kcWindow.getComputedStyle(el);
       if (style.display === 'none' || style.visibility === 'hidden') return false;
       var rect = el.getBoundingClientRect();
       return rect.width > 0 && rect.height > 0;
     };
     var results = [];
-    var els = document.querySelectorAll('input, textarea, select');
+    var els = __kcDocument.querySelectorAll('input, textarea, select');
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
       if (!isVisible(el)) continue;
@@ -1227,7 +1430,7 @@ async function cdpFormState(tabId, tracker) {
       results.push(entry);
     }
     return { forms: results };
-  })()`;
+  `);
 
   return cdpEvalRaw(chromeTabId, script);
 }
@@ -1243,6 +1446,7 @@ async function cdpConsole(_tabId, payload) {
 
 /** 上传文件到 file input 元素 */
 async function cdpUploadFile(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const { elementIndex, filePath } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   if (!filePath) throw new Error('缺少 filePath 参数');
@@ -1251,7 +1455,9 @@ async function cdpUploadFile(tabId, payload, tracker) {
   await ensureDebuggerAttached(chromeTabId);
 
   const evalResult = await cdpSend(chromeTabId, 'Runtime.evaluate', {
-    expression: `document.querySelector('[data-kc-index="${elementIndex}"]')`,
+    expression: buildFrameAwareExpression(framePath, `
+      return __kcDocument.querySelector('[data-kc-index="${elementIndex}"]');
+    `),
     returnByValue: false,
   });
   if (!evalResult.result || evalResult.result.subtype === 'null' || !evalResult.result.objectId) {
@@ -1280,6 +1486,7 @@ async function cdpUploadFile(tabId, payload, tracker) {
 
 /** 等待条件满足（轮询，每 200ms 检查一次） */
 async function cdpWait(tabId, payload, tracker) {
+  const framePath = normalizeFramePath(payload);
   const {
     condition,
     timeoutMs = 10000,
@@ -1313,7 +1520,9 @@ async function cdpWait(tabId, payload, tracker) {
 
     try {
       if (selector) {
-        const found = await cdpEvalRaw(chromeTabId, `document.querySelector(${JSON.stringify(selector)}) !== null`);
+        const found = await cdpEvalRaw(chromeTabId, buildFrameAwareExpression(framePath, `
+          return __kcDocument.querySelector(${JSON.stringify(selector)}) !== null;
+        `));
         if (found) return { waited: true, elapsedMs: Date.now() - start };
       } else if (navigationTarget) {
         const state = await cdpEvalRaw(chromeTabId, `document.readyState`);
@@ -1736,6 +1945,7 @@ chrome.tabs.onRemoved.addListener(tabId => {
   interceptConfig.delete(tabId);
 });
 
+
 chrome.debugger.onDetach.addListener(source => {
   if (typeof source.tabId !== 'number') {
     return;
@@ -1751,6 +1961,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     return;
   }
   if (method === 'Runtime.consoleAPICalled') {
+
     const frame = params.stackTrace && params.stackTrace.callFrames && params.stackTrace.callFrames[0];
     const entry = {
       type: params.type,
