@@ -22,7 +22,27 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 90_000;
 const RECONNECT_BASE_DELAY_MS = 2_000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
+const DEBUGGER_IDLE_DETACH_MS = 5_000;
+const TRANSIENT_ACTION_RETRY_DELAY_MS = 400;
 const HKDF_SALT = 'kodaclaw-bridge-v1';
+const PRELOAD_SCRIPT_PATHS = [
+  'content/stealth.js',
+  'content/dom-snapshot.js',
+  'content/evaluate-sandbox.js',
+  'content/data-extract.js',
+];
+const TRANSIENT_RETRYABLE_ACTIONS = new Set([
+  'snapshot',
+  'screenshot',
+  'get_url',
+  'evaluate',
+  'evaluate_dom',
+  'extract_links',
+  'extract_results',
+  'cookies',
+  'form_state',
+  'wait',
+]);
 
 // ============================================================
 // 辅助：Base64 / 字节 转换
@@ -590,10 +610,11 @@ function handleBridgeResponse(msg) {
  */
 async function handleBridgeRequest(req) {
   const { id, action, tabId, payload, timeoutMs = 30000 } = req;
+  const actionTracker = createActionTracker();
 
   let result;
   try {
-    result = await withTimeout(executeCdpAction(action, tabId, payload), timeoutMs);
+    result = await withTimeout(executeCdpActionWithRetry(action, tabId, payload, actionTracker), timeoutMs);
     sendWsMessage({
       version: PROTOCOL_VERSION,
       id,
@@ -610,6 +631,8 @@ async function handleBridgeRequest(req) {
       data: null,
       error: `${errorCode}: ${err.message}`,
     });
+  } finally {
+    await finalizeTrackedDebuggerUsage(actionTracker);
   }
 }
 
@@ -620,30 +643,46 @@ async function handleBridgeRequest(req) {
  * @param {object} payload
  * @returns {Promise<any>}
  */
-async function executeCdpAction(action, tabId, payload) {
+async function executeCdpActionWithRetry(action, tabId, payload, tracker) {
+  try {
+    return await executeCdpAction(action, tabId, payload, tracker);
+  } catch (err) {
+    if (!shouldRetryCdpAction(action, err)) {
+      throw err;
+    }
+
+    await sleep(getActionRetryDelayMs(action));
+    return executeCdpAction(action, tabId, payload, tracker);
+  }
+}
+
+async function executeCdpAction(action, tabId, payload, tracker) {
   switch (action) {
-    case 'navigate':     return cdpNavigate(tabId, payload.url);
-    case 'snapshot':     return cdpSnapshot(tabId, payload && payload.selector);
-    case 'screenshot':   return cdpScreenshot(tabId, payload);
+    case 'navigate':     return cdpNavigate(tabId, payload.url, tracker);
+    case 'snapshot':     return cdpSnapshot(tabId, payload && payload.selector, tracker);
+    case 'screenshot':   return cdpScreenshot(tabId, payload, tracker);
     case 'list_tabs':    return cdpListTabs();
-    case 'get_url':      return cdpGetUrl(tabId);
-    case 'evaluate':     return cdpEvaluate(tabId, payload.script);
+    case 'get_url':      return cdpGetUrl(tabId, tracker);
+    case 'evaluate':     return cdpEvaluate(tabId, payload.script, tracker);
+    case 'evaluate_dom': return cdpEvaluateDom(tabId, payload.script, tracker);
+    case 'extract_links': return cdpExtractLinks(tabId, payload, tracker);
+    case 'extract_results': return cdpExtractResults(tabId, payload, tracker);
     case 'heartbeat':    return { status: 'ok' };
-    case 'click':        return cdpClick(tabId, payload);
-    case 'type':         return cdpType(tabId, payload);
-    case 'scroll':       return cdpScroll(tabId, payload);
-    case 'key_press':    return cdpKeyPress(tabId, payload);
-    case 'go_back':      return cdpGoBack(tabId);
+    case 'click':        return cdpClick(tabId, payload, tracker);
+    case 'type':         return cdpType(tabId, payload, tracker);
+    case 'scroll':       return cdpScroll(tabId, payload, tracker);
+    case 'key_press':    return cdpKeyPress(tabId, payload, tracker);
+    case 'go_back':      return cdpGoBack(tabId, tracker);
     case 'close_tab':    return cdpCloseTab(tabId);
     case 'switch_tab':      return cdpSwitchTab(payload);
-    case 'evaluate_write':  return cdpEvaluateWrite(tabId, payload);
-    case 'cookies':         return cdpCookies(tabId, payload);
-    case 'form_state':      return cdpFormState(tabId);
+    case 'evaluate_write':  return cdpEvaluateWrite(tabId, payload, tracker);
+    case 'cookies':         return cdpCookies(tabId, payload, tracker);
+    case 'form_state':      return cdpFormState(tabId, tracker);
     case 'console':         return cdpConsole(tabId, payload);
-    case 'upload_file':     return cdpUploadFile(tabId, payload);
-    case 'wait':            return cdpWait(tabId, payload);
-    case 'intercept':        return cdpIntercept(tabId, payload);
-    case 'intercept_clear':  return cdpInterceptClear(tabId);
+    case 'upload_file':     return cdpUploadFile(tabId, payload, tracker);
+    case 'wait':            return cdpWait(tabId, payload, tracker);
+    case 'intercept':        return cdpIntercept(tabId, payload, tracker);
+    case 'intercept_clear':  return cdpInterceptClear(tabId, tracker);
     case 'intercept_result': return cdpInterceptResult(tabId, payload);
     default:
       throw new Error(`不支持的 action：${action}`);
@@ -653,7 +692,7 @@ async function executeCdpAction(action, tabId, payload) {
 // ── CDP 操作实现 ──────────────────────────────────────────────
 
 /** 导航到 URL（tabId 为 null 时创建新标签页） */
-async function cdpNavigate(tabId, url) {
+async function cdpNavigate(tabId, url, tracker) {
   if (!url) throw new Error('缺少 url 参数');
 
   const chromeTabId = tabId ? parseInt(tabId, 10) : null;
@@ -663,39 +702,44 @@ async function cdpNavigate(tabId, url) {
     // 创建新标签页
     tab = await chrome.tabs.create({ url });
   } else {
-    tab = await chrome.tabs.get(chromeTabId).catch(() => null);
+    tab = await chrome.tabs.update(chromeTabId, { url }).catch(() => null);
     if (!tab) throw new Error(`BRIDGE_002: Tab ${chromeTabId} 不存在`);
   }
 
-  await ensureDebuggerAttached(tab.id);
+  if (!Number.isFinite(tab.id)) {
+    throw new Error('BRIDGE_002: 无法解析目标标签页');
+  }
 
-  return new Promise((resolve, reject) => {
-    chrome.debugger.sendCommand({ tabId: tab.id }, 'Page.navigate', { url }, (result) => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-      } else {
-        resolve({ url: result.url || url, tabId: String(tab.id) });
-      }
-    });
-  });
+  beginTrackedTabOperation(tracker, tab.id);
+  return { url: tab.url || url, tabId: String(tab.id) };
 }
 
 /** DOM 快照 */
-async function cdpSnapshot(tabId, selector) {
+async function cdpSnapshot(tabId, selector, tracker) {
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
-  const script = selector
-    ? `(function(){var el=document.querySelector(${JSON.stringify(selector)});return el?el.innerHTML:'';})() `
-    : `(function(){return window.__kodaclaw_snapshot?window.__kodaclaw_snapshot():document.documentElement.outerHTML;})()`;
+  const optionsLiteral = selector
+    ? JSON.stringify({ selector })
+    : 'null';
+
+  const script = `(function(){
+    if (!window.__kodaclaw_snapshot) {
+      throw new Error('SNAPSHOT_HELPER_UNAVAILABLE: structured snapshot helper is not ready on this page. Retry once, or use evaluate_dom for targeted extraction.');
+    }
+    var result = window.__kodaclaw_snapshot(${optionsLiteral});
+    return JSON.stringify(result === undefined ? null : result);
+  })()`;
 
   return cdpEvalRaw(chromeTabId, script);
 }
 
 /** 截图 */
-async function cdpScreenshot(tabId, payload) {
+async function cdpScreenshot(tabId, payload, tracker) {
   const { format = 'jpeg', quality = 80, uploadToken, uploadUrl } = payload || {};
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const params = { format, quality };
@@ -750,21 +794,95 @@ async function cdpListTabs() {
 }
 
 /** 获取当前 URL */
-async function cdpGetUrl(tabId) {
+async function cdpGetUrl(tabId, tracker) {
   const chromeTabId = await resolveTabId(tabId);
-  await ensureDebuggerAttached(chromeTabId);
-  return cdpEvalRaw(chromeTabId, 'window.location.href');
+  beginTrackedTabOperation(tracker, chromeTabId);
+  const tab = await chrome.tabs.get(chromeTabId).catch(() => null);
+  if (!tab) {
+    throw new Error(`BRIDGE_002: Tab ${chromeTabId} 不存在`);
+  }
+
+  return tab.url || '';
 }
 
 /** 只读 JS 求值 */
-async function cdpEvaluate(tabId, script) {
+async function cdpEvaluate(tabId, script, tracker) {
   if (!script) throw new Error('缺少 script 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   // 使用沙箱求值（若已注入）
   const sandboxScript = `(function(){return window.__kodaclaw_evaluate?window.__kodaclaw_evaluate(${JSON.stringify(script)}):eval(${JSON.stringify(script)});})()`;
   return cdpEvalRaw(chromeTabId, sandboxScript);
+}
+
+/** 主页面 DOM 只读求值（支持 querySelector/querySelectorAll 等） */
+async function cdpEvaluateDom(tabId, script, tracker) {
+  if (!script) throw new Error('缺少 script 参数');
+  const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
+  await ensureDebuggerAttached(chromeTabId);
+
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand(
+      { tabId: chromeTabId },
+      'Runtime.evaluate',
+      {
+        expression: script,
+        returnByValue: true,
+        awaitPromise: false,
+        throwOnSideEffect: true,
+      },
+      result => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (result.exceptionDetails) {
+          const details = result.exceptionDetails;
+          const description = details.exception && details.exception.description;
+          reject(new Error(description || details.text || '只读 DOM 求值失败'));
+          return;
+        }
+        resolve(result.result && result.result.value !== undefined ? result.result.value : null);
+      }
+    );
+  });
+}
+
+/** 提取链接列表（高层只读动作） */
+async function cdpExtractLinks(tabId, payload, tracker) {
+  const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
+  await ensureDebuggerAttached(chromeTabId);
+
+  const optionsLiteral = JSON.stringify(payload || {});
+  const script = `(function(){
+    if (!window.__kodaclaw_extract_links) {
+      throw new Error('EXTRACT_HELPER_UNAVAILABLE: link extraction helper is not ready on this page. Retry once after reloading the extension or page.');
+    }
+    return window.__kodaclaw_extract_links(${optionsLiteral});
+  })()`;
+
+  return cdpEvalRaw(chromeTabId, script);
+}
+
+/** 提取搜索/目录结果列表（高层只读动作） */
+async function cdpExtractResults(tabId, payload, tracker) {
+  const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
+  await ensureDebuggerAttached(chromeTabId);
+
+  const optionsLiteral = JSON.stringify(payload || {});
+  const script = `(function(){
+    if (!window.__kodaclaw_extract_results) {
+      throw new Error('EXTRACT_HELPER_UNAVAILABLE: result extraction helper is not ready on this page. Retry once after reloading the extension or page.');
+    }
+    return window.__kodaclaw_extract_results(${optionsLiteral});
+  })()`;
+
+  return cdpEvalRaw(chromeTabId, script);
 }
 
 // ── CDP 底层辅助 ──────────────────────────────────────────────
@@ -787,7 +905,9 @@ function cdpEvalRaw(tabId, script) {
           return;
         }
         if (result.exceptionDetails) {
-          reject(new Error(result.exceptionDetails.text || 'JS 执行异常'));
+          const details = result.exceptionDetails;
+          const description = details.exception && details.exception.description;
+          reject(new Error(description || details.text || 'JS 执行异常'));
           return;
         }
         resolve(result.result && result.result.value !== undefined ? result.result.value : null);
@@ -812,13 +932,56 @@ function cdpSend(tabId, method, params = {}) {
   });
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function shouldRetryCdpAction(action, err) {
+  return TRANSIENT_RETRYABLE_ACTIONS.has(action) && isTransientDocumentError(err);
+}
+
+function getActionRetryDelayMs(action) {
+  switch (action) {
+    case 'wait':
+      return 200;
+    case 'snapshot':
+    case 'extract_links':
+    case 'extract_results':
+      return 300;
+    default:
+      return TRANSIENT_ACTION_RETRY_DELAY_MS;
+  }
+}
+
+function isTransientDocumentError(err) {
+  const message = err && err.message ? err.message : '';
+  return [
+    'Execution context was destroyed',
+    'Cannot find context with specified id',
+    'Cannot find object with given id',
+    'Inspected target navigated or closed',
+    'Loader has changed while resolving nodes',
+    'No frame with given id',
+    'Frame with the given id was not found',
+  ].some(fragment => message.includes(fragment));
+}
+
+function createActionTracker() {
+  return {
+    touchedTabIds: new Set(),
+    keepAttachedTabIds: new Set(),
+    detachImmediatelyTabIds: new Set(),
+  };
+}
+
 // ── CDP Phase 2 写操作 ────────────────────────────────────────
 
 /** 点击元素（通过 data-kc-index 定位） */
-async function cdpClick(tabId, payload) {
+async function cdpClick(tabId, payload, tracker) {
   const { elementIndex, offsetX = 0, offsetY = 0 } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const evalResult = await cdpSend(chromeTabId, 'Runtime.evaluate', {
@@ -841,11 +1004,12 @@ async function cdpClick(tabId, payload) {
 }
 
 /** 输入文本 */
-async function cdpType(tabId, payload) {
+async function cdpType(tabId, payload, tracker) {
   const { elementIndex, text, clearFirst = false, delayMs = 0 } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   if (text === undefined) throw new Error('缺少 text 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   await cdpEvalRaw(chromeTabId, `(function(){var el=document.querySelector('[data-kc-index="${elementIndex}"]');if(el)el.focus();})() `);
@@ -864,10 +1028,11 @@ async function cdpType(tabId, payload) {
 }
 
 /** 滚动页面 */
-async function cdpScroll(tabId, payload) {
+async function cdpScroll(tabId, payload, tracker) {
   const { direction, amount = 300 } = payload || {};
   if (!direction) throw new Error('缺少 direction 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   let script;
@@ -887,10 +1052,11 @@ async function cdpScroll(tabId, payload) {
 }
 
 /** 按键（支持 "Enter"、"Control+A"、"Shift+Tab" 等） */
-async function cdpKeyPress(tabId, payload) {
+async function cdpKeyPress(tabId, payload, tracker) {
   const { key } = payload || {};
   if (!key) throw new Error('缺少 key 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const parts = key.split('+');
@@ -921,8 +1087,9 @@ async function cdpKeyPress(tabId, payload) {
 }
 
 /** 后退 */
-async function cdpGoBack(tabId) {
+async function cdpGoBack(tabId, tracker) {
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   await cdpEvalRaw(chromeTabId, 'window.history.back()');
@@ -963,10 +1130,11 @@ async function cdpSwitchTab(payload) {
 // ── CDP Phase 2 高级功能 ──────────────────────────────────────
 
 /** 写入型 JS 执行（不走沙箱，高风险） */
-async function cdpEvaluateWrite(tabId, payload) {
+async function cdpEvaluateWrite(tabId, payload, tracker) {
   const { script } = payload || {};
   if (!script) throw new Error('缺少 script 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   return new Promise(resolve => {
@@ -993,9 +1161,10 @@ async function cdpEvaluateWrite(tabId, payload) {
 }
 
 /** 获取 Cookie 列表（value 脱敏为 "***"） */
-async function cdpCookies(tabId, payload) {
+async function cdpCookies(tabId, payload, tracker) {
   const { url } = payload || {};
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const params = url ? { urls: [url] } : {};
@@ -1013,8 +1182,9 @@ async function cdpCookies(tabId, payload) {
 }
 
 /** 获取表单元素状态 */
-async function cdpFormState(tabId) {
+async function cdpFormState(tabId, tracker) {
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const script = `(function(){
@@ -1072,11 +1242,12 @@ async function cdpConsole(_tabId, payload) {
 }
 
 /** 上传文件到 file input 元素 */
-async function cdpUploadFile(tabId, payload) {
+async function cdpUploadFile(tabId, payload, tracker) {
   const { elementIndex, filePath } = payload || {};
   if (elementIndex === undefined) throw new Error('缺少 elementIndex 参数');
   if (!filePath) throw new Error('缺少 filePath 参数');
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
   await ensureDebuggerAttached(chromeTabId);
 
   const evalResult = await cdpSend(chromeTabId, 'Runtime.evaluate', {
@@ -1108,7 +1279,7 @@ async function cdpUploadFile(tabId, payload) {
 }
 
 /** 等待条件满足（轮询，每 200ms 检查一次） */
-async function cdpWait(tabId, payload) {
+async function cdpWait(tabId, payload, tracker) {
   const {
     condition,
     timeoutMs = 10000,
@@ -1116,15 +1287,16 @@ async function cdpWait(tabId, payload) {
     waitForSelector,
     waitUntil,
   } = payload || {};
-  const chromeTabId = await resolveTabId(tabId);
-  await ensureDebuggerAttached(chromeTabId);
-
   const start = Date.now();
 
   if (typeof durationMs === 'number' && durationMs > 0) {
     await new Promise(r => setTimeout(r, durationMs));
     return { waited: true, elapsedMs: Date.now() - start };
   }
+
+  const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId);
+  await ensureDebuggerAttached(chromeTabId);
 
   const selector = waitForSelector || (condition === 'element' ? '[data-kc-index]' : null);
   const navigationTarget = waitUntil || (condition === 'navigation' ? 'load' : null);
@@ -1176,7 +1348,7 @@ const interceptConfig = new Map();
 const INTERCEPT_MAX_REQUESTS = 100;
 
 /** 开始网络拦截 */
-async function cdpIntercept(tabId, payload) {
+async function cdpIntercept(tabId, payload, tracker) {
   const {
     urlPattern = '*',
     resourceTypes = ['XHR', 'Fetch'],
@@ -1184,18 +1356,19 @@ async function cdpIntercept(tabId, payload) {
   } = payload || {};
 
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId, { keepAttached: true });
   await ensureDebuggerAttached(chromeTabId);
-
-  interceptConfig.set(chromeTabId, { urlPattern, resourceTypes, requestHeaders });
-  if (!interceptedRequests.has(chromeTabId)) {
-    interceptedRequests.set(chromeTabId, new Map());
-  }
 
   const fetchPatterns = resourceTypes && resourceTypes.length > 0
     ? resourceTypes.map(rt => ({ urlPattern, resourceType: rt, requestStage: 'Request' }))
     : [{ urlPattern, requestStage: 'Request' }];
 
   await cdpSend(chromeTabId, 'Fetch.enable', { patterns: fetchPatterns });
+
+  interceptConfig.set(chromeTabId, { urlPattern, resourceTypes, requestHeaders });
+  if (!interceptedRequests.has(chromeTabId)) {
+    interceptedRequests.set(chromeTabId, new Map());
+  }
 
   return {
     intercepting: true,
@@ -1206,8 +1379,9 @@ async function cdpIntercept(tabId, payload) {
 }
 
 /** 停止网络拦截并清除记录 */
-async function cdpInterceptClear(tabId) {
+async function cdpInterceptClear(tabId, tracker) {
   const chromeTabId = await resolveTabId(tabId);
+  beginTrackedTabOperation(tracker, chromeTabId, { detachImmediately: true });
   const requests = interceptedRequests.get(chromeTabId);
   const clearedCount = requests ? requests.size : 0;
 
@@ -1300,21 +1474,214 @@ function handleFetchRequestPaused(tabId, params) {
 /** 已附加的 tabId 集合 */
 const attachedTabs = new Set();
 
+/** 每个 tab 当前进行中的 debugger 操作数 */
+const debuggerInFlightCounts = new Map();
+
+/** 每个 tab 的空闲自动 detach 定时器 */
+const debuggerDetachTimers = new Map();
+
+/** 需要维持附加状态的 tab（如网络拦截） */
+const stickyAttachedTabs = new Set();
+
 /** 已启用 Runtime 域的 tabId 集合（用于控制台消息监听） */
 const runtimeEnabledTabs = new Set();
+
+/** 已启用 Page 域的 tabId 集合（用于新文档脚本注入） */
+const pageEnabledTabs = new Set();
+
+/** 已为 tab 注册的新文档脚本 */
+const injectedScriptIdsByTab = new Map();
+
+/** 已为当前文档补注入过脚本的 tabId 集合 */
+const liveBootstrapTabs = new Set();
+
+/** 预加载脚本源码缓存 */
+const preloadScriptSourceCache = new Map();
+const preloadScriptSourcePromises = new Map();
 
 /** 控制台消息缓冲（最多 200 条，FIFO） */
 const consoleMessages = [];
 const CONSOLE_MESSAGES_MAX = 200;
 
-async function ensureDebuggerAttached(tabId) {
-  if (attachedTabs.has(tabId)) {
-    // 若已 attach 但尚未启用 Runtime，补充启用
-    if (!runtimeEnabledTabs.has(tabId)) {
-      cdpSend(tabId, 'Runtime.enable', {}).then(() => {
-        runtimeEnabledTabs.add(tabId);
-      }).catch(() => {});
+function clearDebuggerDetachTimer(tabId) {
+  const timer = debuggerDetachTimers.get(tabId);
+  if (timer) {
+    clearTimeout(timer);
+    debuggerDetachTimers.delete(tabId);
+  }
+}
+
+function beginTrackedTabOperation(tracker, tabId, options = {}) {
+  if (!tracker || !Number.isFinite(tabId)) {
+    return;
+  }
+
+  if (!tracker.touchedTabIds.has(tabId)) {
+    tracker.touchedTabIds.add(tabId);
+    debuggerInFlightCounts.set(tabId, (debuggerInFlightCounts.get(tabId) || 0) + 1);
+  }
+
+  if (options.keepAttached) {
+    tracker.keepAttachedTabIds.add(tabId);
+  }
+
+  if (options.detachImmediately) {
+    tracker.detachImmediatelyTabIds.add(tabId);
+  }
+
+  clearDebuggerDetachTimer(tabId);
+}
+
+function endTrackedTabOperation(tabId) {
+  const current = debuggerInFlightCounts.get(tabId) || 0;
+  if (current <= 1) {
+    debuggerInFlightCounts.delete(tabId);
+    return 0;
+  }
+
+  const next = current - 1;
+  debuggerInFlightCounts.set(tabId, next);
+  return next;
+}
+
+function scheduleDebuggerAutoDetach(tabId, delayMs = DEBUGGER_IDLE_DETACH_MS) {
+  clearDebuggerDetachTimer(tabId);
+  if (!attachedTabs.has(tabId) || stickyAttachedTabs.has(tabId) || interceptConfig.has(tabId)) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    debuggerDetachTimers.delete(tabId);
+    detachDebugger(tabId).catch(() => {});
+  }, Math.max(0, delayMs));
+
+  debuggerDetachTimers.set(tabId, timer);
+}
+
+async function finalizeTrackedDebuggerUsage(tracker) {
+  if (!tracker) {
+    return;
+  }
+
+  for (const tabId of tracker.touchedTabIds) {
+    const remaining = endTrackedTabOperation(tabId);
+    if (remaining > 0) {
+      continue;
     }
+
+    if (tracker.keepAttachedTabIds.has(tabId)) {
+      stickyAttachedTabs.add(tabId);
+      clearDebuggerDetachTimer(tabId);
+      continue;
+    }
+
+    if (tracker.detachImmediatelyTabIds.has(tabId)) {
+      stickyAttachedTabs.delete(tabId);
+      await detachDebugger(tabId, { force: true }).catch(() => {});
+      continue;
+    }
+
+    scheduleDebuggerAutoDetach(tabId);
+  }
+}
+
+function cleanupDebuggerState(tabId) {
+  clearDebuggerDetachTimer(tabId);
+  attachedTabs.delete(tabId);
+  stickyAttachedTabs.delete(tabId);
+  debuggerInFlightCounts.delete(tabId);
+  runtimeEnabledTabs.delete(tabId);
+  pageEnabledTabs.delete(tabId);
+  injectedScriptIdsByTab.delete(tabId);
+  liveBootstrapTabs.delete(tabId);
+}
+
+async function loadPreloadScriptSource(path) {
+  if (preloadScriptSourceCache.has(path)) {
+    return preloadScriptSourceCache.get(path);
+  }
+
+  if (preloadScriptSourcePromises.has(path)) {
+    return preloadScriptSourcePromises.get(path);
+  }
+
+  const pending = (async () => {
+    const response = await fetch(chrome.runtime.getURL(path));
+    if (!response.ok) {
+      throw new Error(`无法加载注入脚本 ${path}：${response.status}`);
+    }
+
+    const source = await response.text();
+    preloadScriptSourceCache.set(path, source);
+    preloadScriptSourcePromises.delete(path);
+    return source;
+  })().catch(error => {
+    preloadScriptSourcePromises.delete(path);
+    throw error;
+  });
+
+  preloadScriptSourcePromises.set(path, pending);
+  return pending;
+}
+
+async function enableRuntimeDomain(tabId) {
+  if (runtimeEnabledTabs.has(tabId)) {
+    return;
+  }
+
+  await cdpSend(tabId, 'Runtime.enable', {});
+  runtimeEnabledTabs.add(tabId);
+}
+
+async function enablePageDomain(tabId) {
+  if (pageEnabledTabs.has(tabId)) {
+    return;
+  }
+
+  await cdpSend(tabId, 'Page.enable', {});
+  pageEnabledTabs.add(tabId);
+}
+
+async function ensurePreloadScriptsInstalled(tabId) {
+  if (injectedScriptIdsByTab.has(tabId)) {
+    return;
+  }
+
+  await enablePageDomain(tabId);
+
+  const scriptIds = [];
+  for (const path of PRELOAD_SCRIPT_PATHS) {
+    const source = await loadPreloadScriptSource(path);
+    const result = await cdpSend(tabId, 'Page.addScriptToEvaluateOnNewDocument', { source });
+    scriptIds.push(result.identifier);
+  }
+
+  injectedScriptIdsByTab.set(tabId, scriptIds);
+}
+
+async function bootstrapLiveDocument(tabId) {
+  if (liveBootstrapTabs.has(tabId)) {
+    return;
+  }
+
+  const sources = await Promise.all(PRELOAD_SCRIPT_PATHS.map(loadPreloadScriptSource));
+  const expression = sources.join('\n\n');
+  await cdpSend(tabId, 'Runtime.evaluate', {
+    expression,
+    returnByValue: false,
+    awaitPromise: true,
+  });
+  liveBootstrapTabs.add(tabId);
+}
+
+async function ensureDebuggerAttached(tabId) {
+  clearDebuggerDetachTimer(tabId);
+
+  if (attachedTabs.has(tabId)) {
+    // Service worker 可能重启，按需补齐域启用与脚本注册。
+    await enableRuntimeDomain(tabId).catch(() => {});
+    await ensurePreloadScriptsInstalled(tabId).catch(() => {});
+    await bootstrapLiveDocument(tabId).catch(() => {});
     return;
   }
 
@@ -1335,19 +1702,28 @@ async function ensureDebuggerAttached(tabId) {
     });
   });
 
-  // 启用 Runtime 域以捕获控制台消息
-  if (!runtimeEnabledTabs.has(tabId)) {
-    cdpSend(tabId, 'Runtime.enable', {}).then(() => {
-      runtimeEnabledTabs.add(tabId);
-    }).catch(() => {});
-  }
+  await enableRuntimeDomain(tabId).catch(() => {});
+  await ensurePreloadScriptsInstalled(tabId).catch(() => {});
+  // 已加载页面需要立即补注入，避免首次 attach 后必须刷新才能使用。
+  await bootstrapLiveDocument(tabId).catch(() => {});
 }
 
-async function detachDebugger(tabId) {
-  if (!attachedTabs.has(tabId)) return;
+async function detachDebugger(tabId, options = {}) {
+  const { force = false } = options;
+  clearDebuggerDetachTimer(tabId);
+
+  if (!force && (stickyAttachedTabs.has(tabId) || interceptConfig.has(tabId))) {
+    return;
+  }
+
+  if (!attachedTabs.has(tabId)) {
+    cleanupDebuggerState(tabId);
+    return;
+  }
+
   await new Promise(resolve => {
     chrome.debugger.detach({ tabId }, () => {
-      attachedTabs.delete(tabId);
+      cleanupDebuggerState(tabId);
       resolve();
     });
   });
@@ -1355,10 +1731,17 @@ async function detachDebugger(tabId) {
 
 // 标签页关闭时自动清理
 chrome.tabs.onRemoved.addListener(tabId => {
-  attachedTabs.delete(tabId);
-  runtimeEnabledTabs.delete(tabId);
+  cleanupDebuggerState(tabId);
   interceptedRequests.delete(tabId);
   interceptConfig.delete(tabId);
+});
+
+chrome.debugger.onDetach.addListener(source => {
+  if (typeof source.tabId !== 'number') {
+    return;
+  }
+
+  cleanupDebuggerState(source.tabId);
 });
 
 // 监听 CDP 事件：捕获控制台消息 + 网络拦截

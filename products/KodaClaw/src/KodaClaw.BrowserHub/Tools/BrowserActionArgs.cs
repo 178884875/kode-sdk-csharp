@@ -9,7 +9,7 @@ namespace KodaClaw.BrowserHub.Tools;
 public sealed record class BrowserActionArgs
 {
     [ToolParameter(
-        Description = "Browser action name. Supported values: navigate, snapshot, screenshot, get_url, list_tabs, click, type, scroll, key_press, go_back, close_tab, switch_tab, evaluate, evaluate_write, cookies, form_state, console, wait, upload_file, intercept, intercept_clear, intercept_result.")]
+        Description = "Browser action name. Supported values: navigate, snapshot, screenshot, get_url, list_tabs, click, type, scroll, key_press, go_back, close_tab, switch_tab, evaluate, evaluate_dom, extract_links, extract_results, evaluate_write, cookies, form_state, console, wait, upload_file, intercept, intercept_clear, intercept_result.")]
     public required string Action { get; init; }
 
     [ToolParameter(
@@ -18,7 +18,12 @@ public sealed record class BrowserActionArgs
     public string? TabId { get; init; }
 
     [ToolParameter(
-        Description = "Action-specific parameters as a dictionary. Supported params by action: navigate { url }; snapshot { selector? }; screenshot { quality?, format? }; click { elementIndex, offsetX?, offsetY? }; type { elementIndex, text, clearFirst?, delayMs? }; scroll { direction?='down', amount?, elementIndex? }; key_press { key }; evaluate { script, sandboxed? }; evaluate_write { script }; cookies { url? }; console { sinceTimestamp? }; wait { durationMs?, waitForSelector?, waitUntil? }; upload_file { elementIndex, filePath }; intercept { urlPattern?, resourceTypes?, requestHeaders?, responseBody? }; intercept_result { urlPattern?, sinceTimestamp?, resourceTypes?, limit? }. Actions list_tabs, get_url, go_back, close_tab, switch_tab, form_state, and intercept_clear do not require extra params.",
+        Description = "Optional browser device id. Strongly recommended when more than one browser device is connected; required for non-list_tabs actions in multi-device scenarios. list_tabs responses include deviceId for each tab.",
+        Required = false)]
+    public string? DeviceId { get; init; }
+
+    [ToolParameter(
+        Description = "Action-specific parameters as a dictionary. Supported params by action: navigate { url }; snapshot { selector? }; screenshot { quality?, format? }; click { elementIndex, offsetX?, offsetY? }; type { elementIndex, text, clearFirst?, delayMs? }; scroll { direction?='down', amount?, elementIndex? }; key_press { key }; evaluate { script, sandboxed? } for sandboxed projected page state; evaluate_dom { script } for live DOM reads that return JSON-safe data; extract_links { selector?, linkSelector?, limit?, sameOriginOnly? }; extract_results { selector?, itemSelector?, titleSelector?, linkSelector?, snippetSelector?, strategy?, limit?, sameOriginOnly? }; evaluate_write { script }; cookies { url? }; console { sinceTimestamp? }; wait { durationMs?, waitForSelector?, waitUntil? }; upload_file { elementIndex, filePath }; intercept { urlPattern?, resourceTypes?, requestHeaders?, responseBody? }; intercept_result { urlPattern?, sinceTimestamp?, resourceTypes?, limit? }. Actions list_tabs, get_url, go_back, close_tab, switch_tab, form_state, and intercept_clear do not require extra params.",
         Required = false)]
     public Dictionary<string, object?>? Params { get; init; }
 }

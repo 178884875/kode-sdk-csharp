@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using KodaClaw.BrowserHub.Connection;
 using KodaClaw.BrowserHub.Device;
 using KodaClaw.BrowserHub.Models;
+using KodaClaw.BrowserHub.Screenshot;
 using KodaClaw.Contracts;
 
 namespace KodaClaw.BrowserHub;
@@ -39,11 +40,13 @@ public sealed class BrowserHubService : IBrowserHubService
     private readonly BrowserDeviceStore _deviceStore;
     private readonly BridgeConnectionManager _connectionManager;
     private readonly BridgeConnectionHandler _connectionHandler;
+    private readonly ScreenshotUploadService? _screenshotUploadService;
 
     // ── Pending request map ───────────────────────────────────────────────────
 
     private readonly ConcurrentDictionary<string, TaskCompletionSource<BridgeResponse>>
         _pendingRequests = new();
+    private readonly ConcurrentDictionary<string, string> _tabDeviceMap = new();
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -57,7 +60,8 @@ public sealed class BrowserHubService : IBrowserHubService
     public BrowserHubService(
         BrowserDeviceStore deviceStore,
         BridgeConnectionManager connectionManager,
-        BridgeConnectionHandler connectionHandler)
+        BridgeConnectionHandler connectionHandler,
+        ScreenshotUploadService? screenshotUploadService = null)
     {
         ArgumentNullException.ThrowIfNull(deviceStore);
         ArgumentNullException.ThrowIfNull(connectionManager);
@@ -66,6 +70,7 @@ public sealed class BrowserHubService : IBrowserHubService
         _deviceStore = deviceStore;
         _connectionManager = connectionManager;
         _connectionHandler = connectionHandler;
+        _screenshotUploadService = screenshotUploadService;
 
         _connectionHandler.OnResponse += CompleteRequest;
     }
@@ -109,28 +114,50 @@ public sealed class BrowserHubService : IBrowserHubService
     public async Task<BrowserResult<NavigateResult>> NavigateAsync(
         string url,
         string? tabId = null,
+        string? deviceId = null,
         CancellationToken ct = default)
     {
+        var resolvedDeviceId = ResolveDeviceId(tabId, deviceId);
         var payload = new { url };
-        return await SendRequestAsync<NavigateResult>(
-            action: "navigate",
-            payload: payload,
-            tabId: tabId,
-            ct: ct).ConfigureAwait(false);
+        var result = resolvedDeviceId is null
+            ? await SendRequestAsync<NavigateResult>(
+                action: "navigate",
+                payload: payload,
+                tabId: tabId,
+                ct: ct).ConfigureAwait(false)
+            : await SendRequestAsync<NavigateResult>(
+                deviceId: resolvedDeviceId,
+                action: "navigate",
+                payload: payload,
+                tabId: tabId,
+                timeoutMs: DefaultRequestTimeoutMs,
+                ct: ct).ConfigureAwait(false);
+
+        return WithNavigateDevice(result, resolvedDeviceId);
     }
 
     /// <inheritdoc/>
     public async Task<BrowserResult<string>> SnapshotAsync(
         string tabId,
         string? selector = null,
+        string? deviceId = null,
         CancellationToken ct = default)
     {
+        var resolvedDeviceId = ResolveDeviceId(tabId, deviceId);
         var payload = selector is not null ? new { selector } : (object?)null;
-        return await SendRequestAsync<string>(
-            action: "snapshot",
-            payload: payload,
-            tabId: tabId,
-            ct: ct).ConfigureAwait(false);
+        return resolvedDeviceId is null
+            ? await SendRequestAsync<string>(
+                action: "snapshot",
+                payload: payload,
+                tabId: tabId,
+                ct: ct).ConfigureAwait(false)
+            : await SendRequestAsync<string>(
+                deviceId: resolvedDeviceId,
+                action: "snapshot",
+                payload: payload,
+                tabId: tabId,
+                timeoutMs: DefaultRequestTimeoutMs,
+                ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -138,41 +165,109 @@ public sealed class BrowserHubService : IBrowserHubService
         string tabId,
         ScreenshotFormat format = ScreenshotFormat.Jpeg,
         int quality = 80,
+        string? deviceId = null,
         CancellationToken ct = default)
     {
-        var payload = new
+        var resolvedDeviceId = ResolveDeviceId(tabId, deviceId) ?? _connectionManager.ConnectedDeviceIds.FirstOrDefault();
+        if (resolvedDeviceId is null)
+        {
+            return Fail<string>("BRIDGE_001", "No connected browser device.");
+        }
+
+        object payload = new
         {
             format = format.ToString().ToLowerInvariant(),
             quality,
         };
+
+        if (_screenshotUploadService is not null)
+        {
+            var (token, _, _) = _screenshotUploadService.GenerateUploadToken(
+                resolvedDeviceId,
+                requestId: Guid.NewGuid().ToString("N"),
+                format: format.ToString());
+
+            payload = new
+            {
+                format = format.ToString().ToLowerInvariant(),
+                quality,
+                uploadToken = token,
+                uploadUrl = "/api/browser/screenshot/upload",
+            };
+        }
+
         return await SendRequestAsync<string>(
+            deviceId: resolvedDeviceId,
             action: "screenshot",
             payload: payload,
             tabId: tabId,
+            timeoutMs: DefaultRequestTimeoutMs,
             ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public async Task<BrowserResult<string>> GetUrlAsync(
         string tabId,
+        string? deviceId = null,
         CancellationToken ct = default)
     {
-        return await SendRequestAsync<string>(
-            action: "get_url",
-            payload: null,
-            tabId: tabId,
-            ct: ct).ConfigureAwait(false);
+        var resolvedDeviceId = ResolveDeviceId(tabId, deviceId);
+        return resolvedDeviceId is null
+            ? await SendRequestAsync<string>(
+                action: "get_url",
+                payload: null,
+                tabId: tabId,
+                ct: ct).ConfigureAwait(false)
+            : await SendRequestAsync<string>(
+                deviceId: resolvedDeviceId,
+                action: "get_url",
+                payload: null,
+                tabId: tabId,
+                timeoutMs: DefaultRequestTimeoutMs,
+                ct: ct).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public async Task<BrowserResult<IReadOnlyList<TabInfo>>> ListTabsAsync(
         CancellationToken ct = default)
     {
-        return await SendRequestAsync<IReadOnlyList<TabInfo>>(
-            action: "list_tabs",
-            payload: null,
-            tabId: null,
-            ct: ct).ConfigureAwait(false);
+        var deviceIds = _connectionManager.ConnectedDeviceIds.ToList();
+        if (deviceIds.Count == 0)
+        {
+            return Fail<IReadOnlyList<TabInfo>>("BRIDGE_001", "No connected browser device.");
+        }
+
+        var tabs = new List<TabInfo>();
+
+        foreach (var deviceId in deviceIds)
+        {
+            var result = await SendRequestAsync<IReadOnlyList<TabInfo>>(
+                deviceId: deviceId,
+                action: "list_tabs",
+                payload: null,
+                tabId: null,
+                timeoutMs: DefaultRequestTimeoutMs,
+                ct: ct).ConfigureAwait(false);
+
+            if (!result.Ok)
+            {
+                return result;
+            }
+
+            if (result.Data is null)
+            {
+                continue;
+            }
+
+            foreach (var tab in result.Data)
+            {
+                var enriched = tab with { DeviceId = deviceId };
+                RememberTab(enriched.TabId, deviceId);
+                tabs.Add(enriched);
+            }
+        }
+
+        return new BrowserResult<IReadOnlyList<TabInfo>>(Ok: true, Data: tabs);
     }
 
     // ── Phase 2: write operations ─────────────────────────────────────────────
@@ -322,6 +417,85 @@ public sealed class BrowserHubService : IBrowserHubService
     }
 
     /// <inheritdoc/>
+    public async Task<BrowserResult<object?>> EvaluateDomAsync(
+        string deviceId,
+        string? tabId,
+        string script,
+        CancellationToken ct = default)
+    {
+        var payload = new { script };
+        return await SendRequestAsync<object?>(
+            deviceId: deviceId,
+            action: "evaluate_dom",
+            payload: payload,
+            tabId: tabId,
+            timeoutMs: DefaultRequestTimeoutMs,
+            ct: ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<BrowserResult<LinkExtractionResult>> ExtractLinksAsync(
+        string deviceId,
+        string? tabId,
+        string? selector = null,
+        string? linkSelector = null,
+        int limit = 20,
+        bool sameOriginOnly = false,
+        CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            selector,
+            linkSelector,
+            limit,
+            sameOriginOnly,
+        };
+
+        return await SendRequestAsync<LinkExtractionResult>(
+            deviceId: deviceId,
+            action: "extract_links",
+            payload: payload,
+            tabId: tabId,
+            timeoutMs: DefaultRequestTimeoutMs,
+            ct: ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<BrowserResult<ResultExtractionResult>> ExtractResultsAsync(
+        string deviceId,
+        string? tabId,
+        string? selector = null,
+        string? itemSelector = null,
+        string? titleSelector = null,
+        string? linkSelector = null,
+        string? snippetSelector = null,
+        string? strategy = null,
+        int limit = 10,
+        bool sameOriginOnly = false,
+        CancellationToken ct = default)
+    {
+        var payload = new
+        {
+            selector,
+            itemSelector,
+            titleSelector,
+            linkSelector,
+            snippetSelector,
+            strategy,
+            limit,
+            sameOriginOnly,
+        };
+
+        return await SendRequestAsync<ResultExtractionResult>(
+            deviceId: deviceId,
+            action: "extract_results",
+            payload: payload,
+            tabId: tabId,
+            timeoutMs: DefaultRequestTimeoutMs,
+            ct: ct).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
     public async Task<BrowserResult<EvaluateResult>> EvaluateWriteAsync(
         string deviceId,
         string? tabId,
@@ -374,7 +548,7 @@ public sealed class BrowserHubService : IBrowserHubService
     public async Task<BrowserResult<ConsoleMessagesResult>> GetConsoleMessagesAsync(
         string deviceId,
         string? tabId,
-        int? sinceTimestamp = null,
+        long? sinceTimestamp = null,
         CancellationToken ct = default)
     {
         var payload = sinceTimestamp.HasValue ? new { sinceTimestamp } : (object?)null;
@@ -542,7 +716,11 @@ public sealed class BrowserHubService : IBrowserHubService
 
                 if (response.Ok)
                 {
-                    var data = DeserializeData<T>(response.Data);
+                    if (!TryDeserializeData(response.Data, out T? data))
+                    {
+                        return Fail<T>("BRIDGE_009", "Failed to deserialize response data.");
+                    }
+
                     return new BrowserResult<T>(Ok: true, Data: data);
                 }
 
@@ -623,7 +801,11 @@ public sealed class BrowserHubService : IBrowserHubService
 
                 if (response.Ok)
                 {
-                    var data = DeserializeData<T>(response.Data);
+                    if (!TryDeserializeData(response.Data, out T? data))
+                    {
+                        return Fail<T>("BRIDGE_009", "Failed to deserialize response data.");
+                    }
+
                     return new BrowserResult<T>(Ok: true, Data: data);
                 }
 
@@ -664,36 +846,96 @@ public sealed class BrowserHubService : IBrowserHubService
     private static BrowserResult<T> Fail<T>(string code, string error) =>
         new(Ok: false, Data: default, Error: error, ErrorCode: code);
 
+    private BrowserResult<NavigateResult> WithNavigateDevice(
+        BrowserResult<NavigateResult> result,
+        string? fallbackDeviceId)
+    {
+        if (!result.Ok || result.Data is null)
+        {
+            return result;
+        }
+
+        var resolvedDeviceId = result.Data.DeviceId ?? fallbackDeviceId;
+        if (string.IsNullOrWhiteSpace(resolvedDeviceId))
+        {
+            return result;
+        }
+
+        RememberTab(result.Data.TabId, resolvedDeviceId);
+        return result with
+        {
+            Data = result.Data with { DeviceId = resolvedDeviceId },
+        };
+    }
+
+    private void RememberTab(string? tabId, string? deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(tabId) || string.IsNullOrWhiteSpace(deviceId))
+        {
+            return;
+        }
+
+        _tabDeviceMap[tabId] = deviceId;
+    }
+
+    private string? ResolveDeviceId(string? tabId, string? explicitDeviceId)
+    {
+        if (!string.IsNullOrWhiteSpace(explicitDeviceId))
+        {
+            return explicitDeviceId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(tabId) && _tabDeviceMap.TryGetValue(tabId, out var mappedDeviceId))
+        {
+            return mappedDeviceId;
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// Deserialises the <c>data</c> field of a <see cref="BridgeResponse"/>.
     /// The field arrives as a <see cref="JsonElement"/> when using System.Text.Json;
     /// this helper converts it to <typeparamref name="T"/>.
     /// </summary>
-    private static T? DeserializeData<T>(object? data)
+    private static bool TryDeserializeData<T>(object? data, out T? value)
     {
         if (data is null)
         {
-            return default;
+            value = default;
+            return true;
         }
 
         if (data is T directCast)
         {
-            return directCast;
+            value = directCast;
+            return true;
         }
 
         if (data is JsonElement element)
         {
-            return element.Deserialize<T>(JsonOptions);
+            try
+            {
+                value = element.Deserialize<T>(JsonOptions);
+                return true;
+            }
+            catch
+            {
+                value = default;
+                return false;
+            }
         }
 
         try
         {
             var json = JsonSerializer.Serialize(data, JsonOptions);
-            return JsonSerializer.Deserialize<T>(json, JsonOptions);
+            value = JsonSerializer.Deserialize<T>(json, JsonOptions);
+            return true;
         }
         catch
         {
-            return default;
+            value = default;
+            return false;
         }
     }
 

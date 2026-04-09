@@ -57,6 +57,7 @@ public interface IBrowserHubService
     Task<BrowserResult<NavigateResult>> NavigateAsync(
         string url,
         string? tabId = null,
+        string? deviceId = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -70,12 +71,13 @@ public interface IBrowserHubService
     /// </param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>
-    /// A <see cref="BrowserResult{T}"/> containing the <see cref="DomSnapshot"/>
-    /// on success, or error details on failure.
+    /// A <see cref="BrowserResult{T}"/> containing a JSON-encoded structured
+    /// snapshot payload on success, or error details on failure.
     /// </returns>
     Task<BrowserResult<string>> SnapshotAsync(
         string tabId,
         string? selector = null,
+        string? deviceId = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -98,6 +100,7 @@ public interface IBrowserHubService
         string tabId,
         ScreenshotFormat format = ScreenshotFormat.Jpeg,
         int quality = 80,
+        string? deviceId = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -111,6 +114,7 @@ public interface IBrowserHubService
     /// </returns>
     Task<BrowserResult<string>> GetUrlAsync(
         string tabId,
+        string? deviceId = null,
         CancellationToken ct = default);
 
     /// <summary>
@@ -203,7 +207,9 @@ public interface IBrowserHubService
         CancellationToken ct = default);
 
     /// <summary>
-    /// Evaluates a JavaScript expression in the context of the specified tab.
+    /// Evaluates a JavaScript expression inside the safe sandbox helper. This
+    /// is suitable for projected page state such as title/body text, but it
+    /// does not expose the live DOM tree.
     /// </summary>
     /// <param name="script">The JavaScript expression to evaluate.</param>
     /// <param name="sandboxed">
@@ -215,6 +221,49 @@ public interface IBrowserHubService
         string? tabId,
         string script,
         bool sandboxed = true,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Evaluates a read-only JavaScript expression against the live page DOM.
+    /// The expression must synchronously return a JSON-serializable value.
+    /// DOM mutations, network requests, and other side effects are rejected by
+    /// the browser runtime when possible.
+    /// </summary>
+    Task<BrowserResult<object?>> EvaluateDomAsync(
+        string deviceId,
+        string? tabId,
+        string script,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Extracts a bounded list of links from the live DOM using a high-level,
+    /// read-only helper. Prefer this over hand-written DOM scripts when you
+    /// need href/text pairs from a page or section.
+    /// </summary>
+    Task<BrowserResult<LinkExtractionResult>> ExtractLinksAsync(
+        string deviceId,
+        string? tabId,
+        string? selector = null,
+        string? linkSelector = null,
+        int limit = 20,
+        bool sameOriginOnly = false,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Extracts structured search/result cards from the live DOM using built-in
+    /// heuristics or caller-supplied selectors.
+    /// </summary>
+    Task<BrowserResult<ResultExtractionResult>> ExtractResultsAsync(
+        string deviceId,
+        string? tabId,
+        string? selector = null,
+        string? itemSelector = null,
+        string? titleSelector = null,
+        string? linkSelector = null,
+        string? snippetSelector = null,
+        string? strategy = null,
+        int limit = 10,
+        bool sameOriginOnly = false,
         CancellationToken ct = default);
 
     /// <summary>
@@ -252,7 +301,7 @@ public interface IBrowserHubService
     Task<BrowserResult<ConsoleMessagesResult>> GetConsoleMessagesAsync(
         string deviceId,
         string? tabId,
-        int? sinceTimestamp = null,
+        long? sinceTimestamp = null,
         CancellationToken ct = default);
 
     /// <summary>

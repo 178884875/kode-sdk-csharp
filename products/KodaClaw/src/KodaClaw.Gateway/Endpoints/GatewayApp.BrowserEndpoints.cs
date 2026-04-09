@@ -65,6 +65,27 @@ public static partial class GatewayApp
             return Results.Ok(new { fileId = Path.GetFileNameWithoutExtension(filePath) });
         });
 
+        browser.MapGet("/screenshot/{fileId}", (
+            string fileId,
+            HttpContext context,
+            IConfiguration configuration,
+            ScreenshotUploadService screenshotUploadService,
+            IDiagnosticsService diagnosticsService) =>
+        {
+            if (!TryAuthorize(context, configuration, diagnosticsService))
+                return Results.Unauthorized();
+
+            var filePath = screenshotUploadService.GetFilePath(fileId);
+            if (filePath is null)
+                return Results.NotFound();
+
+            var contentType = Path.GetExtension(filePath).Equals(".png", StringComparison.OrdinalIgnoreCase)
+                ? "image/png"
+                : "image/jpeg";
+
+            return Results.File(filePath, contentType);
+        });
+
         browser.MapGet("/pairing/token", (
             DevicePairingService pairingService) =>
         {
@@ -195,20 +216,21 @@ public static partial class GatewayApp
             var root = doc.RootElement;
             var action = root.GetProperty("action").GetString()!;
             var tabId = root.TryGetProperty("tabId", out var tid) ? tid.GetString() : null;
+            var requestedDeviceId = root.TryGetProperty("deviceId", out var did) ? did.GetString() : null;
             var deviceIds = connectionManager.ConnectedDeviceIds;
             if (deviceIds.Count == 0)
                 return Results.Ok(new { ok = false, error = "No connected devices" });
-            var deviceId = deviceIds.First();
+            var deviceId = !string.IsNullOrWhiteSpace(requestedDeviceId) ? requestedDeviceId : deviceIds.First();
 
             try
             {
                 object? result = action switch
                 {
                     "list_tabs" => await browserHubService.ListTabsAsync(cancellationToken),
-                    "navigate" => await browserHubService.NavigateAsync(root.GetProperty("url").GetString()!, tabId, cancellationToken),
-                    "get_url" => await browserHubService.GetUrlAsync(tabId!, cancellationToken),
-                    "snapshot" => await browserHubService.SnapshotAsync(tabId!, null, cancellationToken),
-                    "screenshot" => await browserHubService.ScreenshotAsync(tabId!, ScreenshotFormat.Jpeg, 80, cancellationToken),
+                    "navigate" => await browserHubService.NavigateAsync(root.GetProperty("url").GetString()!, tabId, deviceId, cancellationToken),
+                    "get_url" => await browserHubService.GetUrlAsync(tabId!, deviceId, cancellationToken),
+                    "snapshot" => await browserHubService.SnapshotAsync(tabId!, null, deviceId, cancellationToken),
+                    "screenshot" => await browserHubService.ScreenshotAsync(tabId!, ScreenshotFormat.Jpeg, 80, deviceId, cancellationToken),
                     "click" => await browserHubService.ClickAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), null, null, cancellationToken),
                     "type" => await browserHubService.TypeAsync(deviceId, tabId, root.GetProperty("elementIndex").GetInt32(), root.GetProperty("text").GetString()!, false, 0, cancellationToken),
                     "scroll" => await browserHubService.ScrollAsync(deviceId, tabId, Enum.Parse<ScrollDirection>(root.GetProperty("direction").GetString()!, ignoreCase: true), null, null, cancellationToken),
@@ -217,6 +239,27 @@ public static partial class GatewayApp
                     "close_tab" => await browserHubService.CloseTabAsync(deviceId, tabId!, cancellationToken),
                     "switch_tab" => await browserHubService.SwitchTabAsync(deviceId, tabId!, cancellationToken),
                     "evaluate" => await browserHubService.EvaluateAsync(deviceId, tabId, root.GetProperty("script").GetString()!, true, cancellationToken),
+                    "evaluate_dom" => await browserHubService.EvaluateDomAsync(deviceId, tabId, root.GetProperty("script").GetString()!, cancellationToken),
+                    "extract_links" => await browserHubService.ExtractLinksAsync(
+                        deviceId,
+                        tabId,
+                        root.TryGetProperty("selector", out var linkSelectorRoot) ? linkSelectorRoot.GetString() : null,
+                        root.TryGetProperty("linkSelector", out var linkSelector) ? linkSelector.GetString() : null,
+                        root.TryGetProperty("limit", out var linkLimit) ? linkLimit.GetInt32() : 20,
+                        root.TryGetProperty("sameOriginOnly", out var sameOriginLinks) && sameOriginLinks.GetBoolean(),
+                        cancellationToken),
+                    "extract_results" => await browserHubService.ExtractResultsAsync(
+                        deviceId,
+                        tabId,
+                        root.TryGetProperty("selector", out var resultSelector) ? resultSelector.GetString() : null,
+                        root.TryGetProperty("itemSelector", out var itemSelector) ? itemSelector.GetString() : null,
+                        root.TryGetProperty("titleSelector", out var titleSelector) ? titleSelector.GetString() : null,
+                        root.TryGetProperty("linkSelector", out var resultLinkSelector) ? resultLinkSelector.GetString() : null,
+                        root.TryGetProperty("snippetSelector", out var snippetSelector) ? snippetSelector.GetString() : null,
+                        root.TryGetProperty("strategy", out var strategy) ? strategy.GetString() : null,
+                        root.TryGetProperty("limit", out var resultLimit) ? resultLimit.GetInt32() : 10,
+                        root.TryGetProperty("sameOriginOnly", out var sameOriginResults) && sameOriginResults.GetBoolean(),
+                        cancellationToken),
                     "evaluate_write" => await browserHubService.EvaluateWriteAsync(deviceId, tabId, root.GetProperty("script").GetString()!, cancellationToken),
                     "cookies" => await browserHubService.GetCookiesAsync(deviceId, tabId, null, cancellationToken),
                     "form_state" => await browserHubService.GetFormStateAsync(deviceId, tabId, cancellationToken),

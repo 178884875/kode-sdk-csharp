@@ -46,6 +46,48 @@ public sealed record SwitchTabResult(
 public sealed record EvaluateResult(
     [property: JsonPropertyName("value")] object? Value,
     [property: JsonPropertyName("error")] string? Error);
+// ── Structured extraction ────────────────────────────────────────────────────
+
+public sealed record ExtractedLink(
+    [property: JsonPropertyName("text")] string Text,
+    [property: JsonPropertyName("href")] string Href,
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("host")] string Host,
+    [property: JsonPropertyName("sameOrigin")] bool SameOrigin);
+
+public sealed record LinkExtractionResult(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("selector")] string Selector,
+    [property: JsonPropertyName("linkSelector")] string LinkSelector,
+    [property: JsonPropertyName("totalMatches")] int TotalMatches,
+    [property: JsonPropertyName("returnedCount")] int ReturnedCount,
+    [property: JsonPropertyName("sameOriginOnly")] bool SameOriginOnly,
+    [property: JsonPropertyName("links")] IReadOnlyList<ExtractedLink> Links,
+    [property: JsonPropertyName("note")] string? Note,
+    [property: JsonPropertyName("error")] string? Error = null);
+
+public sealed record ExtractedResultItem(
+    [property: JsonPropertyName("index")] int Index,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("snippet")] string? Snippet,
+    [property: JsonPropertyName("source")] string? Source);
+
+public sealed record ResultExtractionResult(
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("url")] string Url,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("strategy")] string Strategy,
+    [property: JsonPropertyName("selector")] string Selector,
+    [property: JsonPropertyName("itemSelector")] string ItemSelector,
+    [property: JsonPropertyName("totalMatches")] int TotalMatches,
+    [property: JsonPropertyName("returnedCount")] int ReturnedCount,
+    [property: JsonPropertyName("sameOriginOnly")] bool SameOriginOnly,
+    [property: JsonPropertyName("results")] IReadOnlyList<ExtractedResultItem> Results,
+    [property: JsonPropertyName("note")] string? Note,
+    [property: JsonPropertyName("error")] string? Error = null);
 // ── Cookies ───────────────────────────────────────────────────────────────────
 
 public sealed record CookieItem(

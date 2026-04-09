@@ -16,6 +16,9 @@
 (function () {
   'use strict';
 
+  const MAX_INTERACTIVE_ELEMENTS = 120;
+  const MAX_TEXT_CHARS = 6000;
+
   /**
    * 判断元素是否可见（粗略判断）
    * @param {Element} el
@@ -55,6 +58,7 @@
     const root = selector ? document.querySelector(selector) : document.body;
     if (!root) {
       return {
+        kind: 'dom_snapshot',
         url: location.href,
         title: document.title,
         error: selector ? `selector 未匹配：${selector}` : '无 body 元素',
@@ -72,7 +76,7 @@
     );
 
     const elements = [];
-    let index = 0;
+    let totalInteractiveElements = 0;
 
     allEls.forEach(el => {
       if (!isVisible(el)) return;
@@ -87,8 +91,14 @@
 
       if (!isInteractive) return;
 
+      totalInteractiveElements++;
+
+      if (elements.length >= MAX_INTERACTIVE_ELEMENTS) {
+        return;
+      }
+
       const entry = {
-        index,
+        index: elements.length,
         tag,
         role: role || undefined,
         type: el.getAttribute('type') || undefined,
@@ -103,22 +113,37 @@
       Object.keys(entry).forEach(k => entry[k] === undefined && delete entry[k]);
 
       elements.push(entry);
-      el.setAttribute('data-kc-index', String(index));
-      index++;
+      el.setAttribute('data-kc-index', String(entry.index));
     });
 
     // ── 提取页面主文本（去重、截断）──────────────────────────
-    const textContent = (root.innerText || root.textContent || '')
+    const fullTextContent = (root.innerText || root.textContent || '')
       .replace(/\s{3,}/g, '\n\n')
-      .trim()
-      .slice(0, 8000);
+      .trim();
+    const textTruncated = fullTextContent.length > MAX_TEXT_CHARS;
+    const textContent = fullTextContent.slice(0, MAX_TEXT_CHARS);
+    const elementLimitReached = totalInteractiveElements > elements.length;
+    const notes = [];
+
+    if (elementLimitReached) {
+      notes.push(`仅返回前 ${MAX_INTERACTIVE_ELEMENTS} 个可交互元素；请用 selector 缩小范围，或改用 evaluate_dom 做定向提取。`);
+    }
+    if (textTruncated) {
+      notes.push(`页面文本已截断为前 ${MAX_TEXT_CHARS} 个字符。`);
+    }
 
     return {
+      kind: 'dom_snapshot',
       url: location.href,
       title: document.title,
       elements,
       text: textContent,
       elementCount: elements.length,
+      totalInteractiveElements,
+      elementLimitReached,
+      textTruncated,
+      scope: selector || 'document',
+      note: notes.length > 0 ? notes.join(' ') : undefined,
       snapshotAt: Date.now(),
     };
   }
@@ -129,6 +154,7 @@
       return buildSnapshot(selector);
     } catch (err) {
       return {
+        kind: 'dom_snapshot',
         url: location.href,
         title: document.title,
         error: err.message,
