@@ -42,7 +42,22 @@ public class RetryWithReflectionArgs
     /// <summary>
     /// Maximum tool-call iterations per attempt.
     /// </summary>
-    [ToolParameter(Description = "Max iterations per attempt (default 20, max 50)",
+    [ToolParameter(Description = "Max iterations per attempt (default 12, max 50)",
         Required = false)]
-    public int MaxIterationsPerAttempt { get; init; } = 20;
+    public int MaxIterationsPerAttempt { get; init; } = 12;
+
+    /// <summary>
+    /// Maximum context tokens for each attempt's sub-agent.
+    /// </summary>
+    [ToolParameter(Description =
+        "Max context tokens per attempt's sub-agent (default 80000). " +
+        "Increase to 120000–160000 when the task reads many large files.",
+        Required = false)]
+    public int MaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Fixed: use MaxIterationsPerAttempt/MaxContextTokens as-is. " +
+        "Auto: estimate complexity from the task and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

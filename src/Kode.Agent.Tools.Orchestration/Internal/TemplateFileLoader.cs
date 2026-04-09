@@ -10,7 +10,8 @@ namespace Kode.Agent.Tools.Orchestration.Internal;
 /// </summary>
 internal record LoadedTemplate(
     AgentTemplateDefinition Definition,
-    int MaxIterations = 20,
+    int MaxIterations = 12,
+    int MaxContextTokens = 80_000,
     IReadOnlyList<string>? AutoActivateSkills = null
 );
 
@@ -128,9 +129,10 @@ internal static class TemplateFileLoader
             Runtime = subAgents != null ? new TemplateRuntimeConfig { SubAgents = subAgents } : null,
         };
 
-        int maxIterations = dto.Runtime?.MaxIterations ?? 20;
+        int maxIterations = dto.Runtime?.MaxIterations ?? 12;
+        int maxContextTokens = dto.Runtime?.MaxContextTokens ?? 80_000;
 
-        return new LoadedTemplate(definition, maxIterations, autoActivateSkills);
+        return new LoadedTemplate(definition, maxIterations, maxContextTokens, autoActivateSkills);
     }
 }
 
@@ -198,6 +200,9 @@ internal sealed class AgentTemplateDtoRuntime
     // Problem 1: was "maxIterations", now "max_iterations"
     [JsonPropertyName("max_iterations")]
     public int? MaxIterations { get; init; }
+
+    [JsonPropertyName("max_context_tokens")]
+    public int? MaxContextTokens { get; init; }
 
     // Problem 1: was "subAgents", now "sub_agents"
     [JsonPropertyName("sub_agents")]

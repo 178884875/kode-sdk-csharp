@@ -19,6 +19,18 @@ public class FanOutFanInArgs
     [ToolParameter(Description = "Tools for the synthesis sub-agent. Defaults to read-only tools.", Required = false)]
     public IReadOnlyList<string>? SynthesisTools { get; init; }
 
-    [ToolParameter(Description = "Max iterations for the synthesis sub-agent (default 20).", Required = false)]
-    public int SynthesisMaxIterations { get; init; } = 20;
+    [ToolParameter(Description = "Max iterations for the synthesis sub-agent (default 12).", Required = false)]
+    public int SynthesisMaxIterations { get; init; } = 12;
+
+    [ToolParameter(Description =
+        "Max context tokens for the synthesis sub-agent (default 80000). " +
+        "Increase when fan-out summaries are large.",
+        Required = false)]
+    public int SynthesisMaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Fixed: use SynthesisMaxIterations/SynthesisMaxContextTokens as-is. " +
+        "Auto: estimate synthesis complexity and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode SynthesisMaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

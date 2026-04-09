@@ -91,12 +91,17 @@ public sealed class PipelineTool : ToolBase<PipelineArgs>
                 WorkDir = stage.WorkDir,
                 Tools = stage.Tools,
                 MaxIterations = stage.MaxIterations,
+                MaxContextTokens = stage.MaxContextTokens,
+                MaxIterationsMode = stage.MaxIterationsMode,
                 ParentSandboxOptions = context.SandboxOptions,
                 ModelProvider = _modelProvider,
                 ModelId = _modelId,
                 ToolRegistry = _toolRegistry,
                 SandboxFactory = _sandboxFactory,
                 LoggerFactory = _loggerFactory,
+                ParentEventBus = context.Agent?.EventBus,
+                Label = $"pipeline:{stageName}",
+                ToolCallId = context.CallId,
             }, cancellationToken);
 
             if (result.Success)

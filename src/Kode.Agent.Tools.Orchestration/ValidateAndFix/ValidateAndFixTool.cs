@@ -71,7 +71,7 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
         var rounds = new List<object>();
 
         // ── initial execution ──────────────────────────────────────────────
-        var execResult = await RunSubAgent(args.Task, args, context, cancellationToken);
+        var execResult = await RunSubAgent(args.Task, args, context, "execute", cancellationToken);
         if (!execResult.Success)
         {
             rounds.Add(new { round = 0, stage = "execute", passed = false, error = execResult.Error });
@@ -82,7 +82,7 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
 
         for (var round = 0; round <= maxRounds; round++)
         {
-            // ── validate ───────────────────────────────────────────────────
+            // ── validate (pure-reasoning, no event forwarding) ─────────────
             var validationTask = BuildValidationTask(currentOutput, args.ValidationCriteria);
             var validResult = await SubAgentRunner.RunAsync(new SubAgentRequest
             {
@@ -112,7 +112,7 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
 
             // ── fix ────────────────────────────────────────────────────────
             var fixTask = BuildFixTask(args.Task, currentOutput, validSummary);
-            var fixResult = await RunSubAgent(fixTask, args, context, cancellationToken);
+            var fixResult = await RunSubAgent(fixTask, args, context, $"fix:{round + 1}", cancellationToken);
 
             rounds.Add(new { round, stage = "fix", success = fixResult.Success, error = fixResult.Error });
 
@@ -126,19 +126,24 @@ public sealed class ValidateAndFixTool : ToolBase<ValidateAndFixArgs>
     }
 
     private Task<SubAgentResult> RunSubAgent(
-        string task, ValidateAndFixArgs args, ToolContext context, CancellationToken ct) =>
+        string task, ValidateAndFixArgs args, ToolContext context, string label, CancellationToken ct) =>
         SubAgentRunner.RunAsync(new SubAgentRequest
         {
             Task = task,
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterationsPerAttempt,
+            MaxContextTokens = args.MaxContextTokens,
+            MaxIterationsMode = args.MaxIterationsMode,
             ParentSandboxOptions = context.SandboxOptions,
             ModelProvider = _modelProvider,
             ModelId = _modelId,
             ToolRegistry = _toolRegistry,
             SandboxFactory = _sandboxFactory,
             LoggerFactory = _loggerFactory,
+            ParentEventBus = context.Agent?.EventBus,
+            Label = $"validate_and_fix:{label}",
+            ToolCallId = context.CallId,
         }, ct);
 
     private static string BuildValidationTask(string output, string criteria) =>

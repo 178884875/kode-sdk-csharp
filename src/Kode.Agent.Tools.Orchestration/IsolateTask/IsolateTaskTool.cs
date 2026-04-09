@@ -72,12 +72,17 @@ public sealed class IsolateTaskTool : ToolBase<IsolateTaskArgs>
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterations,
+            MaxContextTokens = args.MaxContextTokens,
+            MaxIterationsMode = args.MaxIterationsMode,
             ParentSandboxOptions = context.SandboxOptions,
             ModelProvider = _modelProvider,
             ModelId = _modelId,
             ToolRegistry = _toolRegistry,
             SandboxFactory = _sandboxFactory,
             LoggerFactory = _loggerFactory,
+            ParentEventBus = context.Agent?.EventBus,
+            Label = "isolate_task",
+            ToolCallId = context.CallId,
         }, cancellationToken);
 
         if (!result.Success)

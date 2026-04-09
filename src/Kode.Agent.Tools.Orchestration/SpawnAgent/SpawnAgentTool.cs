@@ -87,6 +87,8 @@ public sealed class SpawnAgentTool : ToolBase<SpawnAgentArgs>
             Prompt = args.Prompt,
             WorkDir = args.WorkDir,
             MaxIterationsOverride = args.MaxIterations,
+            MaxContextTokensOverride = args.MaxContextTokens,
+            MaxIterationsMode = args.MaxIterationsMode,
             ModelProvider = _modelProvider,
             ModelId = _modelId,
             ToolRegistry = _toolRegistry,

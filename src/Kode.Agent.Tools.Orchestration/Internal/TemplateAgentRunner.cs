@@ -17,6 +17,8 @@ internal sealed record TemplateRunRequest
     public required string Prompt { get; init; }
     public string? WorkDir { get; init; }
     public int? MaxIterationsOverride { get; init; }
+    public int? MaxContextTokensOverride { get; init; }
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
     public required IModelProvider ModelProvider { get; init; }
     public required string ModelId { get; init; }
     public required IToolRegistry ToolRegistry { get; init; }
@@ -129,7 +131,27 @@ internal static class TemplateAgentRunner
         }
         permissions ??= new PermissionConfig { Mode = "auto", RequireApprovalTools = [] };
 
+        // Determine iteration budget and context window:
+        // Priority: Auto-estimate > caller override > template value > hardcoded default
         var maxIterations = request.MaxIterationsOverride ?? request.Template.MaxIterations;
+        var maxContextTokens = request.MaxContextTokensOverride ?? request.Template.MaxContextTokens;
+
+        if (request.MaxIterationsMode == MaxIterationsMode.Auto)
+        {
+            var estimate = await ComplexityEstimator.EstimateAsync(
+                task: request.Prompt,
+                workDir: childWorkDir,
+                modelId: request.ModelId,
+                modelProvider: request.ModelProvider,
+                toolRegistry: request.ToolRegistry,
+                sandboxFactory: request.SandboxFactory,
+                fallbackIterations: maxIterations,
+                fallbackContextTokens: maxContextTokens,
+                loggerFactory: request.LoggerFactory,
+                cancellationToken: cancellationToken);
+            maxIterations = estimate.MaxIterations;
+            maxContextTokens = estimate.MaxContextTokens;
+        }
 
         // Problem 2: build SkillsConfig when skills paths are provided and template declares auto-activate
         var autoActivateSkills = request.Template.AutoActivateSkills;
@@ -154,8 +176,8 @@ internal static class TemplateAgentRunner
             Skills = skillsConfig,
             Context = new ContextManagerOptions
             {
-                MaxTokens = 80_000,
-                CompressToTokens = 50_000,
+                MaxTokens = Math.Max(20_000, maxContextTokens),
+                CompressToTokens = (int)(Math.Max(20_000, maxContextTokens) * 0.625),
                 ToolResultCompression = new ToolResultCompressionOptions { Enabled = true },
             },
             AgentRole = "sub-agent",

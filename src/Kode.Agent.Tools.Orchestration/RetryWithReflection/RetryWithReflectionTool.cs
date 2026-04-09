@@ -85,12 +85,17 @@ public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
                 WorkDir = args.WorkDir,
                 Tools = args.Tools,
                 MaxIterations = args.MaxIterationsPerAttempt,
+                MaxContextTokens = args.MaxContextTokens,
+                MaxIterationsMode = args.MaxIterationsMode,
                 ParentSandboxOptions = context.SandboxOptions,
                 ModelProvider = _modelProvider,
                 ModelId = _modelId,
                 ToolRegistry = _toolRegistry,
                 SandboxFactory = _sandboxFactory,
                 LoggerFactory = _loggerFactory,
+                ParentEventBus = context.Agent?.EventBus,
+                Label = $"retry_with_reflection:{attempt}/{totalAttempts}",
+                ToolCallId = context.CallId,
             }, cancellationToken);
 
             if (result.Success)
@@ -110,14 +115,17 @@ public sealed class RetryWithReflectionTool : ToolBase<RetryWithReflectionArgs>
             attemptRecords.Add(new { attempt, success = false, error = result.Error });
         }
 
-        // All attempts exhausted — return Ok with success=false so caller sees the attempt log
-        return ToolResult.Ok(new
+        // All attempts exhausted — return Fail so the caller knows the task did not complete.
+        // The attempt log is included in the error message for debugging.
+        var lastError = previousError ?? "unknown error";
+        var attemptSummary = string.Join("; ", attemptRecords.Select((r, i) =>
         {
-            success = false,
-            summary = (string?)null,
-            totalAttempts,
-            attempts = attemptRecords,
-        });
+            var rec = (dynamic)r;
+            return $"attempt {i + 1}: {(rec.success ? "ok" : rec.error ?? "failed")}";
+        }));
+        return ToolResult.Fail(
+            $"retry_with_reflection exhausted {totalAttempts} attempt(s). Last error: {lastError}. " +
+            $"Attempts: [{attemptSummary}]");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

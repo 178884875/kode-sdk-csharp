@@ -36,7 +36,23 @@ public class IsolateTaskArgs
     /// <summary>
     /// Maximum iterations the sub-agent may run. Clamped to [1, 50].
     /// </summary>
-    [ToolParameter(Description = "Maximum tool-call iterations (default 20, max 50)",
+    [ToolParameter(Description = "Maximum tool-call iterations (default 12, max 50)",
         Required = false)]
-    public int MaxIterations { get; init; } = 20;
+    public int MaxIterations { get; init; } = 12;
+
+    /// <summary>
+    /// Maximum context tokens for the sub-agent. Increase for tasks that read many large files.
+    /// </summary>
+    [ToolParameter(Description =
+        "Max context tokens for the sub-agent (default 80000). " +
+        "Increase to 120000–160000 when the task reads many large files.",
+        Required = false)]
+    public int MaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "How to determine the iteration and context budget. " +
+        "Fixed (default): use MaxIterations and MaxContextTokens as-is. " +
+        "Auto: run a quick complexity analysis first and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

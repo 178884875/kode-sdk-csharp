@@ -99,6 +99,8 @@ public sealed class MapReduceTool : ToolBase<MapReduceArgs>
                 Task = reduceTask,
                 Tools = null,        // reduce is typically reasoning-only; use defaults
                 MaxIterations = args.ReduceMaxIterations,
+                MaxContextTokens = args.ReduceMaxContextTokens,
+                MaxIterationsMode = args.ReduceMaxIterationsMode,
                 ParentSandboxOptions = context.SandboxOptions,
                 ModelProvider = _modelProvider,
                 ModelId = _modelId,
@@ -150,6 +152,8 @@ public sealed class MapReduceTool : ToolBase<MapReduceArgs>
                 Task = task,
                 Tools = args.MapTools,
                 MaxIterations = args.MapMaxIterations,
+                MaxContextTokens = args.MapMaxContextTokens,
+                MaxIterationsMode = args.MapMaxIterationsMode,
                 ParentSandboxOptions = context.SandboxOptions,
                 ModelProvider = _modelProvider,
                 ModelId = _modelId,

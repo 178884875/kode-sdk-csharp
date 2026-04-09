@@ -19,6 +19,18 @@ public class AskSpecialistArgs
     [ToolParameter(Description = "Working directory override.", Required = false)]
     public string? WorkDir { get; init; }
 
-    [ToolParameter(Description = "Max iterations for the specialist sub-agent (default 20, max 50).", Required = false)]
-    public int MaxIterations { get; init; } = 20;
+    [ToolParameter(Description = "Max iterations for the specialist sub-agent (default 12, max 50).", Required = false)]
+    public int MaxIterations { get; init; } = 12;
+
+    [ToolParameter(Description =
+        "Max context tokens for the specialist sub-agent (default 80000). " +
+        "Increase to 120000–160000 when the task reads many large files.",
+        Required = false)]
+    public int MaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Fixed: use MaxIterations/MaxContextTokens as-is. " +
+        "Auto: estimate complexity from the task and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

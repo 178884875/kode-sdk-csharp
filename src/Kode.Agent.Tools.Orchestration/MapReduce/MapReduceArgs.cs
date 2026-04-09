@@ -28,6 +28,30 @@ public class MapReduceArgs
     [ToolParameter(Description = "Max iterations per map sub-agent (default 10, max 50).", Required = false)]
     public int MapMaxIterations { get; init; } = 10;
 
-    [ToolParameter(Description = "Max iterations for the reduce sub-agent (default 20, max 50).", Required = false)]
-    public int ReduceMaxIterations { get; init; } = 20;
+    [ToolParameter(Description = "Max iterations for the reduce sub-agent (default 12, max 50).", Required = false)]
+    public int ReduceMaxIterations { get; init; } = 12;
+
+    [ToolParameter(Description =
+        "Max context tokens per map sub-agent (default 80000). " +
+        "Increase when individual items/chunks are large.",
+        Required = false)]
+    public int MapMaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Max context tokens for the reduce sub-agent (default 80000). " +
+        "Increase when there are many map results to aggregate.",
+        Required = false)]
+    public int ReduceMaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Fixed: use MapMaxIterations/MapMaxContextTokens as-is for map agents. " +
+        "Auto: estimate each chunk's complexity automatically.",
+        Required = false)]
+    public MaxIterationsMode MapMaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
+
+    [ToolParameter(Description =
+        "Fixed: use ReduceMaxIterations/ReduceMaxContextTokens as-is for the reduce agent. " +
+        "Auto: estimate reduce complexity automatically.",
+        Required = false)]
+    public MaxIterationsMode ReduceMaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

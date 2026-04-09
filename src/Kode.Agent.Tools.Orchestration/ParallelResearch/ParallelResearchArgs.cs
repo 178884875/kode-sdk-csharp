@@ -68,7 +68,22 @@ public class ResearchTask
     /// <summary>
     /// Maximum tool-call iterations for this sub-agent.
     /// </summary>
-    [ToolParameter(Description = "Max iterations for this sub-agent (default 20, max 50)",
+    [ToolParameter(Description = "Max iterations for this sub-agent (default 12, max 50)",
         Required = false)]
-    public int MaxIterations { get; init; } = 20;
+    public int MaxIterations { get; init; } = 12;
+
+    /// <summary>
+    /// Maximum context tokens for this sub-agent.
+    /// </summary>
+    [ToolParameter(Description =
+        "Max context tokens for this sub-agent (default 80000). " +
+        "Increase to 120000–160000 when the task reads many large files.",
+        Required = false)]
+    public int MaxContextTokens { get; init; } = 80_000;
+
+    [ToolParameter(Description =
+        "Fixed: use MaxIterations/MaxContextTokens as-is. " +
+        "Auto: estimate complexity from the task and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

@@ -73,6 +73,8 @@ public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
             WorkDir = args.WorkDir,
             Tools = args.Tools,
             MaxIterations = args.MaxIterations,
+            MaxContextTokens = args.MaxContextTokens,
+            MaxIterationsMode = args.MaxIterationsMode,
             ParentSandboxOptions = context.SandboxOptions,
             ModelProvider = _modelProvider,
             ModelId = _modelId,
@@ -80,6 +82,9 @@ public sealed class AskSpecialistTool : ToolBase<AskSpecialistArgs>
             SandboxFactory = _sandboxFactory,
             LoggerFactory = _loggerFactory,
             SystemPromptOverride = systemPrompt,
+            ParentEventBus = context.Agent?.EventBus,
+            Label = args.SpecialistRole,
+            ToolCallId = context.CallId,
         }, cancellationToken);
 
         if (!result.Success)

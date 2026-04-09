@@ -50,6 +50,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     private int _invalidToolArgsStreak;
     private string? _nextModelNudgeText;
     private NextModelToolsOverride? _nextModelToolsOverride;
+    // Loop detection: tracks (tool_name:input_hash) -> call count within the current run.
+    private readonly Dictionary<string, int> _toolCallFingerprints = new(StringComparer.Ordinal);
 
     private ISandbox? _sandbox;
     private AgentRuntimeState _runtimeState = AgentRuntimeState.Ready;
@@ -1199,7 +1201,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 _filePool,
                 _sandbox,
                 systemPromptTokens,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
             if (compression != null)
             {
@@ -1248,7 +1250,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         {
             var forced = await _contextManager.CompressAsync(
                 _messages, _eventBus.GetTimelineSnapshot(),
-                _filePool, _sandbox, systemPromptTokens, cancellationToken);
+                _filePool, _sandbox, systemPromptTokens, force: true, cancellationToken);
 
             if (forced != null)
             {
@@ -1309,6 +1311,21 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
                 Content = r.Result.Success ? r.Result.Value ?? "Success" : r.Result.Error ?? "Error",
                 IsError = !r.Result.Success
             }).Cast<ContentBlock>().ToList();
+
+            // Loop detection: count (tool:input_hash) occurrences; nudge toward summary at 3 repeats.
+            foreach (var toolUse in toolUses)
+            {
+                var fp = $"{toolUse.Name}:{System.Text.Json.JsonSerializer.Serialize(toolUse.Input).GetHashCode()}";
+                _toolCallFingerprints.TryGetValue(fp, out var prev);
+                var next = prev + 1;
+                _toolCallFingerprints[fp] = next;
+                if (next >= 3 && string.IsNullOrWhiteSpace(_nextModelNudgeText))
+                {
+                    _nextModelNudgeText =
+                        $"You have called `{toolUse.Name}` with the same arguments {next} times. " +
+                        "You may be stuck in a loop. Stop calling tools and write your final summary now.";
+                }
+            }
 
             if (!string.IsNullOrWhiteSpace(_nextModelNudgeText))
             {

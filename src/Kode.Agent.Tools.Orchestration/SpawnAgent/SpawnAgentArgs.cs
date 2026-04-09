@@ -18,4 +18,16 @@ public class SpawnAgentArgs
 
     [ToolParameter(Description = "Override the maximum number of iterations from the template (1–100).", Required = false)]
     public int? MaxIterations { get; init; }
+
+    [ToolParameter(Description =
+        "Override the max context tokens from the template (e.g. 80000, 120000, 160000). " +
+        "Ignored when MaxIterationsMode is Auto.",
+        Required = false)]
+    public int? MaxContextTokens { get; init; }
+
+    [ToolParameter(Description =
+        "Fixed (default): use MaxIterations/MaxContextTokens values (template or override). " +
+        "Auto: run a quick complexity analysis and set both values automatically.",
+        Required = false)]
+    public MaxIterationsMode MaxIterationsMode { get; init; } = MaxIterationsMode.Fixed;
 }

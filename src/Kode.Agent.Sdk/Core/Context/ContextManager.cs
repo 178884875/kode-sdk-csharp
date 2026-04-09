@@ -242,10 +242,13 @@ public class ContextManager
         IFilePool? filePool = null,
         ISandbox? sandbox = null,
         int systemPromptTokens = 0,
+        bool force = false,
         CancellationToken cancellationToken = default)
     {
         var usage = Analyze(messages, systemPromptTokens);
-        if (!usage.ShouldCompress)
+        // force=true skips the threshold check — used when the model already returned empty,
+        // meaning the actual token count exceeds the window regardless of our estimate.
+        if (!force && !usage.ShouldCompress)
             return null;
 
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

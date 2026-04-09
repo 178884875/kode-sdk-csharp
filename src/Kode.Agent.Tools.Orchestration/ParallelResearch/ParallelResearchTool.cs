@@ -138,6 +138,8 @@ public sealed class ParallelResearchTool : ToolBase<ParallelResearchArgs>
                 WorkDir = task.WorkDir,
                 Tools = task.Tools,
                 MaxIterations = task.MaxIterations,
+                MaxContextTokens = task.MaxContextTokens,
+                MaxIterationsMode = task.MaxIterationsMode,
                 ParentSandboxOptions = context.SandboxOptions,
                 ModelProvider = _modelProvider,
                 ModelId = _modelId,
