@@ -1,0 +1,57 @@
+services:
+  kodaclaw:
+    image: kodaclaw:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5076:5076"
+    volumes:
+      - kodaclaw-workspace:/data
+    environment:
+      # ── Model API Keys (optional — configure via Setup Wizard at http://localhost:5076/setup) ──
+      # At least one key is required for KodaClaw to function.
+      # Keys are stored in the OS keychain after first setup.
+      # Uncomment and fill in one of the following:
+      #
+      # KODACLAW_ANTHROPIC_API_KEY: "sk-ant-..."
+      # KODACLAW_OPENAI_API_KEY: "sk-..."
+
+      # ── Gateway settings ──
+      KODACLAW_GATEWAY_URL: "http://0.0.0.0:5076"
+      KODACLAW_WORKSPACE_ROOT: "/data"
+      ASPNETCORE_ENVIRONMENT: "Production"
+
+      # ── web-tools: point to local SearXNG for higher throughput search ──
+      SEARXNG_URL: "http://searxng:8080"
+
+      # ── Optional: OpenTelemetry (uncomment to enable) ──
+      # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+    depends_on:
+      searxng:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:5076/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - searxng-data:/etc/searxng
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  kodaclaw-workspace:
+    driver: local
+  searxng-data:
+    driver: local

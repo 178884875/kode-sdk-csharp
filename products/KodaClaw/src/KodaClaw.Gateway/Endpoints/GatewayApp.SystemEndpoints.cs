@@ -9,6 +9,9 @@ public static partial class GatewayApp
 {
     private static void MapSystemEndpoints(WebApplication app)
     {
+        // Unauthenticated health probe — used by Docker HEALTHCHECK and load balancers.
+        app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+
         var system = app.MapGroup("/api/system");
         system.MapGet("/health", () =>
         {

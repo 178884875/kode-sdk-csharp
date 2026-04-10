@@ -1,5 +1,6 @@
-using KodaClaw.Contracts;
 using Kode.Agent.Sdk.Core.Abstractions;
+using Kode.Agent.Sdk.Core.Types;
+using KodaClaw.Contracts;
 
 namespace KodaClaw.Runtime;
 
@@ -67,6 +68,14 @@ public interface IChannelSessionService
     /// Returns a user-facing status message describing the result.
     /// </summary>
     Task<string> CompressSessionContextAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads the message history for the given session from disk.
+    /// Safe to call concurrently while the session is actively running (WAL write strategy).
+    /// Returns an empty list if the session has not been created yet or messages cannot be read.
+    /// Used by the /btw context-fork path.
+    /// </summary>
+    Task<IReadOnlyList<Message>> GetSessionMessagesAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

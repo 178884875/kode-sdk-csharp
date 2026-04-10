@@ -2,6 +2,71 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## KC-DOCKER 专项 — Docker 化与热更配置系统（KC-DOCKER-001~006）
+
+> FREEZE doc: `docs/ITERATION_KC_DOCKER_FREEZE.md`（2026-04-10）
+> 类型：大改（跨多迭代）
+> 受影响模块：`KodaClaw.Gateway`（主）、`KodaClaw.Runtime`、`apps/kodaclaw-web`、新增 Dockerfile / docker-compose
+>
+> **注**：读代码后更新（2026-04-10）。`ISecretStore` / `PlatformSecretStore` / `LinuxSecretStore`（file fallback）已完整实现，无需重建。
+> `GatewayConfigurationBootstrap` 已有 `ReloadOnChange = true`。Model 配置为 `config/models/*.json`（每 endpoint 一个文件），不是单一 `models.json`。
+> 核心 gap：ENV 只读取、不持久化，容器重启后 API key 丢失。
+
+### KC-DOCKER-001 — 配置写入共享层 + ENV 路径（ConfigBootstrapWriter / ConfigBootstrapService）
+
+**背景**：两条 onboarding 路径（ENV 自动持久化 / Setup Wizard 浏览器引导）共用同一写入逻辑，提取为 `ConfigBootstrapWriter` 防止重复。Docker 用户首次部署推荐通过 Setup Wizard 配置，无需设置 ENV key。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0101 | `KodaClaw.Gateway/Bootstrap` | 新增 `ConfigBootstrapWriter`（普通 class，供注入）：构造注入 `ISecretStore`、`IModelRegistryRepository`；公开方法 `WriteIfAbsentAsync(string? anthropicKey, string? openaiKey, CancellationToken)`：① `existing = await _registry.ListAsync()`；② 若 `anthropicKey` 非空且 `existing` 中无 `ApiKeySecretRef == "keychain:config-bootstrap:anthropic"` → `ISecretStore.UpsertAsync(...)` + `_registry.AddAsync(new ModelEndpoint{ Id="anthropic-default", DisplayName="Anthropic (Bootstrap)", Provider=Anthropic, ModelId="claude-sonnet-4-20250514", ApiKeySecretRef="keychain:config-bootstrap:anthropic", Enabled=true, Capabilities=Text, IsDefault=!existing.Any(m=>m.IsDefault), CreatedAt=now, UpdatedAt=now })`；③ `openaiKey` 同理写 `Id="openai-default"`；④ 已存在 → 跳过；key 为空 → 跳过，不报错；写入由 `JsonModelRegistryRepository`（`JsonStoreBase`）完成，格式自动保证。新增 `ConfigBootstrapService`（`IHostedService`）：仅读 `KODACLAW_ANTHROPIC_API_KEY` / `KODACLAW_OPENAI_API_KEY` ENV，然后调 `_writer.WriteIfAbsentAsync(envAnthropic, envOpenAI)` | L2 集成测试：有 ENV 无 endpoint → 首次启动后 `_registry.ListAsync()` 含正确 endpoint + `.secrets` 含实际 key；有 endpoint → 不覆盖；仅 OPENAI key → `IsDefault=true`；无 ENV → 不报错不生成 endpoint；直接调 `writer.WriteIfAbsentAsync("key", null)` → 同等结果（Setup Wizard 路径验证） | Pending |
+| KC-DOCKER-0102 | `KodaClaw.Gateway/Composition` | `ConfigBootstrapWriter` 注册为 `Singleton`；`ConfigBootstrapService` 注册为 `IHostedService`，在 `ModelRegistrySeedService` 之前执行 | `dotnet build` 0 错 0 警告 | Pending |
+
+### KC-DOCKER-002 — Gateway Docker 适配
+
+**背景**：Gateway 绑定地址需确认实际读取 `KODACLAW_GATEWAY_URL` ENV；缺标准 `/healthz` 端点；`CORS_ALLOWED_ORIGINS=*` Docker 下已可用，需验证。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0201 | `KodaClaw.Gateway` | 确认 `KODACLAW_GATEWAY_URL=http://0.0.0.0:5076` 生效（ASP.NET Core `ASPNETCORE_URLS` 或 `UseUrls` 路径），若未接入则补充读取逻辑；`KODACLAW_CORS_ALLOWED_ORIGINS=*` 在 Docker 下正确放行所有 origin（验证 `IsAllowedCorsOrigin` 逻辑） | L2 集成测试：Gateway 在 `0.0.0.0:5076` 启动，跨 origin 请求收到正确 CORS header | Pending |
+| KC-DOCKER-0202 | `KodaClaw.Gateway` | 新增 `GET /healthz` 端点（返回 `200 { "status": "ok" }`，无需鉴权）；供 Docker `HEALTHCHECK` 指令使用；在 `MapGatewayEndpoints` / `MapSystemEndpoints` 中追加 | L2 集成测试：`GET /healthz` 返回 200，无需 Authorization header | Pending |
+| KC-DOCKER-0203 | `KodaClaw.Gateway` | Gateway 内嵌静态文件 serving：`app.UseStaticFiles()` + `wwwroot/` 目录（`apps/kodaclaw-web/dist/`，Dockerfile 阶段 COPY）；SPA fallback：非 `/api/` 路径返回 `index.html`（`MapFallbackToFile`）；`index.html` config 注入：**在 `ConfigBootstrapService.StartAsync` 末尾**执行，检查 `wwwroot/index.html` 是否存在，若存在则在 `</head>` 前插入 `<script>window.__KODACLAW_CONFIG__={"gatewayUrl":"/","dockerMode":<bool>};</script>` 后原地写回（`dockerMode` 读 `KODACLAW_DOCKER_MODE` ENV）；本地开发无 `wwwroot/index.html`，跳过；**幂等性**：写入前检查文件内容是否已含 `window.__KODACLAW_CONFIG__`，若已存在则跳过（容器 stop/start 不重复注入）；预写入后 `UseStaticFiles` 和 `MapFallbackToFile` 对所有路径（含深路径 `/channels`、`/settings`）均返回已注入文件，避免 SPA 深路径硬刷新时 `window.__KODACLAW_CONFIG__` 缺失 | L2 集成测试：`GET /` 返回 200 + body 含 `window.__KODACLAW_CONFIG__`；`GET /channels`（MapFallbackToFile）也含注入脚本；注入逻辑执行两次后文件仅含一处 `window.__KODACLAW_CONFIG__`（幂等）；`GET /api/system/health` 仍正常 | Pending |
+
+### KC-DOCKER-003 — `config_update` Agent 工具
+
+**背景**：Docker 用户通过 Channel 交互，需要 Agent 能修改模型配置（加 key、换模型）。写入通过 `IModelRegistryRepository` 完成（与 Settings UI 共用同一存储层）。`RegistryAwareModelProvider` 每次 LLM 调用时重新查询 registry，因此**写入即生效，当前 session 下一次 LLM 调用立即使用新配置**，无需重启容器或开新 session。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0301 | `KodaClaw.Runtime` | 新增 `ConfigUpdateTool`：构造注入 `ISecretStore`、`IModelRegistryRepository`。参数：`operation`（`"upsert"` \| `"remove"`）、`endpointId`（upsert 时若未提供则自动生成：`{provider}-{modelId}` 全小写、非字母数字替换为 `-`、连续 `-` 合并、首尾去除、最长 64 字符；如 `OpenAI`+`gpt-4o` → `openai-gpt-4o`）、`provider`（`"Anthropic"` \| `"OpenAI"` \| `"OpenAICompatible"` \| `"AnthropicCompatible"`）、`modelId`（string）、`apiKey`（可选；若提供则 `ISecretStore.UpsertAsync` 存入 `.secrets`，endpoint 写 `ApiKeySecretRef: "keychain:config-bootstrap:{endpointId}"` 而非明文）、`baseUrl`（可选）、`isDefault`（bool，可选，默认 false）。**upsert**：`existing = await _registry.GetByIdAsync(endpointId)`；若 null → `_registry.AddAsync(new ModelEndpoint{ ... })`；若非 null → `_registry.UpdateAsync(existing with { ... })`；若 `isDefault==true` → `_registry.SetDefaultAsync(endpointId)`（原子联动，无需逐文件扫描）。**remove**：`existing = await _registry.GetByIdAsync(endpointId)`；若 null → 返回错误"endpoint 不存在"；若 `existing.IsDefault && (await _registry.ListAsync()).Count(m=>m.IsDefault)==1` → 返回错误"请先将其他模型设为默认，再删除此项"；→ `_registry.DeleteAsync(endpointId)` | L1 单元测试：upsert 新建 → `AddAsync` 被调；upsert 已有 → `UpdateAsync` 被调；isDefault=true → `SetDefaultAsync` 被调；apiKey 提供 → `SecretStore.UpsertAsync` 被调、endpoint 含 `ApiKeySecretRef` 不含明文；remove 不存在 → 错误；remove 唯一 default → 错误；remove 正常 → `DeleteAsync` 被调 | Pending |
+| KC-DOCKER-0302 | `KodaClaw.Runtime` | `ConfigUpdateTool` 遵循 CLAUDE.md checklist：① `ToolRegistry` 注册（`ServiceCollectionExtensions.cs`）；② 加入 `MainSessionOptions.DefaultTools`；③ 加入 `koda-workspace` skill 的 `allowed-tools`；工具 description 说明写入后当前 session 下次 LLM 调用即生效，gateway/secrets 修改引导至 Settings 页面 | `dotnet build` 0 错；L2 集成测试：Agent 调用 `config_update` → `_registry.ListAsync()` 返回新 endpoint → 下次 LLM 请求 `RegistryAwareModelProvider` 选中新 endpoint | Pending |
+
+### KC-DOCKER-004 — Docker 构建文件
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0401 | 根目录 | 多阶段 `Dockerfile`：Stage 1（`node:22-alpine`）WORKDIR `/build`，COPY `apps/kodaclaw-web/package*.json`，`npm ci`，COPY `apps/kodaclaw-web/`，`npm run build` → `/build/dist`；Stage 2（`mcr.microsoft.com/dotnet/sdk:10.0`）COPY 全仓库，`dotnet publish src/KodaClaw.Gateway/KodaClaw.Gateway.csproj -c Release -o /app/publish`；Stage 3（`mcr.microsoft.com/dotnet/aspnet:10.0`）：① `apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*`；② COPY publish + wwwroot（到 `/app`）；③ `RUN mkdir -p /data && adduser --uid 1000 --disabled-password app && chown -R app /data /app`（**同时 chown `/app`**，确保非 root 用户可写 `wwwroot/index.html`）；④ `VOLUME ["/data"]`（必须在 chown 之后）；⑤ `USER app`；`HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD curl -f http://localhost:5076/healthz || exit 1`；`EXPOSE 5076` | `docker build -t kodaclaw:latest .` 成功；`docker run --rm kodaclaw:latest id` 显示非 root 用户 | Pending |
+| KC-DOCKER-0402 | 根目录 | `docker-compose.yml`：service `kodaclaw`，`image: kodaclaw:latest`，`ports: ["5076:5076"]`，`volumes: [kodaclaw-data:/data]`；`environment` 块必填项：`KODACLAW_GATEWAY_URL=http://0.0.0.0:5076`、`KODACLAW_WORKSPACE_ROOT=/data`、`KODACLAW_CORS_ALLOWED_ORIGINS=*`、`KODACLAW_DOCKER_MODE=true`；可选项（注释）：`# KODACLAW_ANTHROPIC_API_KEY: sk-ant-...  # 可选：CI/自动化场景使用；普通用户通过浏览器 /setup 配置`、`# KODACLAW_OPENAI_API_KEY: sk-...`；named volume `kodaclaw-data` | `docker-compose up -d && curl http://localhost:5076/healthz` 返回 200 | Pending |
+| KC-DOCKER-0403 | 根目录 | `.env.example`：标注哪些必填（GATEWAY_URL / WORKSPACE_ROOT / CORS / DOCKER_MODE）、哪些可选（API keys，注明"推荐通过浏览器 /setup 配置"）；`Makefile` 新增 `docker-build` / `docker-run` / `docker-up` 三个 target；`install.sh`（Linux/macOS）：检测 Docker → 下载 `docker-compose.yml` → `docker-compose up -d` → 打开浏览器（`http://localhost:5076`）→ 提示"请在浏览器完成初始配置"（**不提示输入 API key**）；`install.ps1`（Windows PowerShell）：同等逻辑，约 50 行，无需管理员权限 | `bash install.sh` / `powershell install.ps1` 一键启动后浏览器自动跳转 `/setup` | Pending |
+
+### KC-DOCKER-005 — Web UI Docker 模式适配 + 测试补齐
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0501 | `apps/kodaclaw-web` | `apps/kodaclaw-web/src/lib/config.ts` 修改 `initializeRuntimeConfig()`：在读取 Electron bridge 之前先检查 `window.__KODACLAW_CONFIG__`（若存在则以其 `gatewayUrl`/`dockerMode` 覆盖 `fallbackRuntimeConfig`）；新增导出函数 `isDockerMode(): boolean`；`DesktopRuntimeConfig` 类型新增可选 `dockerMode?: boolean` 字段；`window.__KODACLAW_CONFIG__` 类型声明补充到 `global.d.ts`（避免 typecheck 报错）；`api.ts` 无需改动（已使用 `resolveGatewayPath` → `getGatewayUrl()`，`gatewayUrl` 为 `""` 时自动生成相对路径，同域无 CORS） | `npm run typecheck`；L5 Dogfood：浏览器访问 `http://server:5076`，Network DevTools 确认 API 请求到同域相对路径 | Pending |
+| KC-DOCKER-0502 | `apps/kodaclaw-web` | `isDockerMode()` 返回 `true` 时 `Sidebar.tsx` 调整：Chat desk 入口移至底部并加提示文字"通过 Channel 与我交流"，Channels / Automations / Settings 入口置顶；`Sidebar.tsx` 通过调用 `isDockerMode()`（`config.ts` 导出）读取状态，不直接访问 `window.__KODACLAW_CONFIG__` | `npm run typecheck`；L5 Dogfood | Pending |
+| KC-DOCKER-0503 | 测试层 | L2 集成测试（≥11 个新测试）：① `ConfigBootstrapWriter` 幂等性：有 key + 无 endpoint → 生成 endpoint + `.secrets`；重复调用 → 不覆盖；无 key → 不生成；② `ConfigBootstrapService`（ENV 路径）：读 ENV 后委托 `writer`，结果一致；③ `/healthz` 无鉴权返回 200；④ Setup Wizard：未配置 `GET /` → 302 `/setup`；`POST /setup/complete` 含 key → registry 非空；`POST /setup/complete` 成功后再 `GET /setup` → 302 `/`；⑤ **零 ENV 守卫**：两个 ENV 均未设置 → `ModelRegistrySeedService` 不写入任何 endpoint → registry 维持空 → `GET /` 仍然 302 `/setup`；⑥ `config_update` 白名单拒绝；⑦ `config_update` remove 唯一 default → 返回错误；⑧ CORS `*` 放行跨 origin 请求 | `dotnet test KodaClaw.sln -m:1` 全绿 | Pending |
+
+### KC-DOCKER-006 — Setup Wizard（**主要 onboarding 路径**）
+
+**背景**：普通用户无需配置任何 ENV，`docker-compose up` 后浏览器访问自动引导完成配置。`POST /setup/complete` 调用 `ConfigBootstrapWriter.WriteIfAbsentAsync`（KC-DOCKER-001 提取的共享类），与 ENV 路径完全一致，幂等安全。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0601 | `KodaClaw.Gateway` | 检测逻辑：`await _registry.ListAsync()` 返回空列表 → 视为"未配置"；新增中间件（在静态文件 / SPA fallback 之前）：未配置状态下，非 `/api/*`、非 `/healthz`、非 `/setup` 的**所有**路径（含 `GET /`、`GET /index.html`、所有 SPA 深路径）均 302 到 `/setup`；已配置状态下，`GET /setup` 302 到 `/`；新增 `GET /setup`（无鉴权，返回内联 HTML 表单页，不依赖 React SPA）：含两个输入框（Anthropic API Key / OpenAI API Key，至少填一个）+ 提交按钮；新增 `POST /setup/complete`（无鉴权）：接收 `{ anthropicKey?, openaiKey? }` → 注入 `ConfigBootstrapWriter`，调 `WriteIfAbsentAsync(anthropicKey, openaiKey)` → 返回 `{ ok: true }` | L2 集成测试：未配置 `GET /` → 302 `/setup`；`GET /channels` → 302 `/setup`；`GET /api/system/health` 不触发重定向（API 路径豁免）；`GET /healthz` 不触发重定向；`POST /setup/complete` 含 key → `_registry.ListAsync()` 非空 → 再访问 `/setup` → 302 `/`；已配置 `GET /setup` → 302 `/` | Pending |
+| KC-DOCKER-0602 | `KodaClaw.Gateway` | Setup Wizard HTML 页面：内联 CSS（极简，无外部依赖）+ 前端 JS 校验（至少一个 key 非空才允许提交）+ `fetch POST /setup/complete` + 成功后 `window.location = '/'`；错误时行内展示错误信息；英文界面 | L5 Dogfood：零 ENV 启动 → 浏览器填写 key → 正常进入主界面 → 重启容器后无需再次配置 | Pending |
+
+---
+
 ## KC-CMD 专项 — Channel 命令系统重构与扩展（KC-CMD-01~04）
 
 > FREEZE doc: `docs/ITERATION_KC_CMD_FREEZE.md`（2026-04-10）

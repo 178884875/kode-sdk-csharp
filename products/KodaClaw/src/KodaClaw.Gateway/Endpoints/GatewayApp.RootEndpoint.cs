@@ -4,6 +4,14 @@ public static partial class GatewayApp
 {
     private static void MapRootEndpoint(WebApplication app)
     {
+        // In Docker mode the React SPA is bundled into wwwroot/.
+        // MapFallbackToFile handles "/" once we don't register a competing route here.
+        var webRootIndex = Path.Combine(
+            app.Environment.WebRootPath ?? Path.Combine(AppContext.BaseDirectory, "wwwroot"),
+            "index.html");
+        if (File.Exists(webRootIndex))
+            return;  // Let MapFallbackToFile serve the SPA for all non-API paths.
+
         app.MapGet("/", () => Results.Json(new
                 {
                     name = "KodaClaw Gateway",

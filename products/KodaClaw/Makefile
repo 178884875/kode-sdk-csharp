@@ -39,7 +39,8 @@ endif
 	package-gateway-mac package-gateway-mac-x64 package-gateway-win package-gateway-linux \
 	install-kc package-kc-mac package-kc-mac-x64 package-kc-win package-kc-linux \
 	build-web-prod \
-	package-mac package-mac-x64 package-win package-linux package
+	package-mac package-mac-x64 package-win package-linux package \
+	docker-build docker-up docker-down docker-rebuild docker-logs docker-install
 
 help:
 	@echo "KodaClaw Makefile targets:"
@@ -82,9 +83,35 @@ help:
 	@echo "  package-linux          Full Linux AppImage"
 	@echo "  package                Package for current platform (auto-detect)"
 	@echo ""
+	@echo "Docker targets:"
+	@echo "  docker-build           Build Docker image (no cache)"
+	@echo "  docker-up              Start via Docker Compose (detached)"
+	@echo "  docker-down            Stop and remove containers"
+	@echo "  docker-rebuild         Stop → rebuild → start (full restart)"
+	@echo "  docker-logs            Follow container logs"
+	@echo "  docker-install         Quick-install using scripts/docker-install.sh"
+	@echo ""
 	@echo "Common overrides:"
 	@echo "  GATEWAY_URL=$(GATEWAY_URL)"
 	@echo "  WORKSPACE_ROOT=$(WORKSPACE_ROOT)"
+
+docker-build:
+	docker build --no-cache -f $(ROOT)/Dockerfile -t kodaclaw:latest $(ROOT)/../..
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-rebuild: docker-down docker-build docker-up
+	@echo "✓ Container rebuilt and started"
+
+docker-logs:
+	docker compose logs -f
+
+docker-install:
+	bash scripts/docker-install.sh
 
 test-solution:
 	dotnet test "$(SOLUTION)" -m:1

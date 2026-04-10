@@ -3,7 +3,7 @@ name: koda-workspace
 description: KodaClaw workspace 协议指南——workspace 文件布局、工具使用模式、各类 session 上下文差异
 license: built-in
 compatibility: KodaClaw 1.x
-allowed-tools: workspace_protocol_update workspace_memory_append workspace_read diagnostics_query schedule_reminder
+allowed-tools: workspace_protocol_update workspace_memory_append workspace_read diagnostics_query schedule_reminder config_update
 metadata:
   kind: builtin-core
   version: "1.1"

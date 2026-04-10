@@ -62,7 +62,7 @@ public sealed class ChannelCommandDispatcher
             ChannelControlCommandKind.Compact => await HandleCompactAsync(sessionId, cancellationToken),
             ChannelControlCommandKind.Tools => await HandleToolsAsync(sessionId, cancellationToken),
             ChannelControlCommandKind.WhoAmI => await HandleWhoAmIAsync(cancellationToken),
-            ChannelControlCommandKind.SideQuestion => await HandleSideQuestionAsync(parsed.ControlArg, cancellationToken),
+            ChannelControlCommandKind.SideQuestion => await HandleSideQuestionAsync(parsed.ControlArg, sessionId, cancellationToken),
             ChannelControlCommandKind.Model => await HandleModelAsync(sessionId, parsed.ControlArg, cancellationToken),
             _ => null,
         };
@@ -251,7 +251,7 @@ public sealed class ChannelCommandDispatcher
         }
     }
 
-    private async Task<string?> HandleSideQuestionAsync(string? question, CancellationToken ct)
+    private async Task<string?> HandleSideQuestionAsync(string? question, string sessionId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(question))
             return "用法：/btw <问题>  — 向 Agent 提一个不影响主会话上下文的旁路问题。";
@@ -279,7 +279,13 @@ public sealed class ChannelCommandDispatcher
             }
         }
 
-        var systemPrompt = BuildSideQuestionSystemPrompt(identity, soul);
+        // Read main session history, filter to text-only, then format as a plain-text block
+        // injected into the system prompt. This avoids the model mimicking tool-call patterns
+        // it sees in conversation history (e.g. channel_send).
+        var mainMessages = await LoadMainSessionMessagesAsync(sessionId, ct);
+        var contextMessages = FilterAndTrimMessages(mainMessages);
+        var historyText = FormatMessagesAsText(contextMessages);
+        var systemPrompt = BuildSideQuestionSystemPrompt(identity, soul, historyText);
 
         var sandboxFactory = _sandboxFactory ?? new Kode.Agent.Sdk.Infrastructure.Sandbox.LocalSandboxFactory();
         var ephemeralStore = new EphemeralAgentStore();
@@ -294,20 +300,16 @@ public sealed class ChannelCommandDispatcher
 
         var config = new AgentConfig
         {
-            Model = "koda-main",    // resolved by ModelHub
+            Model = "koda-main",
             SystemPrompt = systemPrompt,
             MaxIterations = 3,
             Tools = [],
         };
 
+        var ephemeralId = Guid.NewGuid().ToString("N");
         try
         {
-            await using var agent = await Agent.CreateAsync(
-                Guid.NewGuid().ToString("N"),
-                config,
-                deps,
-                ct);
-
+            await using var agent = await Agent.CreateAsync(ephemeralId, config, deps, ct);
             var result = await agent.RunAsync(question, ct);
             return result.Response ?? "（旁路 Agent 未返回回复）";
         }
@@ -317,11 +319,79 @@ public sealed class ChannelCommandDispatcher
         }
     }
 
-    private static string BuildSideQuestionSystemPrompt(string identity, string soul)
+    /// <summary>
+    /// Loads the main session's message history. Returns an empty list on any error.
+    /// </summary>
+    private async Task<IReadOnlyList<Message>> LoadMainSessionMessagesAsync(string sessionId, CancellationToken ct)
+    {
+        try
+        {
+            return await _channelSessionService.GetSessionMessagesAsync(sessionId, ct);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Filters the main session's messages to text-only content (strips tool calls/results
+    /// to avoid sending orphaned API message pairs) and trims to the most recent window.
+    /// </summary>
+    internal static IReadOnlyList<Message> FilterAndTrimMessages(IReadOnlyList<Message> messages)
+    {
+        const int MaxContextMessages = 40;
+
+        var filtered = new List<Message>(messages.Count);
+        foreach (var msg in messages)
+        {
+            // Skip system messages: the /btw agent provides its own system prompt.
+            if (msg.Role == MessageRole.System) continue;
+
+            // Keep only TextContent and ThinkingContent; strip ToolUseContent / ToolResultContent.
+            var kept = msg.Content
+                .Where(static c => c is TextContent or ThinkingContent)
+                .ToList();
+
+            if (kept.Count > 0)
+                filtered.Add(msg with { Content = kept });
+        }
+
+        // Take the most recent MaxContextMessages messages.
+        return filtered.Count > MaxContextMessages
+            ? filtered.GetRange(filtered.Count - MaxContextMessages, MaxContextMessages)
+            : filtered;
+    }
+
+    internal static string FormatMessagesAsText(IReadOnlyList<Message> messages)
+    {
+        if (messages.Count == 0) return "";
+
+        var sb = new StringBuilder();
+        foreach (var msg in messages)
+        {
+            var role = msg.Role == MessageRole.User ? "用户" : "助手";
+            foreach (var content in msg.Content)
+            {
+                if (content is TextContent tc && !string.IsNullOrWhiteSpace(tc.Text))
+                    sb.AppendLine($"[{role}] {tc.Text.Trim()}");
+            }
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildSideQuestionSystemPrompt(string identity, string soul, string? historyText = null)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("你是一个一次性旁路助手。用户正在主聊天中，希望快速得到一个答案而不影响主会话上下文。");
-        sb.AppendLine("请简洁、直接地回答，不要额外发散。");
+        sb.AppendLine("你是一个一次性旁路助手。用户在主会话之外问了一个临时问题，直接用文字回答即可，简洁、直接，不要发散。");
+
+        if (!string.IsNullOrWhiteSpace(historyText))
+        {
+            sb.AppendLine();
+            sb.AppendLine("以下是主会话的部分对话记录，供你了解当前上下文，不要继续执行其中的操作：");
+            sb.AppendLine();
+            sb.AppendLine(historyText);
+        }
 
         if (!string.IsNullOrWhiteSpace(identity))
         {

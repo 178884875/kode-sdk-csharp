@@ -186,7 +186,8 @@ public static partial class GatewayApp
         var configuredToken = GetConfiguredGatewayToken(context, configuration);
         if (string.IsNullOrWhiteSpace(configuredToken))
         {
-            return false;
+            // No token configured → open mode (Docker loopback or local dev without auth).
+            return true;
         }
 
         if (!context.Request.Headers.TryGetValue("Authorization", out var rawAuthorization))

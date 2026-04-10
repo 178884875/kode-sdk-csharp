@@ -32,7 +32,7 @@
     <PackageReference Include="OpenTelemetry.Exporter.Console" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="skills/**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="skills/**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Resources/model-presets.json" />

@@ -124,6 +124,14 @@ public static class ServiceCollectionExtensions
             toolRegistry.Register("workspace_read",
                 _ => new WorkspaceReadTool(workspaceService, bindingRepository));
 
+            var modelRegistry = sp.GetService<IModelRegistryRepository>();
+            var secretStore = sp.GetService<ISecretStore>();
+            if (modelRegistry is not null && secretStore is not null)
+            {
+                toolRegistry.Register("config_update",
+                    _ => new ConfigUpdateTool(modelRegistry, secretStore, diagnosticsService));
+            }
+
             var channelSendService = sp.GetService<IChannelSendService>();
             if (channelSendService is not null)
             {

@@ -25,6 +25,14 @@ public static partial class GatewayApp
             currentDirectory,
             builder.Environment.EnvironmentName);
         configureConfiguration?.Invoke(builder.Configuration);
+
+        // Allow KODACLAW_GATEWAY_URL as an alias for ASPNETCORE_URLS (Docker-friendly).
+        var gatewayUrl = builder.Configuration["KODACLAW_GATEWAY_URL"];
+        if (!string.IsNullOrWhiteSpace(gatewayUrl))
+        {
+            builder.WebHost.UseUrls(gatewayUrl);
+        }
+
         var runtimeBootstrap = RuntimeConfigurationBootstrap.Resolve(builder.Configuration);
         var configuredCorsOrigins = GetConfiguredCorsOrigins(builder.Configuration);
 

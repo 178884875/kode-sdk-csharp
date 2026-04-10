@@ -673,6 +673,28 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
     }
 
+    public async Task<IReadOnlyList<Message>> GetSessionMessagesAsync(
+        string sessionId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // JsonAgentStore.LoadMessagesAsync uses a WAL write strategy: concurrent reads are safe
+            // even while the main session is actively running and saving new messages.
+            // JsonAgentStore uses agentId as a sub-directory under its base path, so the base
+            // must be the PARENT of the session directory (i.e., the sessions root), not the
+            // session directory itself — otherwise we'd look one level too deep.
+            var sessionDirectory = _workspaceService.GetSessionDirectory(sessionId);
+            var sessionsRoot = Directory.GetParent(sessionDirectory)?.FullName ?? sessionDirectory;
+            var store = new JsonAgentStore(sessionsRoot);
+            return await store.LoadMessagesAsync(sessionId, cancellationToken);
+        }
+        catch
+        {
+            // Session directory may not exist yet (session not started) — return empty.
+            return [];
+        }
+    }
+
     private async Task TryGenerateChannelSessionSummaryAsync(
         ThreadBinding binding,
         CancellationToken cancellationToken)

@@ -1,0 +1,31 @@
+# ── Git ──────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── .NET build artifacts ─────────────────────────────────────────────────────
+**/bin/
+**/obj/
+**/publish/
+**/*.user
+**/*.suo
+
+# ── Node / Web ────────────────────────────────────────────────────────────────
+**/node_modules/
+products/KodaClaw/apps/kodaclaw-web/dist/
+products/KodaClaw/apps/kodaclaw-web/test-results/
+products/KodaClaw/apps/kodaclaw-desktop/
+
+# ── Tests (not needed at runtime) ────────────────────────────────────────────
+products/KodaClaw/tests/
+
+# ── Docs / misc ───────────────────────────────────────────────────────────────
+products/KodaClaw/docs/
+products/KodaClaw/observability/
+products/KodaClaw/extensions/
+products/KodaClaw/tasks/
+products/KodaClaw/scripts/
+**/*.md
+# Exception: built-in skill manifests must be included
+!**/skills/**/SKILL.md
+**/.env*
+**/docker-compose*.yml

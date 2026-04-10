@@ -9,9 +9,17 @@ namespace KodaClaw.ChannelHub.Commands;
 /// <summary>
 /// A no-op <see cref="IAgentStore"/> for ephemeral (one-shot) agents that do not
 /// need state persistence. Used by the /btw side-question handler.
+/// Main session history is injected via the system prompt (plain-text block), not via
+/// this store, so all store operations are intentional no-ops.
 /// </summary>
 internal sealed class EphemeralAgentStore : IAgentStore
 {
+    public Task<bool> ExistsAsync(string agentId, CancellationToken cancellationToken = default)
+        => Task.FromResult(false);
+
+    public Task<AgentInfo?> LoadInfoAsync(string agentId, CancellationToken cancellationToken = default)
+        => Task.FromResult<AgentInfo?>(null);
+
     public Task SaveMessagesAsync(string agentId, IReadOnlyList<Message> messages, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
@@ -77,17 +85,11 @@ internal sealed class EphemeralAgentStore : IAgentStore
     public Task SaveInfoAsync(string agentId, AgentInfo info, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
-    public Task<AgentInfo?> LoadInfoAsync(string agentId, CancellationToken cancellationToken = default)
-        => Task.FromResult<AgentInfo?>(null);
-
     public Task SaveSkillsStateAsync(string agentId, SkillsState state, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
     public Task<SkillsState?> LoadSkillsStateAsync(string agentId, CancellationToken cancellationToken = default)
         => Task.FromResult<SkillsState?>(null);
-
-    public Task<bool> ExistsAsync(string agentId, CancellationToken cancellationToken = default)
-        => Task.FromResult(false);
 
     public Task<IReadOnlyList<string>> ListAsync(CancellationToken cancellationToken = default)
         => Task.FromResult<IReadOnlyList<string>>([]);

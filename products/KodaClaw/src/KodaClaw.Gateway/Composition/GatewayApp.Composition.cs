@@ -17,6 +17,7 @@ using KodaClaw.Runtime.Diagnostics;
 using KodaClaw.Storage.Json;
 using KodaClaw.Workspace;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Metrics;
@@ -138,6 +139,10 @@ public static partial class GatewayApp
         {
             builder.Services.AddHostedService<StartupRepairHostedService>();
         }
+        // ConfigBootstrapWriter + ConfigBootstrapService must be registered BEFORE
+        // ModelRegistrySeedService so the keychain-backed endpoint is written first.
+        builder.Services.AddSingleton<ConfigBootstrapWriter>();
+        builder.Services.AddHostedService<ConfigBootstrapService>();
         builder.Services.AddHostedService<ModelRegistrySeedService>();
         builder.Services.AddSingleton<ChannelConnectorHostedService>();
         builder.Services.AddHostedService(provider => provider.GetRequiredService<ChannelConnectorHostedService>());
@@ -227,6 +232,37 @@ public static partial class GatewayApp
 
         app.UseCors(GatewayCorsPolicyName);
 
+        // Serve static web assets from wwwroot/ when present (Docker mode: built web UI is copied there).
+        app.UseStaticFiles();
+
+        // Setup Wizard guard: redirect browser navigation requests to /setup when the model
+        // registry is empty (i.e., no API key has been configured yet).
+        // Skips: /api/* (API), /healthz (Docker probe), /setup* (the wizard itself), static assets.
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Method == HttpMethods.Get)
+            {
+                var path = context.Request.Path.Value ?? string.Empty;
+                var skip = path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
+                    || path.Equals("/healthz", StringComparison.OrdinalIgnoreCase)
+                    || path.StartsWith("/setup", StringComparison.OrdinalIgnoreCase)
+                    || System.IO.Path.HasExtension(path);
+
+                if (!skip)
+                {
+                    var registry = context.RequestServices.GetRequiredService<IModelRegistryRepository>();
+                    var endpoints = await registry.ListAsync(context.RequestAborted);
+                    if (endpoints.Count == 0)
+                    {
+                        context.Response.Redirect("/setup");
+                        return;
+                    }
+                }
+            }
+
+            await next();
+        });
+
         app.UseWebSockets();
     }
 
@@ -254,6 +290,11 @@ public static partial class GatewayApp
         MapSystemEventsEndpoints(app);
         MapRootEndpoint(app);
         MapBrowserEndpoints(app);
+        MapSetupEndpoints(app);
+
+        // SPA fallback: serve index.html for any non-API path (enables client-side routing).
+        // Only active when wwwroot/index.html exists (i.e., Docker mode with bundled web UI).
+        app.MapFallbackToFile("index.html");
     }
 
     private static bool IsStartupRepairEnabled(IConfiguration configuration)

@@ -27,6 +27,7 @@ public sealed class MainSessionOptions
         "skill_resource",
         "workspace_memory_append",
         "workspace_protocol_update",
+        "config_update",
         "canvas_upsert",
         "inbox_create",
         "inbox_read",
