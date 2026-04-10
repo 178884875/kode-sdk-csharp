@@ -2,6 +2,20 @@ export type ChatRole = "user" | "assistant" | "system" | "error" | "approval" | 
 export type ChatMessageStatus = "streaming" | "done" | "error";
 export type ApprovalDecision = "approved" | "rejected" | "pending";
 
+/** Collapsed sub-agent summary stored on a completed tool_activity message. */
+export interface SubAgentRowData {
+  label: string;
+  toolCount: number;
+}
+
+/** Live sub-agent status exposed while an orchestration tool is running. */
+export interface LiveSubAgentRow {
+  subAgentId: string;
+  label: string;
+  toolName: string | null;
+  isDone: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -17,6 +31,8 @@ export interface ChatMessage {
   decision?: ApprovalDecision;
   // tool activity fields
   durationMs?: number | null;
+  // sub-agent progress rows (collapsed, after tool_activity completes)
+  subAgentRows?: SubAgentRowData[];
   // history fields
   isHistory?: boolean;
   // tool warning: marks system messages that originated from a tool_warning event

@@ -22,7 +22,16 @@ public interface IChannelSessionService
     /// so the next inbound turn starts a fresh session (new directory, clean history).
     /// Returns the newly assigned session ID.
     /// </summary>
-    Task<string> RotateSessionAsync(ThreadBinding binding, CancellationToken cancellationToken = default);
+    Task<string> RotateSessionAsync(
+        ThreadBinding binding,
+        string? modelOverride = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the ModelId currently used by the given session, or null if the session
+    /// has not been created yet.
+    /// </summary>
+    Task<string?> GetSessionModelAsync(string sessionId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Attempts to interrupt the currently running agent turn for the given session.
@@ -46,6 +55,18 @@ public interface IChannelSessionService
     /// </summary>
     /// <param name="cancellationToken">Reserved for future asynchronous state retrieval; currently unused in the synchronous path.</param>
     Task<AgentSessionState?> GetSessionStateAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns the list of tool names available in the specified session.
+    /// Returns an empty list if the session does not exist.
+    /// </summary>
+    Task<IReadOnlyList<string>> GetSessionToolNamesAsync(string sessionId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Forces an immediate context compression for the given session.
+    /// Returns a user-facing status message describing the result.
+    /// </summary>
+    Task<string> CompressSessionContextAsync(string sessionId, CancellationToken cancellationToken = default);
 }
 
 public sealed record ChannelSessionHandle(

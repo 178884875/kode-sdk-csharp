@@ -43,6 +43,18 @@ public enum BreakpointState
 }
 
 /// <summary>
+/// Per-run options that override agent config for a single RunAsync call.
+/// </summary>
+public record AgentRunOptions
+{
+    /// <summary>Whether to enable extended thinking (overrides AgentConfig.EnableThinking).</summary>
+    public bool? EnableThinking { get; init; }
+
+    /// <summary>Thinking token budget (overrides AgentConfig.ThinkingBudget).</summary>
+    public int? ThinkingBudget { get; init; }
+}
+
+/// <summary>
 /// Core agent interface for managing agent lifecycle.
 /// </summary>
 public interface IAgent : IAsyncDisposable
@@ -79,6 +91,15 @@ public interface IAgent : IAsyncDisposable
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The final assistant response.</returns>
     Task<AgentRunResult> RunAsync(string input, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Runs the agent loop with per-run options that override the agent configuration.
+    /// </summary>
+    /// <param name="input">The user input message.</param>
+    /// <param name="options">Per-run options (think, budget, etc.); null to use defaults.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The final assistant response.</returns>
+    Task<AgentRunResult> RunAsync(string input, AgentRunOptions? options, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Runs the agent loop with multi-modal content (text + images) until completion or pause.
@@ -160,6 +181,13 @@ public interface IAgent : IAsyncDisposable
     /// Used by <c>history_search</c> to search across compressed history for relevant context.
     /// </summary>
     Task<IReadOnlyList<HistoryWindow>> GetHistoryWindowsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Forces an immediate context compression regardless of current token usage.
+    /// Returns <c>true</c> when compression succeeded and messages were replaced;
+    /// <c>false</c> when the compressor returned null (e.g. no summarizer available).
+    /// </summary>
+    Task<bool> ForceCompressAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>

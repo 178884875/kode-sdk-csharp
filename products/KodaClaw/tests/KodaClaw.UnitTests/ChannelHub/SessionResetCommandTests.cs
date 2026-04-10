@@ -1,11 +1,12 @@
 using FluentAssertions;
-using KodaClaw.ChannelHub;
+using KodaClaw.ChannelHub.Commands;
 using Xunit;
 
 namespace KodaClaw.UnitTests.ChannelHub;
 
 /// <summary>
-/// KC-5004: Session reset commands (/new, /clear, /reset) intercept logic.
+/// KC-5004 / KC-CMD-W1: Session reset commands (/new, /clear, /reset) intercept logic,
+/// now routed through ChannelCommandParser.
 /// </summary>
 public sealed class SessionResetCommandTests
 {
@@ -15,7 +16,8 @@ public sealed class SessionResetCommandTests
     [InlineData("/reset")]
     public void Known_reset_commands_should_be_recognized(string command)
     {
-        ChannelTurnOrchestrator.IsSessionResetCommand(command).Should().BeTrue(
+        var result = ChannelCommandParser.Parse(command);
+        result.ControlKind.Should().Be(ChannelControlCommandKind.NewSession,
             because: $"'{command}' is a known session reset command");
     }
 
@@ -25,21 +27,36 @@ public sealed class SessionResetCommandTests
     [InlineData("/RESET")]
     public void Reset_commands_should_be_case_insensitive(string command)
     {
-        ChannelTurnOrchestrator.IsSessionResetCommand(command).Should().BeTrue(
+        var result = ChannelCommandParser.Parse(command);
+        result.ControlKind.Should().Be(ChannelControlCommandKind.NewSession,
             because: "command matching must be case-insensitive for mobile keyboards");
     }
 
     [Theory]
     [InlineData("hello")]
     [InlineData("帮我查一下天气")]
-    [InlineData("/help")]
-    [InlineData("/start")]
-    [InlineData("")]
     [InlineData("/newer")]       // prefix match should NOT trigger
-    [InlineData("/new session")] // with trailing content should NOT trigger
-    public void Non_reset_messages_should_not_be_recognized(string text)
+    public void Non_reset_messages_without_slash_commands_should_have_no_control_kind(string text)
     {
-        ChannelTurnOrchestrator.IsSessionResetCommand(text).Should().BeFalse(
+        var result = ChannelCommandParser.Parse(text);
+        result.ControlKind.Should().BeNull(
             because: $"'{text}' is not a session reset command");
+    }
+
+    [Theory]
+    [InlineData("")]
+    public void Empty_text_should_have_no_control_kind(string text)
+    {
+        var result = ChannelCommandParser.Parse(text);
+        result.ControlKind.Should().BeNull();
+    }
+
+    [Fact]
+    public void Reset_with_trailing_content_should_still_parse_as_new_session_with_arg()
+    {
+        // "/new session" still parses as NewSession but ControlArg = "session"
+        var result = ChannelCommandParser.Parse("/new session");
+        result.ControlKind.Should().Be(ChannelControlCommandKind.NewSession);
+        result.ControlArg.Should().Be("session");
     }
 }

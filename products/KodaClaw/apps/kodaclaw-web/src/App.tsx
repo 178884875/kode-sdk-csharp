@@ -66,7 +66,7 @@ export default function App() {
     refresh();
   }, [refresh]);
 
-  const { draft, setDraft, isStreaming, activeToolName, messages, placeholder, sendMessage, stopStreaming, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory, scrollToBottomVersion } =
+  const { draft, setDraft, isStreaming, activeToolName, liveSubAgentRows, messages, placeholder, sendMessage, stopStreaming, appendSystemNote, clearMessages, submitApproval, loadHistory, loadMoreHistory, isLoadingHistory, hasMoreHistory, scrollToBottomVersion } =
     useChatConsole(text.chat, handleSessionRotated);
   const [mainDesk, setMainDesk] = useState<MainDesk>(() => readStoredMainDesk());
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null);
@@ -302,13 +302,14 @@ export default function App() {
     <MessageTimeline
       messages={messages}
       isStreaming={isStreaming}
+      liveSubAgentRows={liveSubAgentRows}
       onSubmitApproval={submitApproval}
       hasMoreHistory={hasMoreHistory}
       isLoadingHistory={isLoadingHistory}
       onLoadMoreHistory={loadMoreHistory}
       scrollToBottomVersion={scrollToBottomVersion}
     />
-  ), [messages, isStreaming, submitApproval, hasMoreHistory, isLoadingHistory, loadMoreHistory, scrollToBottomVersion]);
+  ), [messages, isStreaming, liveSubAgentRows, submitApproval, hasMoreHistory, isLoadingHistory, loadMoreHistory, scrollToBottomVersion]);
 
   const chatComposer = useMemo(() => (
     <ChatComposer

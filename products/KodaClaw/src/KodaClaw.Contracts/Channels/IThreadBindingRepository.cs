@@ -18,6 +18,9 @@ public interface IThreadBindingRepository
 
     Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default);
 
+    /// <summary>按 SessionId 查找 binding。用于 GetSessionModelAsync 的重启后回查路径。</summary>
+    Task<ThreadBinding?> GetBySessionIdAsync(string sessionId, CancellationToken cancellationToken = default);
+
     /// <summary>删除指定账号下的所有线程绑定，返回删除数量。</summary>
     Task<int> DeleteByAccountIdAsync(string accountId, CancellationToken cancellationToken = default);
 

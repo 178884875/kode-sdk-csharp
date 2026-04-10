@@ -16,4 +16,6 @@ public sealed record ThreadBinding(
     DateTimeOffset? LastInboundAt = null,
     DateTimeOffset? LastOutboundAt = null,
     string? LastMessagePreview = null,
-    DeliveryMode? DeliveryModeOverride = null);
+    DeliveryMode? DeliveryModeOverride = null,
+    string? PendingModelOverride = null,
+    string? ActiveModelId = null);

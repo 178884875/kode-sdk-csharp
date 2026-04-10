@@ -3,10 +3,31 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, CheckCircle, ChevronDown, Cog, Copy, MessageSquare, X, XCircle } from "lucide-react";
-import type { ChatMessage, ChatRole } from "../types/chat";
+import type { ChatMessage, ChatRole, LiveSubAgentRow } from "../types/chat";
 import { useI18n, useLocaleText } from "../i18n/I18nProvider";
 import { EmptyState } from "./ui/EmptyState";
 import { ApprovalCard } from "./chat/ApprovalCard";
+
+// ── Tool name localization ────────────────────────────────────────────────────
+
+const TOOL_DISPLAY_NAMES: Record<string, string> = {
+  fs_read: "读取文件",
+  fs_grep: "搜索代码",
+  fs_glob: "列举文件",
+  fs_list: "列举目录",
+  fs_write: "写入文件",
+  fs_edit: "编辑文件",
+  fs_rm: "删除文件",
+  bash_run: "执行命令",
+  bash_logs: "查看日志",
+  bash_kill: "终止进程",
+  todo_read: "读取待办",
+  todo_write: "更新待办",
+};
+
+function toolDisplayName(toolName: string): string {
+  return TOOL_DISPLAY_NAMES[toolName] ?? toolName;
+}
 
 // ── Tool Band: groups consecutive tool calls into a flat chip row ──────────────
 
@@ -194,6 +215,17 @@ function ActivityRow({ item, totalCounts }: ActivityRowProps) {
               }
             </button>
           </div>
+        </div>
+      )}
+      {item.msg.subAgentRows && item.msg.subAgentRows.length > 0 && (
+        <div className="subagent-rows">
+          {item.msg.subAgentRows.map((row, i) => (
+            <div key={i} className="subagent-row">
+              <span className="subagent-row__prefix">↳</span>
+              <span className="subagent-row__label">{row.label}</span>
+              <span className="subagent-row__summary">使用了 {row.toolCount} 个工具</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -459,6 +491,7 @@ function MessageImageGrid({ urls, onPreview }: { urls: string[]; onPreview: (url
 type MessageTimelineProps = {
   messages: ChatMessage[];
   isStreaming: boolean;
+  liveSubAgentRows?: LiveSubAgentRow[];
   onSubmitApproval?: (approvalId: string, approve: boolean) => void;
   hasMoreHistory?: boolean;
   isLoadingHistory?: boolean;
@@ -468,7 +501,7 @@ type MessageTimelineProps = {
   scrollToBottomVersion?: number;
 };
 
-export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMoreHistory, isLoadingHistory, onLoadMoreHistory, scrollToBottomVersion }: MessageTimelineProps) {
+export function MessageTimeline({ messages, isStreaming, liveSubAgentRows, onSubmitApproval, hasMoreHistory, isLoadingHistory, onLoadMoreHistory, scrollToBottomVersion }: MessageTimelineProps) {
   const { formatTime } = useI18n();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -671,6 +704,23 @@ export function MessageTimeline({ messages, isStreaming, onSubmitApproval, hasMo
                 </article>
               );
             })
+          )}
+          {isStreaming && liveSubAgentRows && liveSubAgentRows.length > 0 && (
+            <div className="live-subagent-strip">
+              {liveSubAgentRows.map((row) => (
+                <div key={row.subAgentId} className={`subagent-row${row.isDone ? " subagent-row--done" : ""}`}>
+                  <span className="subagent-row__prefix">↳</span>
+                  <span className="subagent-row__label">{row.label}</span>
+                  {row.isDone ? (
+                    <span className="subagent-row__summary">✓</span>
+                  ) : row.toolName ? (
+                    <span className="subagent-row__tool">{toolDisplayName(row.toolName)} ({row.toolName})</span>
+                  ) : (
+                    <span className="subagent-row__tool subagent-row__tool--pending">正在运行…</span>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
           <div ref={bottomRef} />
         </div>

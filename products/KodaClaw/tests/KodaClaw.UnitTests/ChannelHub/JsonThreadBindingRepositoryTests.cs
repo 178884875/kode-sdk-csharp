@@ -95,6 +95,44 @@ public sealed class JsonThreadBindingRepositoryTests : IDisposable
         stored!.Id.Should().Be("binding-init");
     }
 
+    // ── GetBySessionIdAsync ────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetBySessionIdAsync_returns_matching_binding()
+    {
+        var repository = CreateRepository();
+        var timestamp = new DateTimeOffset(2026, 4, 10, 10, 0, 0, TimeSpan.Zero);
+        var binding = BuildBinding(
+            id: "binding-session-001",
+            connectorKind: ChannelConnectorKind.Telegram,
+            threadType: ChannelThreadType.DirectMessage,
+            timestamp: timestamp);
+
+        await repository.UpsertAsync(binding);
+
+        var result = await repository.GetBySessionIdAsync(binding.SessionId);
+
+        result.Should().NotBeNull();
+        result!.Id.Should().Be("binding-session-001");
+        result.SessionId.Should().Be(binding.SessionId);
+    }
+
+    [Fact]
+    public async Task GetBySessionIdAsync_returns_null_when_session_not_found()
+    {
+        var repository = CreateRepository();
+        var timestamp = new DateTimeOffset(2026, 4, 10, 10, 0, 0, TimeSpan.Zero);
+        await repository.UpsertAsync(BuildBinding(
+            id: "binding-other",
+            connectorKind: ChannelConnectorKind.Telegram,
+            threadType: ChannelThreadType.DirectMessage,
+            timestamp: timestamp));
+
+        var result = await repository.GetBySessionIdAsync("session-does-not-exist");
+
+        result.Should().BeNull();
+    }
+
     private static ThreadBinding BuildBinding(
         string id,
         ChannelConnectorKind connectorKind,

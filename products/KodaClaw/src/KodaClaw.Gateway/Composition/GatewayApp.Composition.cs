@@ -200,6 +200,11 @@ public static partial class GatewayApp
             catch (Exception ex)
             {
                 var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Gateway");
+                if (ex is OperationCanceledException && context.RequestAborted.IsCancellationRequested)
+                {
+                    logger.LogDebug("Client disconnected: {Method} {Path}", context.Request.Method, context.Request.Path);
+                    return;
+                }
                 logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
                 
                 if (!context.Response.HasStarted)

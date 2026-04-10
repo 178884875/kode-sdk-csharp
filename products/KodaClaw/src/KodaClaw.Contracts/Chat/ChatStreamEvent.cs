@@ -16,4 +16,8 @@ public sealed record ChatStreamEvent(
     string? InputPreview = null,
     string? Decision = null,
     // Tool activity events (tool_activity / agent_working)
-    long? DurationMs = null);
+    long? DurationMs = null,
+    // Sub-agent progress events (subagent_start / subagent_working / subagent_tool_done)
+    string? SubAgentId = null,
+    string? Label = null,
+    string? SubAgentToolName = null);

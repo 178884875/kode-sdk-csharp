@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Kode.Agent.Sdk.Core.Abstractions;
 using Kode.Agent.Sdk.Core.Types;
+using KodaClaw.ChannelHub.Commands;
 using KodaClaw.ChannelHub.Turn;
 using KodaClaw.Contracts;
 using KodaClaw.Runtime;
@@ -39,6 +40,7 @@ public sealed class ChannelTurnOrchestrator
     private readonly IChannelThreadSummaryWriter? _summaryWriter;
     private readonly IChannelSendCapture? _sendCapture;
     private readonly IModelProvider? _modelProvider;
+    private readonly ChannelCommandDispatcher? _commandDispatcher;
     private readonly ChannelSessionOptions _sessionOptions;
     private readonly ILogger<ChannelTurnOrchestrator> _logger;
     private readonly string? _dedupeFilePath;
@@ -58,6 +60,7 @@ public sealed class ChannelTurnOrchestrator
         IChannelThreadSummaryWriter? summaryWriter = null,
         IChannelSendCapture? sendCapture = null,
         IModelProvider? modelProvider = null,
+        ChannelCommandDispatcher? commandDispatcher = null,
         ChannelSessionOptions? sessionOptions = null,
         KodaClawWorkspaceOptions? workspaceOptions = null,
         ILogger<ChannelTurnOrchestrator>? logger = null)
@@ -76,6 +79,7 @@ public sealed class ChannelTurnOrchestrator
         _summaryWriter = summaryWriter;
         _sendCapture = sendCapture;
         _modelProvider = modelProvider;
+        _commandDispatcher = commandDispatcher;
         _sessionOptions = sessionOptions ?? new ChannelSessionOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ChannelTurnOrchestrator>.Instance;
         var workspaceRoot = workspaceOptions?.ResolveRootPath();
@@ -136,82 +140,64 @@ public sealed class ChannelTurnOrchestrator
             }
         }
 
-        // KC-5004: Session reset commands (/new, /clear, /reset) evict the current session
-        // and reply directly — no agent turn is executed. Works for all connector kinds
-        // (Telegram slash commands and WeChat plain-text input share the same logic).
-        var trimmedText = envelope.Text?.Trim() ?? "";
-        if (IsSessionResetCommand(trimmedText))
+        // KC-CMD: Route all slash commands through the unified command parser + dispatcher.
+        var parsedCommand = ChannelCommandParser.Parse(envelope.Text);
+        if (parsedCommand.ControlKind.HasValue && _commandDispatcher is not null)
         {
-            await _channelSessionService.RotateSessionAsync(processing.Binding, cancellationToken);
-            const string resetConfirmation = "已开启新会话。";
-            try
-            {
-                await _deliveryDispatchService.SendNotificationAsync(
-                    account, processing.Binding, resetConfirmation, cancellationToken: cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send session reset confirmation for binding {BindingId}", processing.Binding.Id);
-            }
+            var commandHandled = await _commandDispatcher.DispatchAsync(
+                parsedCommand,
+                processing.Binding.SessionId,
+                account,
+                processing.Binding,
+                cancellationToken);
 
-            var resetOutcome = CreateOutcome(
-                ChannelTurnOutcomeKind.NoAction,
-                resetConfirmation,
-                processing,
-                envelope,
-                reasonCode: "session_reset_command");
-            RecordDiagnosticEvent("channel.turn.session_reset", "info", resetConfirmation, processing.Binding, resetOutcome);
-            return new ChannelTurnOrchestrationResult(processing, resetOutcome, ExecutedTurn: false);
+            if (commandHandled)
+            {
+                var reasonCode = parsedCommand.ControlKind switch
+                {
+                    ChannelControlCommandKind.NewSession => "session_reset_command",
+                    ChannelControlCommandKind.Status => "status_command",
+                    ChannelControlCommandKind.Stop => "stop_command",
+                    ChannelControlCommandKind.Help => "help_command",
+                    _ => "control_command",
+                };
+                var cmdOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.NoAction,
+                    $"Control command handled: {parsedCommand.ControlKind}",
+                    processing,
+                    envelope,
+                    reasonCode: reasonCode);
+                RecordDiagnosticEvent($"channel.turn.{reasonCode}", "info", reasonCode, processing.Binding, cmdOutcome);
+                return new ChannelTurnOrchestrationResult(processing, cmdOutcome, ExecutedTurn: false);
+            }
         }
-
-        // /status command: query the current agent runtime state without executing a new turn.
-        if (string.Equals(trimmedText, "/status", StringComparison.OrdinalIgnoreCase) || string.Equals(trimmedText, "/s", StringComparison.OrdinalIgnoreCase))
+        else if (parsedCommand.ControlKind.HasValue && _commandDispatcher is null)
         {
-            var statusMessage = FormatSessionStatusMessage(
-                await _channelSessionService.GetSessionStateAsync(processing.Binding.SessionId, cancellationToken));
-            try
+            // Fallback for backwards compatibility when no dispatcher is injected (legacy path)
+            var trimmedText = envelope.Text?.Trim() ?? "";
+            if (IsSessionResetCommand(trimmedText))
             {
-                await _deliveryDispatchService.SendNotificationAsync(
-                    account, processing.Binding, statusMessage, cancellationToken: cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send status for binding {BindingId}", processing.Binding.Id);
-            }
+                await _channelSessionService.RotateSessionAsync(processing.Binding, cancellationToken: cancellationToken);
+                const string resetConfirmation = "已开启新会话。";
+                try
+                {
+                    await _deliveryDispatchService.SendNotificationAsync(
+                        account, processing.Binding, resetConfirmation, cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to send session reset confirmation for binding {BindingId}", processing.Binding.Id);
+                }
 
-            var statusOutcome = CreateOutcome(
-                ChannelTurnOutcomeKind.NoAction,
-                statusMessage,
-                processing,
-                envelope,
-                reasonCode: "status_command");
-            RecordDiagnosticEvent(
-                "channel.turn.status_command", "info", "Status command executed", processing.Binding, statusOutcome);
-            return new ChannelTurnOrchestrationResult(processing, statusOutcome, ExecutedTurn: false);
-        }
-
-        // /stop command: interrupt the currently running agent turn without executing a new one.
-        if (string.Equals(trimmedText, "/stop", StringComparison.OrdinalIgnoreCase))
-        {
-            var stopMessage = await _channelSessionService.StopCurrentTurnAsync(processing.Binding.SessionId, cancellationToken);
-            try
-            {
-                await _deliveryDispatchService.SendNotificationAsync(
-                    account, processing.Binding, stopMessage, cancellationToken: cancellationToken);
+                var resetOutcome = CreateOutcome(
+                    ChannelTurnOutcomeKind.NoAction,
+                    resetConfirmation,
+                    processing,
+                    envelope,
+                    reasonCode: "session_reset_command");
+                RecordDiagnosticEvent("channel.turn.session_reset", "info", resetConfirmation, processing.Binding, resetOutcome);
+                return new ChannelTurnOrchestrationResult(processing, resetOutcome, ExecutedTurn: false);
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to send stop confirmation for binding {BindingId}", processing.Binding.Id);
-            }
-
-            var stopOutcome = CreateOutcome(
-                ChannelTurnOutcomeKind.NoAction,
-                stopMessage,
-                processing,
-                envelope,
-                reasonCode: "stop_command");
-            RecordDiagnosticEvent("channel.turn.stop_command", "info", stopMessage, processing.Binding, stopOutcome);
-            return new ChannelTurnOrchestrationResult(processing, stopOutcome, ExecutedTurn: false);
         }
 
         if (!ShouldExecuteTurn(envelope))
@@ -263,12 +249,53 @@ public sealed class ChannelTurnOrchestrator
 
         var hasExplicitMention = DetectExplicitMention(envelope, account);
 
+        // KC-CMD: Build turn context from any directive modifiers (e.g. /think, /stream, /quiet, /focus).
+        var turnContext = parsedCommand.Directives.Count > 0
+            ? ChannelTurnContext.FromDirectives(parsedCommand)
+            : ChannelTurnContext.Empty;
+
+        // Guard: directive present but no actual prompt body — inform the user.
+        if (parsedCommand.Directives.Count > 0 && string.IsNullOrWhiteSpace(parsedCommand.CleanedText))
+        {
+            var directiveNames = string.Join(", ", parsedCommand.Directives.Select(d => $"/{d.ToString().ToLowerInvariant()}"));
+            var usageHint = $"请在指令 {directiveNames} 后加上消息正文，例如：/{parsedCommand.Directives[0].ToString().ToLowerInvariant()} 你的问题";
+            try
+            {
+                await _deliveryDispatchService.SendNotificationAsync(
+                    account, processing.Binding, usageHint, cancellationToken: cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send directive usage hint for binding {BindingId}", processing.Binding.Id);
+            }
+            var hintOutcome = CreateOutcome(
+                ChannelTurnOutcomeKind.NoAction,
+                usageHint,
+                processing,
+                envelope,
+                reasonCode: "directive_missing_body");
+            return new ChannelTurnOrchestrationResult(processing, hintOutcome, ExecutedTurn: false);
+        }
+
         try
         {
             var handle = await _channelSessionService.EnsureChannelSessionAsync(
                 processing.Binding, processing.Policy, cancellationToken);
+
+            // Build the effective prompt, applying directive context
+            var effectiveEnvelope = parsedCommand.Directives.Count > 0
+                ? envelope with { Text = parsedCommand.CleanedText }
+                : envelope;
             var prompt = _channelSessionService.BuildPrompt(
-                processing.Binding, envelope, hasExplicitMention);
+                processing.Binding, effectiveEnvelope, hasExplicitMention);
+
+            // Apply FocusConstraint as a trailing instruction
+            if (!string.IsNullOrWhiteSpace(turnContext.FocusConstraint))
+                prompt = $"{prompt}\n\n[本轮约束：请专注于 {turnContext.FocusConstraint}]";
+
+            // Apply PromptPrefix (Wave 3+)
+            if (!string.IsNullOrWhiteSpace(turnContext.PromptPrefix))
+                prompt = $"{turnContext.PromptPrefix}\n\n{prompt}";
 
             using var sessionLock = await _channelSessionService.AcquireSessionLockAsync(
                 handle.SessionId, cancellationToken);
@@ -276,11 +303,13 @@ public sealed class ChannelTurnOrchestrator
             AgentRunResult runResult;
             var progressWasSent = false;
 
+            // Determine effective progress streaming: per-turn override takes priority over session option.
+            var effectiveProgressStreaming = turnContext.EnableProgressStreamingOverride ?? _sessionOptions.EnableProgressStreaming;
+
             // Progress streaming: subscribe to EventBus before RunAsync so no events are missed.
-            // Controlled by ChannelSessionOptions.EnableProgressStreaming (default: off).
             CancellationTokenSource? subscribeCts = null;
             Task<bool>? progressTask = null;
-            if (_sessionOptions.EnableProgressStreaming)
+            if (effectiveProgressStreaming)
             {
                 subscribeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var progressEvents = handle.Agent.EventBus.SubscribeAsync(
@@ -297,9 +326,20 @@ public sealed class ChannelTurnOrchestrator
                     subscribeCts.Token);
             }
 
+            // Build AgentRunOptions from turn context directives
+            var runOptions = (turnContext.EnableThinking.HasValue || turnContext.ThinkingBudget.HasValue)
+                ? new Kode.Agent.Sdk.Core.Abstractions.AgentRunOptions
+                  {
+                      EnableThinking = turnContext.EnableThinking,
+                      ThinkingBudget = turnContext.ThinkingBudget
+                  }
+                : null;
+
             try
             {
-                runResult = await handle.Agent.RunAsync(prompt, cancellationToken);
+                runResult = runOptions is not null
+                    ? await handle.Agent.RunAsync(prompt, runOptions, cancellationToken)
+                    : await handle.Agent.RunAsync(prompt, cancellationToken);
             }
             finally
             {

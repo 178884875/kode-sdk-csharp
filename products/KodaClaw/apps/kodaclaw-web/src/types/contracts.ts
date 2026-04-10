@@ -345,7 +345,7 @@ export interface MediaMeta {
 }
 
 export interface ChatStreamEvent {
-  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated";
+  type: "text_chunk" | "done" | "error" | "tool_warning" | "approval_required" | "approval_decided" | "tool_activity" | "agent_working" | "session_rotated" | "subagent_start" | "subagent_working" | "subagent_tool_done";
   sessionId: string;
   step?: number | null;
   sequence?: number | null;
@@ -361,6 +361,10 @@ export interface ChatStreamEvent {
   decision?: string | null;
   // Tool activity fields
   durationMs?: number | null;
+  // Sub-agent progress fields (subagent_start / subagent_working / subagent_tool_done)
+  subAgentId?: string | null;
+  label?: string | null;
+  subAgentToolName?: string | null;
 }
 
 export interface InboxItem {

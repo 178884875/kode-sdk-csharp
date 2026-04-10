@@ -2,6 +2,65 @@
 
 这份 backlog 按模块拆解，为后续逐步实现提供任务地图。这里不追求一次性列完所有技术细节，而是给出足够清晰的开发切入口。
 
+## KC-CMD 专项 — Channel 命令系统重构与扩展（KC-CMD-01~04）
+
+> FREEZE doc: `docs/ITERATION_KC_CMD_FREEZE.md`（2026-04-10）
+> 类型：P0 优化/重构 + P1-P3 新功能
+> 受影响模块：`KodaClaw.ChannelHub`（主）、`KodaClaw.Runtime`（轻触）
+
+### Wave 1 — KC-CMD-01：P0 纯重构（命令系统架构化）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-CMD-0101 | `KodaClaw.ChannelHub` | 新建 `Commands/` 目录，共 4 个文件：`ParsedChannelCommand.cs`（解析结果 record + `ChannelControlCommandKind` + `ChannelDirectiveKind` 枚举）、`ChannelCommandRegistry.cs`（静态命令定义表，含 Key/Aliases/Description/Category）、`ChannelCommandParser.cs`（`Parse(string?) → ParsedChannelCommand` 纯函数，从注册表构建 alias 映射）、`ChannelCommandDispatcher.cs`（Wave 1 骨架，完整实现在 KC-CMD-0102）；`ChannelTurnContext.cs` 推迟至 Wave 2 创建 | `dotnet build` 0 错 0 警告 | Pending |
+| KC-CMD-0102 | `KodaClaw.ChannelHub` | 新建 `Commands/ChannelCommandDispatcher.cs`：构造注入 `IChannelSessionService`、`ChannelDeliveryDispatchService`、`IDiagnosticsService?`；`DispatchAsync` 内部 switch on `ControlKind`，处理 `SessionReset`/`Status`/`Stop` 三个已有命令；`ServiceCollectionExtensions` 注册 Dispatcher | `dotnet build` 0 错 0 警告 | Pending |
+| KC-CMD-0103 | `KodaClaw.ChannelHub` | `ChannelTurnOrchestrator.ProcessInboundAsync` 重构：原 if-else 链替换为 `ChannelCommandParser.Parse(envelope.Text)` + `if ControlKind → _commandDispatcher.DispatchAsync(...)` 两行；现有 3 个命令行为完全不变 | `dotnet build` 0 错；`dotnet test KodaClaw.sln -m:1 --filter "ChannelHub"` 全绿 | Pending |
+| KC-CMD-0104 | `KodaClaw.UnitTests` | `SessionResetCommandTests.cs` 迁移：改为调 `ChannelCommandParser.Parse()`，保持相同 case 覆盖；**同时删除 `ChannelTurnOrchestrator` 中的 `IsSessionResetCommand` 和 `SessionResetCommands` 两个 internal 静态成员**（避免新旧逻辑并存）；新增 `ChannelCommandParserTests.cs`（≥12 个 case：各命令 alias、大小写、边界、前缀不触发）；新增 `ChannelCommandRegistryTests.cs`（注册表完整性、无重复 alias） | `dotnet test KodaClaw.sln -m:1` 全绿 | Pending |
+
+### Wave 2 — KC-CMD-02：P1 新命令（/help、/think）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-CMD-0201 | `Kode.Agent.Sdk` | **SDK 前置条件 A**：新增 `AgentRunOptions` record（`EnableThinking?`, `ThinkingBudget?`）；`IAgent` + `Agent` 新增 `RunAsync(string, AgentRunOptions?, CancellationToken)` 重载；**实现**：`Agent` 新增 `_currentRunOptions` 私有字段，在 `RunMultimodalAsync` 开始赋值、finally 清空（session 级 SemaphoreSlim 已保证 RunAsync 不并发，无竞态）；`BuildModelRequest()` 合并：`EnableThinking = _currentRunOptions?.EnableThinking ?? _config.EnableThinking` | `dotnet build` SDK 0 错；现有 SDK 测试全绿 | Pending |
+| KC-CMD-0202 | `KodaClaw.Runtime` | **SDK 前置条件 B**：`IChannelSessionService.RunInboundTurnAsync` 增加可选参数 `AgentRunOptions? runOptions = null`（向后兼容）；`ChannelSessionService` 实现透传给 `handle.Agent.RunAsync(prompt, runOptions, ct)` | `dotnet build` 0 错 | Pending |
+| KC-CMD-0203 | `KodaClaw.ChannelHub` | 新建 `ChannelTurnContext.cs`（per-turn 参数覆盖 record，含 `PromptPrefix?`、`bool? EnableThinking`（**nullable**）、`int? ThinkingBudget` + `FromDirectives()` 工厂方法）；`ChannelCommandRegistry` 追加 `Help`（aliases: `/help /commands /?`）；`ChannelControlCommandKind` 枚举扩展 `Help`；`ChannelCommandRegistry.FormatHelpText()` 按分组格式化 | `dotnet build` 0 错 | Pending |
+| KC-CMD-0204 | `KodaClaw.ChannelHub` | `ChannelDirectiveKind` 枚举新增 `Think`；`ChannelCommandParser` 扩展 Directive 前缀剥离（`/think 正文`→`Directives=[Think], CleanedText=正文`；`/think` 单独行→`CleanedText=""`） | `dotnet build` 0 错 | Pending |
+| KC-CMD-0205 | `KodaClaw.ChannelHub` | `ChannelCommandDispatcher` 新增 `Help` case；`ChannelTurnOrchestrator` 应用 `ChannelTurnContext`：① `finalText = (ctx.PromptPrefix??"")+parsed.CleanedText`，`envelope with { Text = finalText }`；② ControlKind 非 null → 走 Dispatcher 分支，Directives 不应用；③ Think directive → `EnableThinking=true, ThinkingBudget=8000`；④ 调 `_channelSessionService.RunInboundTurnAsync(..., runOptions: new AgentRunOptions{...}, ct)`（通过接口透传，不直接访问 agent）；**空正文 guard**：Directives 非空且 CleanedText 为空→发使用提示返回 | `dotnet build` 0 错；Dogfood: `/help` 收到列表；`/think 分析` 开启 thinking tokens；`/think` 单独行收到使用提示 | Pending |
+| KC-CMD-0206 | `KodaClaw.UnitTests` | `ChannelCommandParserTests`：Think 前缀剥离、单独行 CleanedText 为空、大小写（≥6 case）；新增 `ChannelCommandDispatcherTests.cs`（Help/Stop/Status/Reset 各分支）；新增 `ChannelTurnContextTests.cs`（Think→`EnableThinking=true, ThinkingBudget=8000, PromptPrefix 非空`；空 directives→三者均 null）；`ChannelTurnOrchestratorTests`：Think 单独行→发提示不进 Agent；Think 带正文→`RunInboundTurnAsync` 收到 `runOptions.EnableThinking=true`；ControlKind 优先→Directives 不应用 | `dotnet test KodaClaw.sln -m:1` 全绿；L5 Dogfood | Pending |
+
+### Wave 3 — KC-CMD-03：P2 扩展命令（/compact、/tools、/whoami、/stream、/quiet）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-CMD-0301 | `Kode.Agent.Sdk` | **SDK 前置条件 C**：`Agent` 类新增 `ForceCompressAsync(CancellationToken) → Task<bool>`（调 `_contextManager.CompressAsync(force:true)`；若 result 非 null：`_messages.Clear()/_messages.AddRange(result.RetainedMessages)`、`RunMessagesChangedAsync`、`SaveStateAsync`、`EmitMonitor(ContextCompressionEvent{Phase="end"})`；返回是否实际压缩） | `dotnet build` SDK 0 错 | Pending |
+| KC-CMD-0302 | `KodaClaw.Runtime` | `IChannelSessionService` 新增两个方法：① `GetSessionToolNamesAsync(string sessionId, CancellationToken) → Task<IReadOnlyList<string>>`（直接返回 `_sessionOptions.Tools`，**不**访问 Agent 私有字段；session 不存在返空列表）；② `CompressSessionContextAsync(string sessionId, CancellationToken) → Task<string>`（在 `_sessionLocks[sessionId].WaitAsync` 内执行：检查 `RuntimeState==Working`→拒绝；否则调 `agent.ForceCompressAsync(ct)`；**必须持 sessionLock**，避免与并发 turn 的 TOCTOU 竞态） | `dotnet build` 0 错 | Pending |
+| KC-CMD-0303 | `KodaClaw.ChannelHub` | `ChannelCommandRegistry` 追加 `Compact`/`Tools`/`WhoAmI`；`ChannelControlCommandKind` 枚举扩展三个值；`ChannelCommandDispatcher` 注入 `IWorkspaceService`，实现：`Compact`（调 `CompressSessionContextAsync`）、`Tools`（调 `GetSessionToolNamesAsync`）、`WhoAmI`（`File.ReadAllTextAsync(Path.Combine(_workspaceService.RootPath, "workspace", "IDENTITY.md"))`，前 500 字符；文件不存在→返"身份文件未初始化"） | `dotnet build` 0 错 | Pending |
+| KC-CMD-0304 | `KodaClaw.ChannelHub` | `ChannelDirectiveKind` 枚举新增 `Stream`、`Quiet`；`ChannelTurnContext` 新增 `bool? EnableProgressStreamingOverride` 字段；`ChannelTurnOrchestrator` 在订阅 EventBus 前应用 override（局部变量覆盖 `_sessionOptions.EnableProgressStreaming`，仅影响本次 turn） | `dotnet build` 0 错；`dotnet test KodaClaw.sln -m:1 --filter "ChannelHub"` 全绿 | Pending |
+| KC-CMD-0305 | `KodaClaw.UnitTests` | `ChannelCommandParserTests` 追加 Stream/Quiet case（≥4）；`ChannelCommandDispatcherTests` 追加 Compact（Working 拒绝/idle 成功）/Tools（返工具列表）/WhoAmI（IDENTITY.md 截断 500 字符）；`ChannelTurnContextTests` streaming override case；**`ChannelSessionServiceTests`** 新增：`CompressSessionContextAsync` Working guard（持锁后检查）、idle 成功路径（mock ForceCompressAsync）、`GetSessionToolNamesAsync` session 存在/不存在两个 case | `dotnet test KodaClaw.sln -m:1` 全绿 | Pending |
+
+### Wave 4 — KC-CMD-04：P3 高级命令（/focus、/btw）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-CMD-0401 | `KodaClaw.ChannelHub` | `ChannelDirectiveKind` 枚举新增 `Focus`；`ChannelCommandParser` 解析 `/focus <topic> 正文`（**topic 为第一个空格前的连续字符串**，之后全部为正文；`/focus topic` 无正文时 CleanedText 为空）；`ChannelTurnContext` 新增 `FocusConstraint` 字段；`ChannelTurnOrchestrator` 将 FocusConstraint 追加到 prompt 尾部（格式：`\n\n[视角约束：请聚焦于 {focus} 的角度回答]`） | `dotnet build` 0 错 | Pending |
+| KC-CMD-0402 | `KodaClaw.ChannelHub` | `ChannelControlCommandKind` 枚举新增 `SideQuestion`（alias: `/btw`）；新建 `EphemeralAgentStore`（KodaClaw.ChannelHub 内部类，实现 `IAgentStore`，所有方法 no-op/返空集合，参考 `Kode.Agent.Tools.Orchestration.Internal.InMemoryAgentStore`）；`ChannelCommandDispatcher` 实现 `/btw`：读 IDENTITY.md+SOUL.md（`Path.Combine(_workspaceService.RootPath, "workspace", "IDENTITY.md")`）拼接 system prompt；调 `Agent.CreateAsync(Guid.NewGuid().ToString(), config, new AgentDependencies { Store = new EphemeralAgentStore(), ... }, ct)`（**正确 API，无 AgentRuntime 类**）；`await using` 析构，不写入 session 历史 | `dotnet build` 0 错；L5 Dogfood | Pending |
+| KC-CMD-0403 | `KodaClaw.UnitTests` | `ChannelCommandParserTests` 追加 Focus 解析 case（含 topic 边界、无正文情况）；`ChannelCommandDispatcherTests` 追加 SideQuestion ephemeral agent 路径（mock workspace service）验证；`ChannelTurnContextTests` 追加 FocusConstraint 追加位置验证 | `dotnet test KodaClaw.sln -m:1` 全绿 | Pending |
+
+---
+
+## Iter 71 — Sub-Agent 实时进度可见性（KC-7101~7103）
+
+> FREEZE doc: `docs/ITERATION_71_FREEZE.md`（2026-04-09）
+> 类型：新功能
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-7101 | `KodaClaw.Runtime` + `KodaClaw.Contracts` + `contracts.ts` | `ChatSessionService` 在 Progress 流之外并行订阅 Agent Monitor 频道（fan-in via `System.Threading.Channels`，与 Progress 同生命周期），将 `SubAgentCreatedEvent`→`subagent_start`、`SubAgentToolStartEvent`→`subagent_working`、`SubAgentToolEndEvent`→`subagent_tool_done` 三类事件映射为新 `ChatStreamEvent`；`ChatStreamEvent` record 新增可选字段 `SubAgentId?`/`Label?`/`SubAgentToolName?`（实际文件：`KodaClaw.Contracts/Chat/ChatStreamEvent.cs`）；`contracts.ts` 同步新增字段与新 type 值（含 `subagent_tool_done`）；不改动任何已有字段，向后兼容 | `dotnet build KodaClaw.sln`；`npm run typecheck` | Pending |
+| KC-7102 | `apps/kodaclaw-web` | `MessageBubble.tsx` 处理 `subagent_start`/`subagent_working`/`subagent_tool_done` 事件；前端用 `pendingSubAgents` 队列解决事件顺序竞态（subagent_start 先于 agent_working 到达时暂存）；`toolCount` 由 `subagent_tool_done` 累计（不是 working 次数）；pipeline 多 stage 各自显示子行并在父工具 `tool_activity` 时累计折叠；`tool_activity` 到达后折叠为"↳ {label} · 使用了 N 个工具"；新增 `MessageBubble.css` 子行样式（缩进、`--text-secondary` 色、`0.85rem` 字号，全量 CSS token） | `npm run typecheck`；L5 Dogfood | Pending |
+| KC-7103 | `KodaClaw.IntegrationTests` | L2 集成测试：mock Monitor 事件注入 ChatSessionService，验证 `subagent_start`/`subagent_working` 正确出现在 SSE 流；L3 契约测试：`ChatStreamEvent` 新字段序列化验证 | `dotnet test KodaClaw.sln -m:1 --filter "SubAgentProgress"` | Pending |
+
+---
+
 ## Iter 67 — 前端服务端状态现代化 Phase 1：基础设施 + models 迁移
 
 > FREEZE doc: `docs/ITERATION_W4_FREEZE.md`（2026-04-06，设计参考文档）

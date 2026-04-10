@@ -2263,3 +2263,65 @@ article.message:hover .message__time {
 .kc-tooltip:hover::after {
   opacity: 1;
 }
+
+/* ── Sub-agent progress rows (KC-7102) ──────────────────────────────────────── */
+
+/* Container inside a completed tool_activity row */
+.subagent-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 4px 20px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* Live strip shown at the bottom of the timeline while streaming */
+.live-subagent-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 16px;
+}
+
+/* Individual sub-agent row (used in both live strip and collapsed summary) */
+.subagent-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+
+.subagent-row--done {
+  opacity: 0.6;
+}
+
+.subagent-row__prefix {
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+}
+
+.subagent-row__label {
+  font-family: ui-monospace, "Cascadia Code", monospace;
+  font-size: var(--font-size-xs);
+  flex-shrink: 0;
+}
+
+.subagent-row__tool {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-row__tool--pending {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.subagent-row__summary {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}

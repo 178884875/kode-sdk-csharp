@@ -50,6 +50,7 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
     private int _invalidToolArgsStreak;
     private string? _nextModelNudgeText;
     private NextModelToolsOverride? _nextModelToolsOverride;
+    private AgentRunOptions? _currentRunOptions;
     // Loop detection: tracks (tool_name:input_hash) -> call count within the current run.
     private readonly Dictionary<string, int> _toolCallFingerprints = new(StringComparer.Ordinal);
 
@@ -598,6 +599,20 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         return await RunMultimodalAsync(
             [new TextContent { Text = input }],
             cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<AgentRunResult> RunAsync(string input, AgentRunOptions? options, CancellationToken cancellationToken = default)
+    {
+        _currentRunOptions = options;
+        try
+        {
+            return await RunMultimodalAsync([new TextContent { Text = input }], cancellationToken);
+        }
+        finally
+        {
+            _currentRunOptions = null;
+        }
     }
 
     public async Task<AgentRunResult> RunAsync(IReadOnlyList<ContentBlock> parts, CancellationToken cancellationToken = default)
@@ -1534,6 +1549,38 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
         => _contextManager.LoadHistoryAsync(cancellationToken);
 
     /// <inheritdoc />
+    public async Task<bool> ForceCompressAsync(CancellationToken cancellationToken = default)
+    {
+        var systemPromptTokens = ContextManager.EstimateSystemPromptTokens(_systemPrompt);
+        var result = await _contextManager.CompressAsync(
+            _messages,
+            _eventBus.GetTimelineSnapshot(),
+            _filePool,
+            _sandbox,
+            systemPromptTokens,
+            force: true,
+            cancellationToken);
+
+        if (result is null)
+            return false;
+
+        _messages.Clear();
+        _messages.AddRange(result.RetainedMessages);
+        await _hookManager.RunMessagesChangedAsync(_messages, cancellationToken);
+        await SaveStateAsync(cancellationToken);
+
+        _eventBus.EmitMonitor(new ContextCompressionEvent
+        {
+            Type = "context_compression",
+            Phase = "end",
+            Summary = string.Join("\n", result.Summary.Content.OfType<TextContent>().Select(t => t.Text)),
+            Ratio = result.Ratio
+        });
+
+        return true;
+    }
+
+    /// <inheritdoc />
     public async Task SetTodosAsync(IEnumerable<TodoItem> todos, CancellationToken cancellationToken = default)
     {
         var todoList = todos.ToList();
@@ -1694,8 +1741,8 @@ public sealed class Agent : IAgent, ISkillsAwareAgent, ITaskDelegatorAgent, ISub
             Tools = toolSchemas,
             MaxTokens = _config.MaxTokens,
             Temperature = _config.Temperature,
-            EnableThinking = _config.EnableThinking,
-            ThinkingBudget = _config.ThinkingBudget
+            EnableThinking = _currentRunOptions?.EnableThinking ?? _config.EnableThinking,
+            ThinkingBudget = _currentRunOptions?.ThinkingBudget ?? _config.ThinkingBudget
         };
     }
 

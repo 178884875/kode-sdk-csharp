@@ -80,6 +80,14 @@ public sealed class JsonThreadBindingRepository : JsonStoreBase, IThreadBindingR
             .ToList();
     }
 
+    public async Task<ThreadBinding?> GetBySessionIdAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        var results = await ListAsync(
+            new ChannelQuery(SessionId: sessionId, Limit: 1),
+            cancellationToken);
+        return results.FirstOrDefault();
+    }
+
     public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken = default)
     {
         var binding = await ReadEntityAsync<ThreadBinding>(FilePath(id), cancellationToken);

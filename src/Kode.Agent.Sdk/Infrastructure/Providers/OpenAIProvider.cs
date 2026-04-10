@@ -59,8 +59,11 @@ public sealed class OpenAIProvider : IModelProvider
 
         // Inject MediaRewriteHttpHandler so video_url / file_url markers in content
         // parts are rewritten to their proper JSON shapes before leaving the process.
+        // Timeout.InfiniteTimeSpan: streaming responses can run for several minutes;
+        // the 100-second default causes mid-stream cancellation. The CancellationToken
+        // passed to StreamAsync controls actual cancellation instead.
         clientOptions.Transport = new HttpClientPipelineTransport(
-            new HttpClient(new MediaRewriteHttpHandler()));
+            new HttpClient(new MediaRewriteHttpHandler()) { Timeout = Timeout.InfiniteTimeSpan });
 
         _client = new OpenAIClient(
             new ApiKeyCredential(options.ApiKey),
@@ -109,6 +112,10 @@ public sealed class OpenAIProvider : IModelProvider
         var toolCallBuilders = new Dictionary<int, (string Id, string Name, System.Text.StringBuilder Args)>();
         TokenUsage? finalUsage = null;
 
+        MediaRewriteHttpHandler.ThinkingEnabled.Value = request.EnableThinking == true;
+        try
+        {
+
         await foreach (var update in chatClient.CompleteChatStreamingAsync(messages, options, cancellationToken))
         {
             foreach (var chunk in ConvertStreamUpdate(update, toolCallBuilders))
@@ -153,6 +160,9 @@ public sealed class OpenAIProvider : IModelProvider
                 "OpenAI stream complete: model={Model}, input_tokens={InputTokens}, output_tokens={OutputTokens}, duration_ms={DurationMs}",
                 request.Model, finalUsage.InputTokens, finalUsage.OutputTokens, streamStopwatch.ElapsedMilliseconds);
         }
+
+        } // end try
+        finally { MediaRewriteHttpHandler.ThinkingEnabled.Value = false; }
     }
 
     public async Task<ModelResponse> CompleteAsync(ModelRequest request, CancellationToken cancellationToken = default)
@@ -161,8 +171,16 @@ public sealed class OpenAIProvider : IModelProvider
         var messages = BuildChatMessages(request);
         var options = BuildChatOptions(request);
 
-        var result = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
-        return ConvertToModelResponse(result.Value);
+        MediaRewriteHttpHandler.ThinkingEnabled.Value = request.EnableThinking == true;
+        try
+        {
+            var result = await chatClient.CompleteChatAsync(messages, options, cancellationToken);
+            return ConvertToModelResponse(result.Value);
+        }
+        finally
+        {
+            MediaRewriteHttpHandler.ThinkingEnabled.Value = false;
+        }
     }
 
     public async Task<bool> ValidateAsync(CancellationToken cancellationToken = default)
@@ -527,6 +545,13 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
     /// <summary>Sentinel prefix for a <see cref="FileContent"/> URL.</summary>
     internal const string FileMarker = "__KODE_FILE_URL__";
 
+    /// <summary>
+    /// Side-channel flag: when true, inject <c>{"thinking":{"type":"enabled"}}</c> into
+    /// the request body. Used by OpenAI-compatible providers (e.g. Kimi K2.5) that accept
+    /// a <c>thinking</c> extra-body parameter but have no native SDK field for it.
+    /// </summary>
+    internal static readonly AsyncLocal<bool> ThinkingEnabled = new();
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
@@ -535,11 +560,29 @@ internal sealed class MediaRewriteHttpHandler(HttpMessageHandler? inner = null)
         {
             var body = await request.Content.ReadAsStringAsync(cancellationToken);
             var transformed = TransformMediaMarkers(body);
+            transformed = TransformThinking(transformed);
             if (!ReferenceEquals(transformed, body))
                 request.Content = new StringContent(transformed, Encoding.UTF8, "application/json");
         }
 
         return await base.SendAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Injects <c>"thinking": {"type": "enabled"}</c> at the root of the JSON body
+    /// when <see cref="ThinkingEnabled"/> is true. Returns the original string when
+    /// thinking is disabled, to avoid unnecessary allocations on the hot path.
+    /// </summary>
+    internal static string TransformThinking(string json)
+    {
+        if (!ThinkingEnabled.Value) return json;
+        if (!json.Contains("\"messages\"", StringComparison.Ordinal)) return json;
+
+        var root = JsonNode.Parse(json);
+        if (root is not JsonObject obj) return json;
+
+        obj["thinking"] = JsonNode.Parse("{\"type\":\"enabled\"}");
+        return root.ToJsonString();
     }
 
     /// <summary>

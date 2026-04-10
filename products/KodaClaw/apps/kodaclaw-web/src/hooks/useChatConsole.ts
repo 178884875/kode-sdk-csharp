@@ -1,7 +1,21 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { streamChatEvents, submitApprovalDecision, fetchSessionMessages } from "../lib/api";
-import type { ChatMessage } from "../types/chat";
+import type { ChatMessage, LiveSubAgentRow, SubAgentRowData } from "../types/chat";
 import type { SessionMessageItem } from "../types/contracts";
+
+// ── sub-agent tracking types ──────────────────────────────────────────────────
+
+type SubAgentStatus = {
+  subAgentId: string;
+  label: string;
+  toolName: string | null;
+  toolCount: number;
+  isDone: boolean;
+};
+
+function subLabelMatches(label: string, toolName: string): boolean {
+  return label === toolName || label.startsWith(toolName + ":");
+}
 
 export type ChatConsoleCopy = {
   initialSystemNote: string;
@@ -40,6 +54,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
   const [draft, setDraft] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [activeToolName, setActiveToolName] = useState<string | null>(null);
+  const activeToolNameRef = useRef<string | null>(null); // mirrors activeToolName for sync reads
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const historySkipRef = useRef(0);
@@ -52,12 +67,35 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
   // History prepend does NOT increment this, so it never accidentally yanks scroll position.
   const [scrollToBottomVersion, setScrollToBottomVersion] = useState(0);
 
+  // ── sub-agent live tracking ─────────────────────────────────────────────────
+  // Use a ref for synchronous reads inside the async stream loop + state for renders.
+  const activeSubAgentsRef = useRef<Map<string, SubAgentStatus>>(new Map());
+  const pendingSubAgentsRef = useRef<Map<string, SubAgentStatus>>(new Map()); // keyed by label
+  const [liveSubAgentRows, setLiveSubAgentRows] = useState<LiveSubAgentRow[]>([]);
+
+  function syncSubAgentState() {
+    setLiveSubAgentRows(Array.from(activeSubAgentsRef.current.values()).map(s => ({
+      subAgentId: s.subAgentId,
+      label: s.label,
+      toolName: s.toolName,
+      isDone: s.isDone,
+    })));
+  }
+
+  function clearSubAgents() {
+    activeSubAgentsRef.current = new Map();
+    pendingSubAgentsRef.current = new Map();
+    setLiveSubAgentRows([]);
+  }
+
   const placeholder = useMemo(() => copy.placeholderMain, [copy.placeholderMain]);
 
   const stopStreaming = useCallback(() => {
     streamAbortRef.current?.abort();
     streamAbortRef.current = null;
     setActiveToolName(null);
+    activeToolNameRef.current = null;
+    clearSubAgents();
     setIsStreaming(false);
     setMessages((current) =>
       current.map((m) =>
@@ -66,7 +104,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
           : m,
       ),
     );
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendMessage = useCallback(async (mediaIds?: string[], mediaUrls?: string[]) => {
     const content = draft.trim();
@@ -80,6 +118,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       streamAbortRef.current?.abort();
       streamAbortRef.current = null;
       setActiveToolName(null);
+      activeToolNameRef.current = null;
+      clearSubAgents();
       setMessages((current) =>
         current.map((m) =>
           m.status === "streaming"
@@ -175,12 +215,83 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
         }
 
         if (event.type === "agent_working") {
-          setActiveToolName(event.toolName ?? null);
+          const toolName = event.toolName ?? null;
+          setActiveToolName(toolName);
+          activeToolNameRef.current = toolName;
+          // Drain pending sub-agents matching this tool
+          if (toolName) {
+            let changed = false;
+            for (const [label, status] of pendingSubAgentsRef.current) {
+              if (subLabelMatches(label, toolName)) {
+                activeSubAgentsRef.current.set(status.subAgentId, status);
+                pendingSubAgentsRef.current.delete(label);
+                changed = true;
+              }
+            }
+            if (changed) syncSubAgentState();
+          }
+          continue;
+        }
+
+        if (event.type === "subagent_start") {
+          const { subAgentId, label } = event;
+          if (!subAgentId || !label) continue;
+          const status: SubAgentStatus = { subAgentId, label, toolName: null, toolCount: 0, isDone: false };
+          const parentTool = activeToolNameRef.current;
+          if (parentTool && subLabelMatches(label, parentTool)) {
+            // Pipeline: mark previous active pipeline stages as done when a new one starts
+            if (label.startsWith("pipeline:")) {
+              for (const [id, s] of activeSubAgentsRef.current) {
+                if (s.label.startsWith("pipeline:") && !s.isDone) {
+                  activeSubAgentsRef.current.set(id, { ...s, isDone: true });
+                }
+              }
+            }
+            activeSubAgentsRef.current.set(subAgentId, status);
+          } else {
+            pendingSubAgentsRef.current.set(label, status);
+          }
+          syncSubAgentState();
+          continue;
+        }
+
+        if (event.type === "subagent_working") {
+          const { subAgentId, subAgentToolName } = event;
+          if (!subAgentId) continue;
+          const existing = activeSubAgentsRef.current.get(subAgentId);
+          if (existing) {
+            activeSubAgentsRef.current.set(subAgentId, { ...existing, toolName: subAgentToolName ?? null });
+            syncSubAgentState();
+          }
+          continue;
+        }
+
+        if (event.type === "subagent_tool_done") {
+          const { subAgentId } = event;
+          if (!subAgentId) continue;
+          const existing = activeSubAgentsRef.current.get(subAgentId);
+          if (existing) {
+            activeSubAgentsRef.current.set(subAgentId, { ...existing, toolCount: existing.toolCount + 1 });
+            syncSubAgentState();
+          }
           continue;
         }
 
         if (event.type === "tool_activity") {
           setActiveToolName(null);
+          activeToolNameRef.current = null;
+          // Collect sub-agent rows matching this tool and remove them from active tracking
+          const completedToolName = event.toolName ?? null;
+          const subAgentRows: SubAgentRowData[] = [];
+          if (completedToolName) {
+            for (const [id, status] of activeSubAgentsRef.current) {
+              if (subLabelMatches(status.label, completedToolName)) {
+                subAgentRows.push({ label: status.label, toolCount: status.toolCount });
+                activeSubAgentsRef.current.delete(id);
+              }
+            }
+            if (subAgentRows.length > 0) syncSubAgentState();
+          }
           // Skip if an approval card already represents this call (no duplicate needed)
           if (event.callId && approvalCallIds.current.has(event.callId)) continue;
           const toolMsg = createMessage("tool_activity", "", "done", event.sessionId);
@@ -196,7 +307,13 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
               : current.filter((m) => m.id !== prevAssistantId);
             return [
               ...withPrev,
-              { ...toolMsg, toolName: event.toolName ?? null, durationMs: event.durationMs ?? null, inputPreview: event.inputPreview ?? null },
+              {
+                ...toolMsg,
+                toolName: event.toolName ?? null,
+                durationMs: event.durationMs ?? null,
+                inputPreview: event.inputPreview ?? null,
+                subAgentRows: subAgentRows.length > 0 ? subAgentRows : undefined,
+              },
               nextAssistantMsg,
             ];
           });
@@ -205,6 +322,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
         if (event.type === "done") {
           setActiveToolName(null);
+          activeToolNameRef.current = null;
+          clearSubAgents();
           setMessages((current) =>
             current.map((message) =>
               message.id === currentAssistantMsgId
@@ -232,6 +351,8 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
 
         const detail = event.error?.message ?? event.reason ?? copy.unknownStreamError;
         setActiveToolName(null);
+        activeToolNameRef.current = null;
+        clearSubAgents();
         setMessages((current) =>
           current.map((message) =>
             message.id === currentAssistantMsgId
@@ -266,11 +387,15 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
       // AbortError = deliberate stream cancellation (resume/rotate), not an error to surface
       if (error instanceof Error && error.name === "AbortError") {
         setActiveToolName(null);
+        activeToolNameRef.current = null;
+        clearSubAgents();
         setIsStreaming(false);
         return;
       }
       const detail = error instanceof Error ? error.message : copy.failedToReachStream;
       setActiveToolName(null);
+      activeToolNameRef.current = null;
+      clearSubAgents();
       setMessages((current) =>
         current.map((message) =>
           message.id === currentAssistantMsgId
@@ -396,6 +521,7 @@ export function useChatConsole(copy: ChatConsoleCopy, onSessionRotated?: (newSes
     setDraft,
     isStreaming,
     activeToolName,
+    liveSubAgentRows,
     messages,
     placeholder,
     sendMessage,

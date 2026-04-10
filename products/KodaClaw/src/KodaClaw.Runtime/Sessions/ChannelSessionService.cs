@@ -32,6 +32,8 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
     private readonly ISettingsRepository? _settingsRepository;
     private readonly Dictionary<string, IAgent> _agents = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _sessionModels = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _pendingModelOverrides = new(StringComparer.Ordinal);
 
     public ChannelSessionService(
         IWorkspaceService workspaceService,
@@ -110,9 +112,20 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         var maxIterations = await ResolveMaxIterationsAsync(cancellationToken);
         var contextWindowSize = await ResolveContextWindowSizeAsync(cancellationToken);
 
+        // 4a: 统一计算 explicitOverride（内存快路径 + 重启后 DB 兜底）
+        string? explicitOverride = null;
+        if (_pendingModelOverrides.TryRemove(binding.Id, out var memOverride))
+            explicitOverride = memOverride;                   // 同进程快路径
+        else if (binding.PendingModelOverride is not null)
+            explicitOverride = binding.PendingModelOverride;  // 重启后从 DB 读取
+
         if (!isSessionTimedOut && await dependencies.Store.ExistsAsync(binding.SessionId, cancellationToken))
         {
-            var configuredModel = await ResolveConfiguredModelAsync(cancellationToken);
+            // Resume 路径：explicitOverride → ActiveModelId → 默认模型
+            var configuredModel = explicitOverride
+                ?? binding.ActiveModelId
+                ?? await ResolveConfiguredModelAsync(cancellationToken);
+
             var resumeTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
             var skillsPaths = _workspaceService.GetSkillsPaths();
             try
@@ -155,6 +168,12 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     cancellationToken: cancellationToken);
 
                 _agents[binding.SessionId] = resumed;
+                _sessionModels[binding.SessionId] = configuredModel;
+                // 4b: 持久化 ActiveModelId，清零 PendingModelOverride
+                if (_threadBindingRepository is not null)
+                    await _threadBindingRepository.UpsertAsync(
+                        binding with { ActiveModelId = configuredModel, PendingModelOverride = null, UpdatedAt = DateTimeOffset.UtcNow },
+                        cancellationToken);
                 RecordDiagnosticEvent(
                     eventType: "channel_session.resumed",
                     level: "info",
@@ -176,6 +195,12 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     cancellationToken);
 
                 _agents[binding.SessionId] = createdAfterFallback;
+                _sessionModels[binding.SessionId] = configuredModel;
+                // 4b: 持久化 ActiveModelId，清零 PendingModelOverride
+                if (_threadBindingRepository is not null)
+                    await _threadBindingRepository.UpsertAsync(
+                        binding with { ActiveModelId = configuredModel, PendingModelOverride = null, UpdatedAt = DateTimeOffset.UtcNow },
+                        cancellationToken);
                 RecordDiagnosticEvent(
                     eventType: "channel_session.resume_fallback",
                     level: "warning",
@@ -190,26 +215,37 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             }
         }
 
-        var initialModel = await ResolveConfiguredModelAsync(cancellationToken);
-        var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
-        var created = await AgentRuntime.CreateAsync(
-            binding.SessionId,
-            CreateAgentConfig(sessionDirectory, systemPrompt, initialModel, contextWindowSize, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
-            dependencies,
-            cancellationToken);
+        // Fresh create 路径：explicitOverride → 默认模型（不使用 ActiveModelId，避免超时后继承旧模型）
+        {
+            var configuredModel = explicitOverride
+                ?? await ResolveConfiguredModelAsync(cancellationToken);
 
-        _agents[binding.SessionId] = created;
-        RecordDiagnosticEvent(
-            eventType: "channel_session.created",
-            level: "info",
-            message: $"Channel session created: bindingId={binding.Id}",
-            sessionId: binding.SessionId);
-        return CreateHandle(
-            binding,
-            sessionDirectory,
-            resumedFromStore: false,
-            resumeFailureMessage: null,
-            created);
+            var sessionTools = await BuildSessionToolsAsync(binding.SessionId, dependencies.ToolRegistry, binding.ThreadType, cancellationToken);
+            var created = await AgentRuntime.CreateAsync(
+                binding.SessionId,
+                CreateAgentConfig(sessionDirectory, systemPrompt, configuredModel, contextWindowSize, sessionTools, isDirectMessage: binding.ThreadType == ChannelThreadType.DirectMessage, maxIterations: maxIterations),
+                dependencies,
+                cancellationToken);
+
+            _agents[binding.SessionId] = created;
+            _sessionModels[binding.SessionId] = configuredModel;
+            // 4b: 持久化 ActiveModelId，清零 PendingModelOverride
+            if (_threadBindingRepository is not null)
+                await _threadBindingRepository.UpsertAsync(
+                    binding with { ActiveModelId = configuredModel, PendingModelOverride = null, UpdatedAt = DateTimeOffset.UtcNow },
+                    cancellationToken);
+            RecordDiagnosticEvent(
+                eventType: "channel_session.created",
+                level: "info",
+                message: $"Channel session created: bindingId={binding.Id}",
+                sessionId: binding.SessionId);
+            return CreateHandle(
+                binding,
+                sessionDirectory,
+                resumedFromStore: false,
+                resumeFailureMessage: null,
+                created);
+        }
     }
 
     public async Task<ChannelTurnExecutionResult> RunInboundTurnAsync(
@@ -481,7 +517,10 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         documents.Add(new PromptContextDocument(ToDisplayPath(workspaceRoot, absolutePath), content));
     }
 
-    public async Task<string> RotateSessionAsync(ThreadBinding binding, CancellationToken cancellationToken = default)
+    public async Task<string> RotateSessionAsync(
+        ThreadBinding binding,
+        string? modelOverride = null,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(binding);
 
@@ -489,6 +528,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         {
             await TryGenerateChannelSessionSummaryAsync(binding, cancellationToken);
             _agents.Remove(binding.SessionId);
+            _sessionModels.TryRemove(binding.SessionId, out _);
             if (_sessionLocks.TryRemove(binding.SessionId, out var removedLock))
             {
                 removedLock.Dispose();
@@ -496,12 +536,23 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             await agent.DisposeAsync();
         }
 
+        // 4c: 先无条件清除旧值，再按需写入新值，保证内存与 DB 始终一致
+        _pendingModelOverrides.TryRemove(binding.Id, out _);
+        if (modelOverride is not null)
+            _pendingModelOverrides[binding.Id] = modelOverride;
+
         var newSessionId = GenerateChannelSessionId(binding.ConnectorKind, binding.ThreadType);
 
         if (_threadBindingRepository is not null)
         {
             await _threadBindingRepository.UpsertAsync(
-                binding with { SessionId = newSessionId, UpdatedAt = DateTimeOffset.UtcNow },
+                binding with
+                {
+                    SessionId = newSessionId,
+                    PendingModelOverride = modelOverride,  // null 表示无 override，覆盖旧值
+                    ActiveModelId = null,                  // 旧 session 已蒸发，新 session 尚未创建
+                    UpdatedAt = DateTimeOffset.UtcNow
+                },
                 cancellationToken);
         }
 
@@ -569,6 +620,57 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
         }
 
         return "当前没有正在执行的任务。";
+    }
+
+    public Task<IReadOnlyList<string>> GetSessionToolNamesAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        // Return the configured tool list from session options.
+        // This reflects which tools are in the allow-list for the session type.
+        if (!_agents.ContainsKey(sessionId))
+            return Task.FromResult<IReadOnlyList<string>>([]);
+
+        return Task.FromResult<IReadOnlyList<string>>(_options.Tools.ToList());
+    }
+
+    public async Task<string?> GetSessionModelAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (_sessionModels.TryGetValue(sessionId, out var model))
+            return model;
+
+        // 4d: 重启后 _sessionModels 为空时，从持久化 binding 回查
+        if (_threadBindingRepository is not null)
+        {
+            var binding = await _threadBindingRepository.GetBySessionIdAsync(sessionId, cancellationToken);
+            return binding?.ActiveModelId;
+        }
+
+        return null;
+    }
+
+    public async Task<string> CompressSessionContextAsync(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!_agents.TryGetValue(sessionId, out var agent))
+            return "会话不存在或尚未创建。";
+
+        // Refuse to compress while the agent is actively processing a turn.
+        if (agent.RuntimeState == Kode.Agent.Sdk.Core.Abstractions.AgentRuntimeState.Working)
+            return "Agent 正在处理消息，请等待本轮结束后再执行压缩。";
+
+        // Acquire session lock to avoid concurrent modifications.
+        var semaphore = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(cancellationToken);
+        try
+        {
+            var compressed = await agent.ForceCompressAsync(cancellationToken);
+            return compressed
+                ? "上下文压缩完成，旧消息已摘要归档。"
+                : "无法压缩（可能缺少摘要模型或消息历史为空）。";
+        }
+        finally
+        {
+            try { semaphore.Release(); }
+            catch (SemaphoreFullException) { }
+        }
     }
 
     private async Task TryGenerateChannelSessionSummaryAsync(

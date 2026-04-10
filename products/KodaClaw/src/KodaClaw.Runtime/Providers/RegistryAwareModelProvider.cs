@@ -22,6 +22,11 @@ public sealed class RegistryAwareModelProvider : IModelProvider
     private readonly DynamicModelProvider _fallback;
     private readonly IDiagnosticsService? _diagnosticsService;
 
+    // Cache providers by (endpointId, resolvedApiKey) so that each unique endpoint
+    // reuses one HttpClient/connection-pool instead of creating a new one per LLM call.
+    // This is critical for cloud deployments where socket exhaustion is a real risk.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, IModelProvider> _providerCache = new();
+
     public RegistryAwareModelProvider(
         IModelRegistryRepository registry,
         ISecretStore secretStore,
@@ -120,6 +125,11 @@ public sealed class RegistryAwareModelProvider : IModelProvider
     {
         var apiKey = await ResolveApiKeyAsync(endpoint, cancellationToken);
 
+        // Cache key: endpointId + apiKey (apiKey included so rotation takes effect immediately).
+        var cacheKey = $"{endpoint.Id}:{apiKey}";
+        if (_providerCache.TryGetValue(cacheKey, out var cached))
+            return cached;
+
         var (providerKind, snapshot) = endpoint.Provider switch
         {
             ModelProviderKind.Anthropic or ModelProviderKind.AnthropicCompatible =>
@@ -144,7 +154,9 @@ public sealed class RegistryAwareModelProvider : IModelProvider
                 $"Unsupported provider kind '{endpoint.Provider}' for endpoint '{endpoint.Id}'."),
         };
 
-        return _factory.Create(providerKind, snapshot);
+        var provider = _factory.Create(providerKind, snapshot);
+        // GetOrAdd is atomic: if two concurrent calls race, only one provider is kept.
+        return _providerCache.GetOrAdd(cacheKey, provider);
     }
 
     private async Task<string> ResolveApiKeyAsync(

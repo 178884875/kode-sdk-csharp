@@ -1,4 +1,5 @@
 using KodaClaw.Contracts;
+using KodaClaw.ChannelHub.Commands;
 using KodaClaw.ChannelHub.Connectors.Feishu;
 using KodaClaw.ChannelHub.Connectors.Telegram;
 using KodaClaw.ChannelHub.Connectors.Webhook;
@@ -25,6 +26,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IChannelThreadSummaryWriter, ChannelThreadSummaryWriter>();
         services.TryAddSingleton<IChannelSendCapture, ChannelSendCapture>();
         services.TryAddSingleton<IChannelSendService, ChannelSendService>();
+        services.TryAddSingleton<ChannelCommandDispatcher>();
         services.TryAddSingleton<ChannelTurnOrchestrator>();
         services.TryAddSingleton<ITelegramApiClient, HttpTelegramApiClient>();
         services.TryAddSingleton<TelegramConnector>();

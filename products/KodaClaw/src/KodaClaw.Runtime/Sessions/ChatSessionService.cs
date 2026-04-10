@@ -78,7 +78,8 @@ public sealed class ChatSessionService : IChatSessionService
             opts: new AgentRuntime.SubscribeOptions
             {
                 Since = agent.EventBus.GetLastBookmark(),
-                Kinds = ["text_chunk", "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided"],
+                Kinds = ["text_chunk", "done", "error", "tool:start", "tool:end", "permission_required", "permission_decided",
+                         "subagent.created", "subagent.tool_start", "subagent.tool_end"],
             },
             cancellationToken: cancellationToken);
 
@@ -197,6 +198,33 @@ public sealed class ChatSessionService : IChatSessionService
                         Decision: permDecided.Decision);
                     break;
                 }
+
+                case SubAgentCreatedEvent subCreated:
+                    yield return new ChatStreamEvent(
+                        Type: "subagent_start",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        SubAgentId: subCreated.AgentId,
+                        Label: subCreated.TemplateId);
+                    break;
+
+                case SubAgentToolStartEvent subToolStart:
+                    yield return new ChatStreamEvent(
+                        Type: "subagent_working",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        SubAgentId: subToolStart.SubAgentId,
+                        SubAgentToolName: subToolStart.ToolName);
+                    break;
+
+                case SubAgentToolEndEvent subToolEnd:
+                    yield return new ChatStreamEvent(
+                        Type: "subagent_tool_done",
+                        SessionId: sessionId,
+                        Timestamp: envelope.Bookmark.Timestamp,
+                        SubAgentId: subToolEnd.SubAgentId,
+                        SubAgentToolName: subToolEnd.ToolName);
+                    break;
 
                 case DoneEvent done:
                     yield return new ChatStreamEvent(

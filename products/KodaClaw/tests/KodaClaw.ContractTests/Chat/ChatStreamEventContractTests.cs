@@ -78,4 +78,96 @@ public sealed class ChatStreamEventContractTests
         doc.GetProperty("type").GetString().Should().Be("done");
         doc.GetProperty("reason").GetString().Should().Be("end_turn");
     }
+
+    [Fact]
+    public void Subagent_start_event_should_serialize_with_sub_agent_id_and_label()
+    {
+        var evt = new ChatStreamEvent(
+            Type: "subagent_start",
+            SessionId: "main-1",
+            Timestamp: 1711234567890,
+            SubAgentId: "sub-abc123",
+            Label: "isolate_task");
+
+        var json = JsonSerializer.Serialize(evt, JsonOptions);
+        var doc = JsonDocument.Parse(json).RootElement;
+
+        doc.GetProperty("type").GetString().Should().Be("subagent_start");
+        doc.GetProperty("subAgentId").GetString().Should().Be("sub-abc123");
+        doc.GetProperty("label").GetString().Should().Be("isolate_task");
+        doc.GetProperty("timestamp").GetInt64().Should().Be(1711234567890);
+    }
+
+    [Fact]
+    public void Subagent_working_event_should_serialize_with_tool_name()
+    {
+        var evt = new ChatStreamEvent(
+            Type: "subagent_working",
+            SessionId: "main-1",
+            Timestamp: 1711234567890,
+            SubAgentId: "sub-abc123",
+            SubAgentToolName: "fs_read");
+
+        var json = JsonSerializer.Serialize(evt, JsonOptions);
+        var doc = JsonDocument.Parse(json).RootElement;
+
+        doc.GetProperty("type").GetString().Should().Be("subagent_working");
+        doc.GetProperty("subAgentId").GetString().Should().Be("sub-abc123");
+        doc.GetProperty("subAgentToolName").GetString().Should().Be("fs_read");
+    }
+
+    [Fact]
+    public void Subagent_tool_done_event_should_serialize_with_sub_agent_id_and_tool_name()
+    {
+        var evt = new ChatStreamEvent(
+            Type: "subagent_tool_done",
+            SessionId: "main-1",
+            Timestamp: 1711234567890,
+            SubAgentId: "sub-abc123",
+            SubAgentToolName: "fs_read");
+
+        var json = JsonSerializer.Serialize(evt, JsonOptions);
+        var doc = JsonDocument.Parse(json).RootElement;
+
+        doc.GetProperty("type").GetString().Should().Be("subagent_tool_done");
+        doc.GetProperty("subAgentId").GetString().Should().Be("sub-abc123");
+        doc.GetProperty("subAgentToolName").GetString().Should().Be("fs_read");
+    }
+
+    [Fact]
+    public void Subagent_fields_should_be_null_for_unrelated_event_types()
+    {
+        var evt = new ChatStreamEvent(
+            Type: "text_chunk",
+            SessionId: "main-1",
+            Delta: "hello");
+
+        var json = JsonSerializer.Serialize(evt, JsonOptions);
+        var restored = JsonSerializer.Deserialize<ChatStreamEvent>(json, JsonOptions);
+
+        restored.Should().NotBeNull();
+        restored!.SubAgentId.Should().BeNull();
+        restored.Label.Should().BeNull();
+        restored.SubAgentToolName.Should().BeNull();
+    }
+
+    [Fact]
+    public void Subagent_start_event_should_round_trip_through_json()
+    {
+        var original = new ChatStreamEvent(
+            Type: "subagent_start",
+            SessionId: "main-1",
+            Timestamp: 1711234567890,
+            SubAgentId: "sub-abc123",
+            Label: "pipeline:gather");
+
+        var json = JsonSerializer.Serialize(original, JsonOptions);
+        var restored = JsonSerializer.Deserialize<ChatStreamEvent>(json, JsonOptions);
+
+        restored.Should().NotBeNull();
+        restored!.Type.Should().Be("subagent_start");
+        restored.SubAgentId.Should().Be("sub-abc123");
+        restored.Label.Should().Be("pipeline:gather");
+        restored.SubAgentToolName.Should().BeNull();
+    }
 }

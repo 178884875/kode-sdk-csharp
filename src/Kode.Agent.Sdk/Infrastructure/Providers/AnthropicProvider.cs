@@ -37,25 +37,48 @@ public sealed class AnthropicProvider : IModelProvider
             BaseUrl = options.BaseUrl ?? "https://api.anthropic.com"
         };
 
+        // Always use a custom HttpClient with no timeout: streaming responses can run for
+        // several minutes (long tool chains, large outputs). The 100-second default causes
+        // TaskCanceledException mid-stream. Cancellation is controlled by the CancellationToken
+        // passed to StreamAsync/CompleteAsync instead.
+        var httpClient = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         if (options.CustomHeaders is { Count: > 0 })
         {
-            var httpClient = new HttpClient();
             foreach (var (key, value) in options.CustomHeaders)
                 httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
-            _client = _client.WithOptions(opts =>
-            {
-                opts.HttpClient = httpClient;
-                return opts;
-            });
         }
+
+        _client = _client.WithOptions(opts =>
+        {
+            opts.HttpClient = httpClient;
+            return opts;
+        });
     }
 
     /// <summary>
-    /// For backward compatibility with HttpClient-based construction.
+    /// DI constructor: accepts an IHttpClientFactory-managed HttpClient (connection pooling,
+    /// pre-configured Timeout). Custom headers, if any, are added to DefaultRequestHeaders.
     /// </summary>
     public AnthropicProvider(HttpClient httpClient, AnthropicOptions options, ILogger<AnthropicProvider>? logger = null)
-        : this(options, logger)
     {
+        _options = options;
+        _logger = logger;
+
+        _client = new AnthropicClient
+        {
+            ApiKey = options.ApiKey,
+            BaseUrl = options.BaseUrl ?? "https://api.anthropic.com"
+        };
+
+        if (options.CustomHeaders is { Count: > 0 })
+            foreach (var (key, value) in options.CustomHeaders)
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation(key, value);
+
+        _client = _client.WithOptions(opts =>
+        {
+            opts.HttpClient = httpClient;
+            return opts;
+        });
     }
 
     public async IAsyncEnumerable<StreamChunk> StreamAsync(
@@ -192,6 +215,14 @@ public sealed class AnthropicProvider : IModelProvider
                         }
                     };
                 }
+                else if (deltaEvent.Delta.TryPickThinking(out var thinkingDelta))
+                {
+                    yield return new StreamChunk
+                    {
+                        Type = StreamChunkType.ThinkingDelta,
+                        ThinkingDelta = thinkingDelta.Thinking
+                    };
+                }
 
                 continue;
             }
@@ -324,15 +355,20 @@ public sealed class AnthropicProvider : IModelProvider
             ? request.StopSequences.ToList()
             : null;
 
+        ThinkingConfigParam? thinking = request.EnableThinking == true
+            ? new ThinkingConfigParam(new ThinkingConfigEnabled { BudgetTokens = request.ThinkingBudget ?? 8000 })
+            : null;
+
         return new MessageCreateParams
         {
             Model = request.Model,
             Messages = messages,
             MaxTokens = request.MaxTokens ?? 4096,
-            Temperature = request.Temperature,
+            Temperature = request.EnableThinking == true ? 1.0 : request.Temperature,
             System = !string.IsNullOrEmpty(request.SystemPrompt) ? request.SystemPrompt : null!,
             Tools = tools,
-            StopSequences = stopSequences
+            StopSequences = stopSequences,
+            Thinking = thinking
         };
     }
 
