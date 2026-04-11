@@ -7,15 +7,23 @@ services:
     ports:
       - "5076:5076"
     volumes:
-      - kodaclaw-data:/data
+      - ./data:/data
     environment:
-      # ── Model API Keys (optional — configure via Setup Wizard at http://localhost:5076/setup) ──
-      # At least one key is required for KodaClaw to function.
-      # Keys are stored in the OS keychain after first setup.
-      # Uncomment and fill in one of the following:
+      # ── API Key — Recommended: configure via Setup Wizard ──────────────────
+      # Open http://localhost:5076/setup after starting to configure your model,
+      # API key, and base URL interactively. Supports Anthropic, OpenAI, GLM,
+      # DeepSeek, Qwen, and any compatible endpoint.
       #
-      # KODACLAW_ANTHROPIC_API_KEY: "sk-ant-..."
-      # KODACLAW_OPENAI_API_KEY: "sk-..."
+      # ── Advanced: configure via environment variables ───────────────────────
+      # Anthropic-compatible (GLM, etc.):
+      # ANTHROPIC_API_KEY: "your-key"
+      # ANTHROPIC_BASE_URL: "https://open.bigmodel.cn/api/anthropic"
+      # KODACLAW_DEFAULT_MODEL: "GLM-4.5"
+      #
+      # OpenAI-compatible (DeepSeek, Qwen, etc.):
+      # OPENAI_API_KEY: "your-key"
+      # OPENAI_BASE_URL: "https://api.deepseek.com/v1"
+      # KODACLAW_DEFAULT_MODEL: "deepseek-chat"
 
       # ── Gateway settings ──
       KODACLAW_GATEWAY_URL: "http://0.0.0.0:5076"
@@ -41,7 +49,7 @@ services:
   searxng:
     image: searxng/searxng:latest
     volumes:
-      - searxng-data:/etc/searxng
+      - ./data/searxng:/etc/searxng
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
@@ -50,8 +58,3 @@ services:
       start_period: 15s
       retries: 3
 
-volumes:
-  kodaclaw-data:
-    driver: local
-  searxng-data:
-    driver: local
