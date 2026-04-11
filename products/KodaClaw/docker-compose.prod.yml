@@ -2,7 +2,7 @@
 # Uses pre-built image from Alibaba Cloud Container Registry.
 #
 # Quick install (Linux / macOS):
-#   curl -fsSL https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/main/products/KodaClaw/scripts/docker-install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/codex/kodaclaw-20260320/products/KodaClaw/scripts/docker-install.sh | bash
 #
 # Manual start:
 #   docker compose -f docker-compose.prod.yml up -d

@@ -1,7 +1,7 @@
 # KodaClaw Docker quick-install script (Windows PowerShell)
 #
 # One-liner install (run in PowerShell as Administrator if needed):
-#   irm https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/main/products/KodaClaw/scripts/docker-install.ps1 | iex
+#   irm https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/codex/kodaclaw-20260320/products/KodaClaw/scripts/docker-install.ps1 | iex
 #
 # With custom directory:
 #   & ([scriptblock]::Create((irm <url>))) -Dir "C:\kodaclaw"
@@ -15,7 +15,7 @@
 param(
     [string]$Port        = "5076",
     [string]$Dir         = "",
-    [string]$ComposeUrl  = "https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/main/products/KodaClaw/docker-compose.prod.yml",
+    [string]$ComposeUrl  = "https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/codex/kodaclaw-20260320/products/KodaClaw/docker-compose.prod.yml",
     [string]$Soul        = "",
     [switch]$Force
 )
