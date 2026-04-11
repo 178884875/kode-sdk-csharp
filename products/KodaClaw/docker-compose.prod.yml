@@ -38,6 +38,7 @@ services:
       KODACLAW_GATEWAY_URL: "http://0.0.0.0:5076"
       KODACLAW_WORKSPACE_ROOT: "/data/workspace"
       ASPNETCORE_ENVIRONMENT: "Production"
+      TZ: Asia/Shanghai
 
       # ── web-tools: point to local SearXNG for higher throughput search ──
       SEARXNG_URL: "http://searxng:8080"
