@@ -2,7 +2,7 @@
 # KodaClaw Docker quick-install script (Linux / macOS)
 #
 # One-liner install:
-#   curl -fsSL https://raw.githubusercontent.com/vanzheng/kode-sdk-csharp/main/products/KodaClaw/scripts/docker-install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/main/products/KodaClaw/scripts/docker-install.sh | bash
 #
 # With custom install directory:
 #   curl -fsSL <script-url> | bash -s -- --dir /opt/kodaclaw
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-COMPOSE_URL="${KODACLAW_COMPOSE_URL:-https://raw.githubusercontent.com/vanzheng/kode-sdk-csharp/main/products/KodaClaw/docker-compose.prod.yml}"
+COMPOSE_URL="${KODACLAW_COMPOSE_URL:-https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/main/products/KodaClaw/docker-compose.prod.yml}"
 COMPOSE_FILENAME="docker-compose.prod.yml"
 PORT="${KODACLAW_PORT:-5076}"
 INSTALL_DIR="${KODACLAW_DIR:-}"
