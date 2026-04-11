@@ -17,7 +17,8 @@ set -euo pipefail
 # ── Configuration ──────────────────────────────────────────────────────────────
 COMPOSE_URL="${KODACLAW_COMPOSE_URL:-https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/codex/kodaclaw-20260320/products/KodaClaw/docker-compose.prod.yml}"
 COMPOSE_FILENAME="docker-compose.prod.yml"
-PORT="${KODACLAW_PORT:-5076}"
+DEFAULT_PORT="${KODACLAW_PORT:-5076}"
+PORT="$DEFAULT_PORT"
 INSTALL_DIR="${KODACLAW_DIR:-}"
 SOUL_SOURCE=""
 FORCE_SOUL=false
@@ -164,12 +165,70 @@ fi
 cd "$INSTALL_DIR"
 mkdir -p data/searxng   # pre-create for bind mount
 
-# ── Step 3: Ensure Docker ─────────────────────────────────────────────────────
+# ── Step 3: Resolve port ──────────────────────────────────────────────────────
+is_port_free() {
+    local p="$1"
+    if command -v nc &>/dev/null; then
+        ! nc -z 127.0.0.1 "$p" 2>/dev/null && return 0
+    elif command -v ss &>/dev/null; then
+        ! ss -tlnp 2>/dev/null | grep -q ":${p} " && return 0
+    elif command -v netstat &>/dev/null; then
+        ! netstat -tlnp 2>/dev/null | grep -q ":${p} " && return 0
+    fi
+    return 1
+}
+
+find_free_port() {
+    local p="$1"
+    while ! is_port_free "$p"; do p=$((p + 1)); done
+    echo "$p"
+}
+
+# Read port from existing .env if upgrading
+if $EXISTING_INSTALL && [[ -f "$INSTALL_DIR/.env" ]]; then
+    SAVED_PORT=$(grep -E '^KODACLAW_PORT=' "$INSTALL_DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]')
+    [[ -n "$SAVED_PORT" ]] && PORT="$SAVED_PORT"
+fi
+
+if ! is_port_free "$PORT"; then
+    SUGGESTED=$(find_free_port $((PORT + 1)))
+    warn "Port $PORT is already in use. Suggested: $SUGGESTED"
+    echo -e "  ${GRAY}Press Enter to use $SUGGESTED, or type a different port number.${NC}"
+    tty_read "  Port [$SUGGESTED]: " USER_PORT "$SUGGESTED"
+    PORT="${USER_PORT:-$SUGGESTED}"
+fi
+
+echo "KODACLAW_PORT=$PORT" > "$INSTALL_DIR/.env"
+info "Using port $PORT."
+echo ""
+
+# ── Step 4: Ensure Docker ─────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
     step "Docker not found — installing via get.docker.com..."
     curl -fsSL https://get.docker.com | maybe_sudo sh
     command -v docker &>/dev/null || error "Docker installation failed.\n  Install manually: https://docs.docker.com/get-docker/"
     info "Docker installed."
+
+    # Configure Docker daemon: log rotation + domestic registry mirror
+    DAEMON_JSON="/etc/docker/daemon.json"
+    if [[ ! -f "$DAEMON_JSON" ]]; then
+        step "Configuring Docker daemon (log rotation + registry mirror)..."
+        maybe_sudo mkdir -p /etc/docker
+        maybe_sudo tee "$DAEMON_JSON" > /dev/null <<'EOF'
+{
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "100m",
+        "max-file": "3"
+    },
+    "registry-mirrors": [
+        "https://docker.1panel.live"
+    ]
+}
+EOF
+        info "Docker daemon configured."
+    fi
+
     # Add current user to docker group so they don't need sudo next time
     if [[ $EUID -ne 0 ]] && command -v usermod &>/dev/null; then
         sudo usermod -aG docker "$USER" 2>/dev/null || true
@@ -180,7 +239,7 @@ if ! command -v docker &>/dev/null; then
     fi
 fi
 
-# ── Step 4: Ensure Docker daemon is running ───────────────────────────────────
+# ── Step 5: Ensure Docker daemon is running ───────────────────────────────────
 if ! docker info &>/dev/null 2>&1; then
     step "Docker daemon not running — attempting to start..."
     if command -v systemctl &>/dev/null; then
@@ -199,7 +258,7 @@ if ! docker info &>/dev/null 2>&1; then
     info "Docker daemon started."
 fi
 
-# ── Step 5: Get docker-compose.prod.yml ──────────────────────────────────────
+# ── Step 6: Get docker-compose.prod.yml ──────────────────────────────────────
 if [[ ! -f "$COMPOSE_FILE" ]]; then
     step "Downloading $COMPOSE_FILENAME..."
     curl -fsSL "$COMPOSE_URL" -o "$COMPOSE_FILE" || error "Failed to download $COMPOSE_FILENAME.\n  Check your internet connection and retry."
@@ -215,14 +274,28 @@ elif $EXISTING_INSTALL; then
     fi
 fi
 
-# ── Step 6: Pull latest image and start ──────────────────────────────────────
+# ── Step 7: Pull latest image and start ──────────────────────────────────────
+ACR_SEARXNG="registry.cn-hangzhou.aliyuncs.com/vanzheng/searxng:latest"
+
 step "Pulling latest KodaClaw image..."
-docker compose -f "$COMPOSE_FILE" pull 2>/dev/null || true
+docker compose -f "$COMPOSE_FILE" pull kodaclaw 2>/dev/null || true
+
+step "Pulling SearXNG image..."
+if ! docker compose -f "$COMPOSE_FILE" pull searxng 2>/dev/null; then
+    warn "Could not pull searxng from Docker Hub — trying ACR mirror..."
+    if docker pull "$ACR_SEARXNG" 2>/dev/null; then
+        docker tag "$ACR_SEARXNG" searxng/searxng:latest
+        info "SearXNG pulled from ACR mirror."
+    else
+        warn "SearXNG pull failed. Web search may be unavailable."
+    fi
+fi
+
 step "Starting KodaClaw..."
 docker compose -f "$COMPOSE_FILE" up -d
 echo ""
 
-# ── Step 7: Wait for gateway to be ready ─────────────────────────────────────
+# ── Step 8: Wait for gateway to be ready ─────────────────────────────────────
 step "Waiting for KodaClaw to start"
 RETRIES=40
 i=0
@@ -245,7 +318,7 @@ while [[ $i -lt $RETRIES ]]; do
     fi
 done
 
-# ── Step 8: Apply Soul package (optional) ─────────────────────────────────────
+# ── Step 9: Apply Soul package (optional) ─────────────────────────────────────
 if [[ -n "$SOUL_SOURCE" ]]; then
     echo ""
     step "Applying Soul package: $SOUL_SOURCE"

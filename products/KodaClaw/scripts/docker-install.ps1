@@ -13,12 +13,14 @@
 # Download: https://docs.docker.com/desktop/install/windows-install/
 
 param(
-    [string]$Port        = "5076",
+    [string]$Port        = "",
     [string]$Dir         = "",
     [string]$ComposeUrl  = "https://raw.githubusercontent.com/JinFanZheng/kode-sdk-csharp/codex/kodaclaw-20260320/products/KodaClaw/docker-compose.prod.yml",
     [string]$Soul        = "",
     [switch]$Force
 )
+
+$DefaultPort = 5076
 
 $ErrorActionPreference = "Stop"
 $ComposeFilename = "docker-compose.prod.yml"
@@ -136,7 +138,54 @@ Set-Location $Dir
 # Pre-create data directories so bind mounts work on first run
 New-Item -ItemType Directory -Path (Join-Path $Dir "data\searxng") -Force | Out-Null
 
-# ── Step 4: Ensure docker-compose.prod.yml ───────────────────────────────────
+# ── Step 4: Resolve port ──────────────────────────────────────────────────────
+function Test-PortFree {
+    param([int]$P)
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $result = $client.BeginConnect("127.0.0.1", $P, $null, $null)
+        $success = $result.AsyncWaitHandle.WaitOne(200, $false)
+        $client.Close()
+        return -not $success
+    } catch {
+        return $true
+    }
+}
+
+function Find-FreePort {
+    param([int]$Start)
+    $p = $Start
+    while (-not (Test-PortFree $p)) { $p++ }
+    return $p
+}
+
+# On upgrade, honour saved port from .env
+$EnvFile = Join-Path $Dir ".env"
+if ([string]::IsNullOrWhiteSpace($Port)) {
+    if ($ExistingInstall -and (Test-Path $EnvFile)) {
+        $saved = (Get-Content $EnvFile -ErrorAction SilentlyContinue) |
+                 Where-Object { $_ -match '^KODACLAW_PORT=(\d+)' } |
+                 ForEach-Object { $Matches[1] } | Select-Object -First 1
+        $Port = if ($saved) { $saved } else { "$DefaultPort" }
+    } else {
+        $Port = "$DefaultPort"
+    }
+}
+
+if (-not (Test-PortFree ([int]$Port))) {
+    $suggested = Find-FreePort ([int]$Port + 1)
+    Write-Host "  ⚠  Port $Port is already in use." -ForegroundColor Yellow
+    Write-Host "     Suggested alternative: $suggested" -ForegroundColor Gray
+    Write-Host ""
+    $input = Read-Host "  Use port [$suggested]"
+    $Port = if ([string]::IsNullOrWhiteSpace($input)) { "$suggested" } else { $input.Trim() }
+}
+
+[System.IO.File]::WriteAllText($EnvFile, "KODACLAW_PORT=$Port`n")
+Write-Host "✓ Using port $Port." -ForegroundColor Green
+Write-Host ""
+
+# ── Step 5: Ensure docker-compose.prod.yml ───────────────────────────────────
 if (-not (Test-Path $ComposeFile)) {
     Write-Host "→ Downloading $ComposeFilename..." -ForegroundColor Green
     try {
@@ -159,16 +208,41 @@ if (-not (Test-Path $ComposeFile)) {
     }
 }
 
-# ── Step 5: Pull and start ────────────────────────────────────────────────────
+# ── Step 6: Pull and start ────────────────────────────────────────────────────
+$AcrSearxng = "registry.cn-hangzhou.aliyuncs.com/vanzheng/searxng:latest"
+
+Write-Host "→ Pulling latest KodaClaw image..." -ForegroundColor Green
+try { docker compose -f $ComposeFile pull kodaclaw 2>&1 | Out-Null } catch {}
+
+Write-Host "→ Pulling SearXNG image..." -ForegroundColor Green
+$searxngOk = $false
+try {
+    docker compose -f $ComposeFile pull searxng 2>&1 | Out-Null
+    $searxngOk = ($LASTEXITCODE -eq 0)
+} catch {}
+if (-not $searxngOk) {
+    Write-Host "  ⚠  Docker Hub pull failed — trying ACR mirror..." -ForegroundColor Yellow
+    try {
+        docker pull $AcrSearxng 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            docker tag $AcrSearxng "searxng/searxng:latest" 2>&1 | Out-Null
+            Write-Host "  ✓ SearXNG pulled from ACR mirror." -ForegroundColor Green
+        } else {
+            Write-Host "  ⚠  SearXNG pull failed. Web search may be unavailable." -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  ⚠  SearXNG pull failed. Web search may be unavailable." -ForegroundColor Yellow
+    }
+}
+
 Write-Host "→ Starting KodaClaw..." -ForegroundColor Green
-try { docker compose -f $ComposeFile pull 2>&1 | Out-Null } catch {}
 docker compose -f $ComposeFile up -d
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
 Write-Host "✓ KodaClaw is starting at http://localhost:$Port" -ForegroundColor Green
 
-# ── Step 6: Wait for health ───────────────────────────────────────────────────
+# ── Step 7: Wait for health ───────────────────────────────────────────────────
 Write-Host "→ Waiting for gateway to become healthy..."
 $maxRetries = 30
 for ($i = 1; $i -le $maxRetries; $i++) {
@@ -186,7 +260,7 @@ for ($i = 1; $i -le $maxRetries; $i++) {
     Start-Sleep -Seconds 1
 }
 
-# ── Step 7: Apply Soul package (optional) ─────────────────────────────────────
+# ── Step 8: Apply Soul package (optional) ─────────────────────────────────────
 if ($Soul -ne "") {
     Write-Host ""
     Write-Host "→ Applying Soul package: $Soul" -ForegroundColor Green

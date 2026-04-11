@@ -47,7 +47,7 @@ services:
       retries: 3
 
   searxng:
-    image: searxng/searxng:latest
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
     volumes:
       - ./data/searxng:/etc/searxng
     restart: unless-stopped

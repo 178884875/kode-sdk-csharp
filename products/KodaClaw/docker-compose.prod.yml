@@ -11,7 +11,7 @@ services:
   kodaclaw:
     image: registry.cn-hangzhou.aliyuncs.com/vanzheng/kodaclaw:latest
     ports:
-      - "5076:5076"
+      - "${KODACLAW_PORT:-5076}:5076"
     volumes:
       - ./data:/data
     environment:
@@ -56,7 +56,7 @@ services:
       retries: 3
 
   searxng:
-    image: searxng/searxng:latest
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
     volumes:
       - ./data/searxng:/etc/searxng
     restart: unless-stopped
