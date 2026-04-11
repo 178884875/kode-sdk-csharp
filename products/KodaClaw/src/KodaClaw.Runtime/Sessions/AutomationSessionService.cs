@@ -335,7 +335,7 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
         int promptCharBudget)
     {
         var triggeredAt = DateTimeOffset.Now;
-        var prompt = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
+        var builder = new PromptBuilder(PromptProfiles.Automation(_options.SystemPrompt))
             .WithCharacterBudget(promptCharBudget)
             .AddBody($"Triggered at: {triggeredAt:yyyy-MM-dd HH:mm:ss zzz} ({triggeredAt.DayOfWeek}).")
             .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(_workspaceService.RootPath))
@@ -352,9 +352,22 @@ public sealed class AutomationSessionService : IAutomationSessionService, IAsync
                     "Treat only the loaded context files below as available memory for this run.",
                     "Do not infer or recall workspace/MEMORY.md unless it was explicitly loaded as an automation input.",
                     "If required context is missing, state that gap instead of pretending the automation remembers it.",
-                ])
-            .AddContextDocuments(contextDocuments)
-            .Build();
+                ]);
+
+        if (Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true")
+        {
+            builder.AddBody("""
+                ## File Persistence (Docker Deployment)
+                Running inside a Docker container. Only paths under /data/ persist across restarts:
+                - ~/  (→ /data/home/) — tool binaries, credentials, code outputs
+                - workspace/  (→ /data/workspace/) — identity, memory, rules
+
+                Save work outputs to ~/projects/ or workspace/outputs/.
+                Do not write to /tmp/ or relative paths — they resolve to /app/ and vanish on restart.
+                """);
+        }
+
+        var prompt = builder.AddContextDocuments(contextDocuments).Build();
 
         return prompt;
     }

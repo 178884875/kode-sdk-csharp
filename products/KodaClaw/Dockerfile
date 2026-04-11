@@ -71,8 +71,8 @@ COPY --from=gateway-builder /repo/products/KodaClaw/src/KodaClaw.Gateway/skills/
 # Copy built web UI into wwwroot/ so Gateway serves it as static files
 COPY --from=web-builder /app/web/dist ./wwwroot/
 
-# Workspace directory (mounted as a volume in production)
-RUN mkdir -p /workspace
+# Pre-create volume subdirectories so they exist on first mount
+RUN mkdir -p /data/workspace /data/home/.local/bin
 
 # Expose port
 EXPOSE 5076
@@ -81,8 +81,26 @@ EXPOSE 5076
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD curl -sf http://localhost:5076/healthz || exit 1
 
+# ── Runtime environment ───────────────────────────────────────────────────────
 ENV ASPNETCORE_ENVIRONMENT=Production
 ENV KODACLAW_GATEWAY_URL=http://0.0.0.0:5076
-ENV KODACLAW_WORKSPACE_ROOT=/workspace
+ENV KODACLAW_WORKSPACE_ROOT=/data/workspace
+ENV KODACLAW_DOCKER_MODE=true
+
+# ── KC-DOCKER-007: HOME/XDG path convergence ─────────────────────────────────
+# Redirect HOME and XDG dirs under the mounted volume so tool credentials,
+# community plugin configs and self-installed binaries survive container restarts.
+ENV HOME=/data/home
+ENV XDG_CONFIG_HOME=/data/home/.config
+ENV XDG_CACHE_HOME=/data/home/.cache
+ENV XDG_DATA_HOME=/data/home/.local/share
+ENV PATH="/data/home/.local/bin:$PATH"
+# Pin Data Protection keys path — must not depend on HOME to avoid key loss on upgrades
+ENV ASPNETCORE_DataProtection__KeysDirectory=/data/home/.aspnet/DataProtection-Keys
+# Git commit identity via ENV (highest priority, works regardless of .gitconfig location)
+ENV GIT_AUTHOR_NAME="KodaClaw Agent"
+ENV GIT_AUTHOR_EMAIL="agent@kodaclaw.local"
+ENV GIT_COMMITTER_NAME="KodaClaw Agent"
+ENV GIT_COMMITTER_EMAIL="agent@kodaclaw.local"
 
 ENTRYPOINT ["./KodaClaw.Gateway"]

@@ -415,6 +415,8 @@ docker run -v ~/my-kodaclaw:/data kodaclaw:latest
 | KC-DOCKER-004 | Dockerfile + docker-compose.yml（API key 注释为可选）+ Makefile + `install.sh`（无 key 提示）+ `install.ps1` | 001 + 002 + 003 |
 | KC-DOCKER-005 | Web UI 适配（`config.ts` `window.__KODACLAW_CONFIG__` 集成 + `isDockerMode()` + Sidebar DOCKER_MODE 布局）+ 测试补齐（≥11 个新测试） | 004 |
 | KC-DOCKER-006 | Setup Wizard（**主要 onboarding 路径**）：零 ENV 启动 → 浏览器引导 → `POST /setup/complete` 调 `ConfigBootstrapWriter.WriteIfAbsentAsync` | 001 + 002 |
+| KC-DOCKER-007 | 容器环境状态持久化（HOME/XDG 路径收敛）：将 HOME 和 XDG 路径重定向至 volume，使工具凭证、社区插件、自装二进制重启后得以保留 | 004 |
+| KC-DOCKER-008 | Docker 持久化感知：system prompt 注入持久化说明 + `fs_write` 软警告（写入非 volume 路径时追加提示） | 007 |
 
 ---
 
@@ -429,6 +431,9 @@ docker run -v ~/my-kodaclaw:/data kodaclaw:latest
 6. `dotnet test KodaClaw.sln -m:1` 全绿（含 ConfigBootstrapService 幂等性 L2、config_update 白名单 L1、`/healthz` L2 共 ≥8 个新测试）
 7. L5 Dogfood：Telegram 收发消息正常，Automations 正常触发，Settings 页面可正常修改模型配置
 8. 再次访问 `/setup`（已配置状态）→ 自动跳转 `/`（不再显示引导页）
+9. **KC-DOCKER-007**：`docker-compose down && docker-compose up` 后，`~/.kodaclaw-community/credentials.json` 等工具凭证文件仍存在（路径重定向至 `/data/home/`）；`web-tools` 等 Agent 自装二进制（`/data/home/.local/bin/`）重启后可直接调用，无需重新安装
+10. **KC-DOCKER-008A**：Docker 模式下 Agent 主动将产出文件写到 `~/projects/` 或 `workspace/outputs/`，不写 `/tmp/` 或 `/app/` 相对路径
+11. **KC-DOCKER-008B**：Agent 调用 `fs_write` 写入 `/data/` 以外路径时，tool result 中附带 warning 提示，Agent 可自主决定是否重写到持久化路径
 
 ---
 
@@ -447,6 +452,119 @@ docker run -v ~/my-kodaclaw:/data kodaclaw:latest
 - Dockerfile 的 `HEALTHCHECK`：`CMD curl -f http://localhost:5076/healthz || exit 1`，`--interval=30s --timeout=5s --retries=3`
 - `endpointId` slugification：全小写，非字母数字字符替换为 `-`，连续 `-` 合并，首尾 `-` 去除，最长 64 字符
 - Setup Wizard 检测条件：`IModelRegistryRepository.ListAsync()` 返回空列表则视为"未配置"，`/setup` 可访问；否则 `/setup` 302 到 `/`
+
+### KC-DOCKER-007 技术约束
+
+**问题本质**：容器有多个"状态域"，但 KC-DOCKER-004 只保护了 workspace 协议文件。工具凭证（`~/.kodaclaw-community/`）、社区插件配置（`~/.config/xxx/`）、Agent 自装二进制（`~/.local/bin/`）散落在容器文件系统，重启后丢失。
+
+**路径分层设计**：
+
+```
+/data/                          ← volume 挂载根（单 volume 覆盖全部）
+  workspace/                    ← KODACLAW_WORKSPACE_ROOT（KodaClaw 协议文件）
+    IDENTITY.md / SOUL.md / ...
+    config/models/*.json
+    config/.secrets
+  home/                         ← HOME（工具环境，与 workspace 语义隔离）
+    .config/                    ← XDG_CONFIG_HOME（工具配置，含社区插件凭证）
+    .cache/                     ← XDG_CACHE_HOME（工具缓存，可丢失但影响体验）
+    .local/
+      bin/                      ← Agent 自装二进制（web-tools 等）
+      share/                    ← XDG_DATA_HOME
+    .aspnet/DataProtection-Keys/ ← ASP.NET 加密 keys（显式固定路径）
+```
+
+**Dockerfile ENV 变更**（runtime stage，在现有 `ASPNETCORE_ENVIRONMENT` 之后追加）：
+
+```dockerfile
+ENV HOME=/data/home
+ENV XDG_CONFIG_HOME=/data/home/.config
+ENV XDG_CACHE_HOME=/data/home/.cache
+ENV XDG_DATA_HOME=/data/home/.local/share
+ENV PATH="/data/home/.local/bin:$PATH"
+# 固定 Data Protection keys 路径，避免 HOME 变更导致已有加密数据失效
+ENV ASPNETCORE_DataProtection__KeysDirectory=/data/home/.aspnet/DataProtection-Keys
+```
+
+**docker-compose.yml 变更**：
+- `KODACLAW_WORKSPACE_ROOT` 从 `/data` 改为 `/data/workspace`
+- volume 仍挂载到 `/data`（父目录，同时覆盖 home/ 和 workspace/）
+- 不新增 volume，单 volume 方案
+
+**Dockerfile 目录初始化**（`adduser` 之后、`VOLUME` 之前）：
+
+```dockerfile
+RUN mkdir -p /data/workspace /data/home/.local/bin \
+    && chown -R app:app /data /app
+```
+
+**git 配置**：`HOME=/data/home` 后 `~/.gitconfig` 指向 `/data/home/.gitconfig`（在 volume 上），容器内无 git 用户身份，`MemoryConsolidationService` 的 `git commit` 会报 "Author identity unknown" 错误。解法：在 Dockerfile runtime stage（`COPY` 指令之后、`USER app` 之前）加：
+
+```dockerfile
+RUN git config --global user.email "agent@kodaclaw.local" \
+    && git config --global user.name "KodaClaw Agent"
+```
+
+此时 `HOME` 还未被 `ENV HOME=/data/home` 覆盖（`ENV` 指令在 image 构建完成后运行时才生效），`git config --global` 写入的是 image build 阶段 root 的 HOME（`/root/.gitconfig`）。但运行时 `HOME=/data/home`，git 会读 `/data/home/.gitconfig` 而非 `/root/.gitconfig`，所以这个 RUN 实际上**不会生效**。
+
+正确做法：改用 `GIT_AUTHOR_NAME` / `GIT_AUTHOR_EMAIL` / `GIT_COMMITTER_NAME` / `GIT_COMMITTER_EMAIL` 环境变量（优先级高于 `.gitconfig`），在 Dockerfile 的 `ENV` 块中与 HOME/XDG 一同声明：
+
+```dockerfile
+ENV GIT_AUTHOR_NAME="KodaClaw Agent"
+ENV GIT_AUTHOR_EMAIL="agent@kodaclaw.local"
+ENV GIT_COMMITTER_NAME="KodaClaw Agent"
+ENV GIT_COMMITTER_EMAIL="agent@kodaclaw.local"
+```
+
+---
+
+### KC-DOCKER-008 技术约束
+
+**问题**：Agent 不感知容器持久化边界，可能将代码产出、报告等重要文件写入 `/tmp/`、`/app/`（WORKDIR）等非 volume 路径，容器重启后丢失。`HOME=/data/home` 已覆盖 `~/` 下的路径，但用户明确指定的绝对路径和相对路径仍有漏洞。
+
+**KC-DOCKER-008A：System Prompt 注入**
+
+检测方式：读取 `Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE")`，与现有 `ConfigBootstrapService` 保持一致，无需新增服务接口。
+
+注入位置：`MainSessionService.BuildSystemPromptAsync()`（已有 `builder.AddBody()` 模式，参考 workspace readiness 注入）；`ChannelSessionService` 和 `AutomationSessionService` 同步注入。
+
+注入内容（紧凑，避免占用过多 context budget）：
+
+```
+## 文件持久化（Docker 部署）
+当前运行在 Docker 容器中，重启后只有以下路径保留：
+- ~/（即 /data/home/）— 工具、配置、代码
+- workspace/（即 /data/workspace/）— 身份、记忆、规则
+
+保存工作产出优先使用 ~/projects/ 或 workspace/outputs/。
+/tmp/ 和相对路径（解析到 /app/）重启后会消失，不要放重要内容。
+```
+
+**KC-DOCKER-008B：`fs_write` 软警告**
+
+`FsWriteTool` 在父 SDK 中是 `sealed class`，不可继承。KodaClaw.Runtime 创建 `PersistenceAwareFsWriteTool`，完整复制 `FsWriteTool` 执行逻辑（`context.Sandbox.WriteFileAsync` + `ToolContextFilePool`），在成功返回前追加持久化警告。
+
+注册方式：`ServiceCollectionExtensions.cs` 中覆盖注册 `fs_write`，替换 SDK 内置版本：
+```csharp
+toolRegistry.Register("fs_write", sp => new PersistenceAwareFsWriteTool(
+    Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true"
+));
+```
+
+路径判断规则：
+- dockerMode 未启用 → 直接返回原始结果，无变化
+- dockerMode 启用 && 路径以 `/data/` 开头 → 直接返回原始结果
+- dockerMode 启用 && 路径不以 `/data/` 开头 → 在 result 的 JSON 对象中追加 `"persistenceWarning": "此路径不在持久化 volume 内（/data/），容器重启后将丢失。建议写入 ~/projects/ 或 workspace/outputs/"`
+
+路径解析：`args.Path` 如果是相对路径，用 `Path.GetFullPath(args.Path)` 解析后再判断（相对路径基于 sandbox WorkDir `/app`，一定在 /data/ 之外）。
+
+不强制重定向，不阻断写入——仅提示，Agent 自主决策。
+
+**风险说明**：
+- **升级兼容性**：已有 `KODACLAW_WORKSPACE_ROOT=/data` 的用户，workspace 文件在 `/data/` 根目录；改为 `/data/workspace` 后路径变更，需在 `WorkspaceService` 初始化时检测旧路径并迁移（或在文档中说明 volume 迁移步骤）。**KC-DOCKER-007 范围内不做自动迁移**——KC-DOCKER 系列尚未正式发布，当前为全新部署，无历史用户需要兼容。
+- **ASP.NET Data Protection Keys**：通过 `ASPNETCORE_DataProtection__KeysDirectory` 显式固定路径解决，不依赖 HOME 推导。
+- **缓存膨胀**：`XDG_CACHE_HOME` 持久化后长期积累，文档中提示用户可手动清理 `/data/home/.cache/`。
+- **多实例**：single-user per container 原则不变，不支持多容器共享同一 volume。
 
 ---
 

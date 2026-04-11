@@ -7,7 +7,7 @@ services:
     ports:
       - "5076:5076"
     volumes:
-      - kodaclaw-workspace:/data
+      - kodaclaw-data:/data
     environment:
       # ── Model API Keys (optional — configure via Setup Wizard at http://localhost:5076/setup) ──
       # At least one key is required for KodaClaw to function.
@@ -19,7 +19,7 @@ services:
 
       # ── Gateway settings ──
       KODACLAW_GATEWAY_URL: "http://0.0.0.0:5076"
-      KODACLAW_WORKSPACE_ROOT: "/data"
+      KODACLAW_WORKSPACE_ROOT: "/data/workspace"
       ASPNETCORE_ENVIRONMENT: "Production"
 
       # ── web-tools: point to local SearXNG for higher throughput search ──
@@ -29,7 +29,7 @@ services:
       # OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
     depends_on:
       searxng:
-        condition: service_healthy
+        condition: service_started   # SearXNG 是可选后端，进程启动即可，不阻塞 KodaClaw
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:5076/healthz"]
@@ -44,14 +44,14 @@ services:
       - searxng-data:/etc/searxng
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       start_period: 15s
       retries: 3
 
 volumes:
-  kodaclaw-workspace:
+  kodaclaw-data:
     driver: local
   searxng-data:
     driver: local

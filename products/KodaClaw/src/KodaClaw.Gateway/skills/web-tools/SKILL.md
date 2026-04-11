@@ -32,17 +32,20 @@ which web-tools || echo "not installed"
 
 ```bash
 # Linux amd64
+mkdir -p ~/.local/bin && \
 curl -L https://github.com/koda-claw/web-tools/releases/latest/download/web-tools-linux-amd64 \
-  -o /usr/local/bin/web-tools && chmod +x /usr/local/bin/web-tools
+  -o ~/.local/bin/web-tools && chmod +x ~/.local/bin/web-tools
 
 # macOS arm64
+# mkdir -p ~/.local/bin && \
 # curl -L https://github.com/koda-claw/web-tools/releases/latest/download/web-tools-darwin-arm64 \
 #   -o ~/.local/bin/web-tools && chmod +x ~/.local/bin/web-tools
 ```
 
 可选依赖：
-- `markitdown`（`pip install markitdown`）— PDF/DOCX/PPTX/XLSX 文件转换
-- SearXNG — 更高吞吐量搜索后端（docker-compose 已内置，默认 `http://searxng:8888`）
+- `markitdown` — PDF/DOCX/PPTX/XLSX 文件转换（Docker 镜像已预装；本地使用：`pip install markitdown`）
+- `agent-browser` — JS 重型页面的浏览器渲染回退（`npm i -g agent-browser`），配合 `--browser` flag 使用
+- SearXNG — 更高吞吐量搜索后端（docker-compose 已内置，容器内地址 `http://searxng:8080`，通过 `SEARXNG_URL` ENV 自动配置）
 
 ---
 

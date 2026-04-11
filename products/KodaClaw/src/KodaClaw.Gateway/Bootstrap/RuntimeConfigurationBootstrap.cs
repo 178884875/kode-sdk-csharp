@@ -13,14 +13,18 @@ internal static class RuntimeConfigurationBootstrap
     {
         ArgumentNullException.ThrowIfNull(configuration);
 
-        var secretStore = PlatformSecretStore.CreateForCurrentPlatform();
+        var workspaceOptions = new KodaClawWorkspaceOptions
+        {
+            RootPath = configuration["KODACLAW_WORKSPACE_ROOT"] ?? configuration["Workspace:RootPath"],
+        };
+        var secretStore = PlatformSecretStore.CreateForCurrentPlatform(workspaceOptions);
         var directResult = ResolveDirectConfiguration(configuration, secretStore);
         if (!string.IsNullOrWhiteSpace(directResult.DefaultModel))
         {
             return directResult;
         }
 
-        var defaultEndpoint = TryLoadDefaultModelEndpoint(configuration);
+        var defaultEndpoint = TryLoadDefaultModelEndpoint(workspaceOptions);
         if (defaultEndpoint is null || !defaultEndpoint.Enabled)
         {
             return directResult;
@@ -102,14 +106,8 @@ internal static class RuntimeConfigurationBootstrap
         return null;
     }
 
-    private static StoredModelEndpoint? TryLoadDefaultModelEndpoint(IConfiguration configuration)
+    private static StoredModelEndpoint? TryLoadDefaultModelEndpoint(KodaClawWorkspaceOptions workspaceOptions)
     {
-        var workspaceOptions = new KodaClawWorkspaceOptions
-        {
-            RootPath = configuration["KODACLAW_WORKSPACE_ROOT"]
-                ?? configuration["Workspace:RootPath"],
-        };
-
         var modelsDir = Path.Combine(
             workspaceOptions.ResolveRootPath(),
             KodaClawWorkspaceLayout.ConfigDirectory,

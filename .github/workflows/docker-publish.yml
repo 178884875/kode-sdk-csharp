@@ -18,8 +18,8 @@ on:
   workflow_dispatch:       # 支持手动触发
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/kodaclaw
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/kodaclaw
+  ACR_IMAGE:  registry.cn-hangzhou.aliyuncs.com/vanzheng/kodaclaw
 
 jobs:
   build-and-push:
@@ -48,16 +48,30 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── 5. Extract metadata (tags & labels) ───────────────────────────────────
+      # ── 5. Login to Alibaba Cloud Container Registry ──────────────────────────
+      #    需要在仓库 Secrets 中配置：
+      #      ALIYUN_REGISTRY_USER     — ACR 用户名（阿里云账号 ID 或 RAM 子账号）
+      #      ALIYUN_REGISTRY_PASSWORD — ACR 密码或访问凭证
+      - name: Log in to Alibaba Cloud Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: registry.cn-hangzhou.aliyuncs.com
+          username: ${{ secrets.ALIYUN_REGISTRY_USER }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      # ── 6. Extract metadata (tags & labels) ───────────────────────────────────
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_IMAGE }}
+            ${{ env.ACR_IMAGE }}
           tags: |
             # main 分支 → :latest
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
@@ -70,7 +84,7 @@ jobs:
             # 每次 push 附上 SHA 短码
             type=sha,prefix=sha-,format=short
 
-      # ── 6. Build (and optionally push) ────────────────────────────────────────
+      # ── 7. Build (and optionally push to both registries) ─────────────────────
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -84,7 +98,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ── 7. Print image digest ──────────────────────────────────────────────────
+      # ── 8. Print image digest ──────────────────────────────────────────────────
       - name: Print image digest
         if: github.event_name != 'pull_request'
         run: echo "Published ${{ steps.meta.outputs.tags }}"

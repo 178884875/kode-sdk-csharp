@@ -30,6 +30,14 @@ else
   CURRENT_RID := win-x64
 endif
 
+# ── Registry configuration (override via env or command line) ─────────────────
+REGISTRY        ?= registry.cn-hangzhou.aliyuncs.com/vanzheng
+IMAGE_NAME      ?= kodaclaw
+VERSION         ?= latest
+PLATFORMS       ?= linux/amd64,linux/arm64
+FULL_IMAGE      := $(REGISTRY)/$(IMAGE_NAME)
+BUILDX_BUILDER  ?= kodaclaw-builder
+
 .PHONY: help \
 	test-solution test-contract test-integration test-unit \
 	web-build web-test web-e2e \
@@ -40,7 +48,8 @@ endif
 	install-kc package-kc-mac package-kc-mac-x64 package-kc-win package-kc-linux \
 	build-web-prod \
 	package-mac package-mac-x64 package-win package-linux package \
-	docker-build docker-up docker-down docker-rebuild docker-logs docker-install
+	docker-build docker-up docker-down docker-rebuild docker-logs docker-install \
+	docker-login docker-buildx-setup docker-push docker-push-version
 
 help:
 	@echo "KodaClaw Makefile targets:"
@@ -84,12 +93,18 @@ help:
 	@echo "  package                Package for current platform (auto-detect)"
 	@echo ""
 	@echo "Docker targets:"
-	@echo "  docker-build           Build Docker image (no cache)"
+	@echo "  docker-build           Build Docker image locally (no cache, single-arch)"
 	@echo "  docker-up              Start via Docker Compose (detached)"
 	@echo "  docker-down            Stop and remove containers"
 	@echo "  docker-rebuild         Stop → rebuild → start (full restart)"
 	@echo "  docker-logs            Follow container logs"
 	@echo "  docker-install         Quick-install using scripts/docker-install.sh"
+	@echo "  docker-login           Login to Alibaba Cloud Container Registry"
+	@echo "  docker-buildx-setup    Create/ensure multi-arch buildx builder"
+	@echo "  docker-push            Push :latest to ACR (multi-arch: $(PLATFORMS))"
+	@echo "  docker-push-version    Push VERSION + :latest to ACR (e.g. make docker-push-version VERSION=1.2.3)"
+	@echo ""
+	@echo "Registry: $(FULL_IMAGE)"
 	@echo ""
 	@echo "Common overrides:"
 	@echo "  GATEWAY_URL=$(GATEWAY_URL)"
@@ -112,6 +127,42 @@ docker-logs:
 
 docker-install:
 	bash scripts/docker-install.sh
+
+# ── Registry: build & push to ACR (Alibaba Cloud) ─────────────────────────────
+
+docker-login:
+	docker login registry.cn-hangzhou.aliyuncs.com
+
+docker-buildx-setup:
+	@docker buildx inspect $(BUILDX_BUILDER) >/dev/null 2>&1 || \
+	  docker buildx create --name $(BUILDX_BUILDER) --driver docker-container --bootstrap
+	@echo "✓ buildx builder '$(BUILDX_BUILDER)' ready"
+
+# Push :latest to ACR (multi-arch)
+# Usage: make docker-push
+docker-push: docker-buildx-setup
+	docker buildx build \
+	  --builder $(BUILDX_BUILDER) \
+	  --platform $(PLATFORMS) \
+	  --file $(ROOT)/Dockerfile \
+	  --tag $(FULL_IMAGE):latest \
+	  --push \
+	  $(ROOT)/../..
+	@echo "✓ Pushed $(FULL_IMAGE):latest"
+
+# Push versioned tag + :latest to ACR (multi-arch)
+# Usage: make docker-push-version VERSION=1.2.3
+docker-push-version: docker-buildx-setup
+	@[ -n "$(VERSION)" ] || (echo "Error: VERSION is required. Usage: make docker-push-version VERSION=1.2.3"; exit 1)
+	docker buildx build \
+	  --builder $(BUILDX_BUILDER) \
+	  --platform $(PLATFORMS) \
+	  --file $(ROOT)/Dockerfile \
+	  --tag $(FULL_IMAGE):$(VERSION) \
+	  --tag $(FULL_IMAGE):latest \
+	  --push \
+	  $(ROOT)/../..
+	@echo "✓ Pushed $(FULL_IMAGE):$(VERSION) and $(FULL_IMAGE):latest"
 
 test-solution:
 	dotnet test "$(SOLUTION)" -m:1

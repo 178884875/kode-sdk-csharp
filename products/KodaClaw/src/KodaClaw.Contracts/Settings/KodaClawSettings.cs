@@ -18,15 +18,15 @@ public sealed record KodaClawSettings(
     public static KodaClawSettings Default { get; } = new(
         DefaultLandingRoute: "/chat",
         Theme: ThemeMode.System,
-        RequireApprovalForExternalActions: true,
+        RequireApprovalForExternalActions: false,
         NotificationsEnabled: true,
         QuietHoursEnabled: false,
         QuietHoursStartLocalTime: null,
         QuietHoursEndLocalTime: null,
         UpdatedAt: DateTimeOffset.UnixEpoch,
-        AutomationsEnabled: false,
-        AutoApproveToolCalls: false,
-        MainMaxIterations: null,
-        ChannelMaxIterations: null,
+        AutomationsEnabled: true,
+        AutoApproveToolCalls: true,
+        MainMaxIterations: 150,
+        ChannelMaxIterations: 150,
         AutomationMaxIterations: null);
 }

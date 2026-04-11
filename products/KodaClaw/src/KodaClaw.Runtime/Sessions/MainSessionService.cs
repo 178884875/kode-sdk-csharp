@@ -935,6 +935,19 @@ public sealed class MainSessionService : IMainSessionService, IAsyncDisposable
             }, CancellationToken.None);
         }
 
+        if (Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true")
+        {
+            builder.AddBody("""
+                ## File Persistence (Docker Deployment)
+                Running inside a Docker container. Only paths under /data/ persist across restarts:
+                - ~/  (→ /data/home/) — tool binaries, credentials, code outputs
+                - workspace/  (→ /data/workspace/) — identity, memory, rules
+
+                Save work outputs to ~/projects/ or workspace/outputs/.
+                Do not write to /tmp/ or relative paths — they resolve to /app/ and vanish on restart.
+                """);
+        }
+
         return builder
             .AddContextDocuments(documents)
             .Build();

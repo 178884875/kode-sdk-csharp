@@ -884,7 +884,7 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
             ?? binding.ExternalThreadId;
 
         var sessionStartedAt = DateTimeOffset.Now;
-        var prompt = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
+        var builder = new PromptBuilder(PromptProfiles.Channel(binding.ThreadType, _options.SystemPrompt))
             .WithCharacterBudget(promptCharBudget)
             .AddBody($"Session started at: {sessionStartedAt:yyyy-MM-dd HH:mm:ss zzz} ({sessionStartedAt.DayOfWeek}).")
             .AddSection("Runtime Environment", RuntimeEnvironmentContext.BuildLines(_workspaceService.RootPath))
@@ -914,9 +914,22 @@ public sealed class ChannelSessionService : IChannelSessionService, IAsyncDispos
                     $"- LoadLongTermMemory: {scope.LoadLongTermMemory}",
                     $"- LoadRecentThreadSummary: {scope.LoadRecentThreadSummary}",
                 ])
-            .AddBody("Only use the loaded context files below. Do not assume access to main-session memory or undeclared user profile data.")
-            .AddContextDocuments(contextDocuments)
-            .Build();
+            .AddBody("Only use the loaded context files below. Do not assume access to main-session memory or undeclared user profile data.");
+
+        if (Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true")
+        {
+            builder.AddBody("""
+                ## File Persistence (Docker Deployment)
+                Running inside a Docker container. Only paths under /data/ persist across restarts:
+                - ~/  (→ /data/home/) — tool binaries, credentials, code outputs
+                - workspace/  (→ /data/workspace/) — identity, memory, rules
+
+                Save work outputs to ~/projects/ or workspace/outputs/.
+                Do not write to /tmp/ or relative paths — they resolve to /app/ and vanish on restart.
+                """);
+        }
+
+        var prompt = builder.AddContextDocuments(contextDocuments).Build();
 
         return prompt;
     }

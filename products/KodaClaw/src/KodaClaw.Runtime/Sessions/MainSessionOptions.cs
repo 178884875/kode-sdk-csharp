@@ -45,7 +45,7 @@ public sealed class MainSessionOptions
         "context_distill",
         "validate_and_fix",
         "spawn_agent",
-        "browser_action"
+        // "browser_action"
         // fan_out_fan_in, map_reduce, debate — gated behind koda-orchestration skill
     ];
 

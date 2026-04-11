@@ -67,6 +67,35 @@
 
 ---
 
+### KC-DOCKER-007 — 容器环境状态持久化（HOME/XDG 路径收敛）
+
+**背景**：Agent 工具生态（`web-tools`、社区插件等）在运行时会写入 `~/.config/`、`~/.local/bin/`、`~/.kodaclaw-community/` 等路径，容器重启后因文件系统重置而丢失，用户需反复重新安装工具或重新认证。根因是只有 workspace 协议文件被 volume 保护，工具环境状态没有持久化。
+
+**解决方案**：将 `HOME` 和 XDG 路径重定向至已挂载的 `/data` volume，与 `KODACLAW_WORKSPACE_ROOT` 在同一 volume 下实现路径分层，单 volume 覆盖全部状态。
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0701 | `Dockerfile` | runtime stage 新增环境变量：`HOME=/data/home`、`XDG_CONFIG_HOME=/data/home/.config`、`XDG_CACHE_HOME=/data/home/.cache`、`XDG_DATA_HOME=/data/home/.local/share`、`PATH=/data/home/.local/bin:$PATH`、`ASPNETCORE_DataProtection__KeysDirectory=/data/home/.aspnet/DataProtection-Keys`；git 提交身份（ENV 变量优先级高于 `.gitconfig`，解决 HOME 指向 volume 时 git commit 无 author 的问题）：`GIT_AUTHOR_NAME=KodaClaw Agent`、`GIT_AUTHOR_EMAIL=agent@kodaclaw.local`、`GIT_COMMITTER_NAME=KodaClaw Agent`、`GIT_COMMITTER_EMAIL=agent@kodaclaw.local`；目录初始化：`mkdir -p /data/workspace /data/home/.local/bin`；chown 覆盖整个 `/data`（含新子目录） | `docker build` 成功；`docker run --rm kodaclaw env \| grep HOME` 返回 `/data/home`；`docker run --rm kodaclaw env \| grep GIT_AUTHOR_NAME` 返回 `KodaClaw Agent`；容器内 `git commit` 不报 "Author identity unknown" | Pending |
+| KC-DOCKER-0702 | `docker-compose.yml` | `KODACLAW_WORKSPACE_ROOT` 从 `/data` 改为 `/data/workspace`；volume 挂载点保持 `/data`（单 volume 覆盖 `home/` + `workspace/`）；同步更新注释说明 volume 布局；`SEARXNG_URL` 引用容器内部地址（已完成，无需变更） | `docker-compose up -d`；`docker exec kodaclaw ls /data/workspace` 显示 workspace 文件；`docker exec kodaclaw ls /data/home` 显示 `.config` 等隐藏目录 | Pending |
+| KC-DOCKER-0703 | `web-tools/SKILL.md` | 安装步骤中 Linux 目标路径改为 `/data/home/.local/bin/web-tools`（与 `PATH` 一致）；验证命令改为 `which web-tools`（依赖 PATH 推导，无需硬编码路径） | L5 Dogfood：容器内 Agent 安装 web-tools 后重启容器，`which web-tools` 仍返回正确路径，无需重新安装 | Pending |
+
+**依赖**：KC-DOCKER-004（Dockerfile / compose 基础结构已建立）
+
+---
+
+### KC-DOCKER-008 — Docker 持久化感知
+
+**背景**：KC-DOCKER-007 通过 `HOME=/data/home` 覆盖了 `~/` 下的路径，但 Agent 仍可能将产出写到 `/tmp/`、`/app/`（WORKDIR 相对路径）等非 volume 位置，重启后丢失。通过 system prompt 注入（主动感知）+ `fs_write` 软警告（被动兜底）双层保障。
+
+**依赖**：KC-DOCKER-007（`HOME=/data/home` 已生效，`KODACLAW_DOCKER_MODE` ENV 已设置）
+
+| 条目 | 模块 | 用户 Outcome | 验证命令 | 状态 |
+|------|------|-------------|---------|------|
+| KC-DOCKER-0801 | `KodaClaw.Runtime` | Docker 模式下三类 session（main / channel / automation）的 system prompt 包含持久化说明段落，Agent 主动将产出写到 `~/projects/` 或 `workspace/outputs/`，不使用 `/tmp/` 或相对路径。检测方式：`Environment.GetEnvironmentVariable("KODACLAW_DOCKER_MODE") == "true"`。注入位置：`MainSessionService.BuildSystemPromptAsync()` 在现有 workspace readiness 注入之后加 `builder.AddBody(...)` — 与现有模式完全一致；`ChannelSessionService` 和 `AutomationSessionService` 同步添加相同检测与注入逻辑。注入内容：持久化路径说明 + 禁止写 `/tmp/`/`/app/` 的规则，控制在 5 行以内避免 context 浪费。 | L1 单元测试：`KODACLAW_DOCKER_MODE=true` 时三类 session 的 `BuildSystemPromptAsync` 返回的 prompt 包含 `"Docker"` 和 `"/data/"` 关键词；`KODACLAW_DOCKER_MODE` 未设置时 prompt 不含该段落。L5 Dogfood：Docker 模式下 Chat session 中要求 Agent 写一个文件，观察 Agent 选择路径 | Pending |
+| KC-DOCKER-0802 | `KodaClaw.Runtime` | Agent 调用 `fs_write` 写入 `/data/` 以外路径时，tool result 追加 `persistenceWarning` 字段，Agent 可自主决定是否重写到持久化路径；非 Docker 模式下行为与原版 `FsWriteTool` 完全一致。实现：新建 `KodaClaw.Runtime/Tools/PersistenceAwareFsWriteTool.cs`，复制 `FsWriteTool` 执行逻辑（`context.Sandbox.WriteFileAsync` + `ToolContextFilePool`），构造函数注入 `bool isDockerMode`；路径判断：`Path.GetFullPath(args.Path)` 后检查是否以 `/data/` 开头（相对路径解析后必在 `/app/` 下，一定触发警告）；写入成功后如需追加警告则返回含 `persistenceWarning` 字段的匿名对象，不阻断写入；在 `ServiceCollectionExtensions.cs` 中覆盖注册 `fs_write` 替换 SDK 内置版本。 | L1 单元测试：dockerMode=true + 路径 `/tmp/x.txt` → result 含 `persistenceWarning`；dockerMode=true + 路径 `/data/home/x.txt` → result 不含 warning；dockerMode=false + 任意路径 → result 不含 warning。L2 集成测试：Agent 通过 `fs_write` 写 `/tmp/test.txt`，tool result 中有 warning 字段 | Pending |
+
+---
+
 ## KC-CMD 专项 — Channel 命令系统重构与扩展（KC-CMD-01~04）
 
 > FREEZE doc: `docs/ITERATION_KC_CMD_FREEZE.md`（2026-04-10）
