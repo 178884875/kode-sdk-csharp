@@ -23,7 +23,12 @@ internal sealed class HeartbeatFileWatcherHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await _syncService.SyncAsync(stoppingToken);
+        var initResult = await _syncService.SyncAsync(stoppingToken);
+        if (initResult.CompilationFailed)
+        {
+            _logger?.LogWarning(
+                "HEARTBEAT.md initial sync resulted in compilation failure.");
+        }
 
         var watchDir = Path.Combine(
             _workspaceService.RootPath,
@@ -31,7 +36,8 @@ internal sealed class HeartbeatFileWatcherHostedService : BackgroundService
 
         if (!Directory.Exists(watchDir))
         {
-            _logger?.LogDebug("Workspace directory {Dir} does not exist, skipping HEARTBEAT.md watcher.", watchDir);
+            _logger?.LogDebug(
+                "Workspace directory {Dir} does not exist, skipping HEARTBEAT.md watcher.", watchDir);
             return;
         }
 
@@ -50,7 +56,8 @@ internal sealed class HeartbeatFileWatcherHostedService : BackgroundService
         watcher.Changed += (_, _) => channel.Writer.TryWrite(true);
         watcher.Created += (_, _) => channel.Writer.TryWrite(true);
 
-        _logger?.LogInformation("Watching {Dir}/HEARTBEAT.md for changes.", watchDir);
+        _logger?.LogInformation(
+            "Watching {Dir}/HEARTBEAT.md for changes.", watchDir);
 
         await foreach (var signal in channel.Reader.ReadAllAsync(stoppingToken))
         {
@@ -60,8 +67,14 @@ internal sealed class HeartbeatFileWatcherHostedService : BackgroundService
             // Drain any additional signals that arrived during debounce
             while (channel.Reader.TryRead(out _)) { }
 
-            _logger?.LogDebug("HEARTBEAT.md change detected, triggering sync.");
-            await _syncService.SyncAsync(stoppingToken);
+            _logger?.LogDebug(
+                "HEARTBEAT.md change detected, triggering sync.");
+            var syncResult = await _syncService.SyncAsync(stoppingToken);
+            if (syncResult.CompilationFailed)
+            {
+                _logger?.LogWarning(
+                    "HEARTBEAT.md file change sync resulted in compilation failure.");
+            }
         }
     }
 }

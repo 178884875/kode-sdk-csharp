@@ -68,7 +68,7 @@ public sealed class HeartbeatSyncService : IHeartbeatSyncService
             }
             catch (HeartbeatCompilationException ex)
             {
-                _logger?.LogDebug(ex, "HEARTBEAT.md compilation failed: {Message}. Existing definitions are preserved.", ex.Message);
+                _logger?.LogWarning(ex, "HEARTBEAT.md compilation failed at line {LineNumber}: {Message}. Existing definitions are preserved.", ex.LineNumber, ex.Message);
                 _diagnosticsService?.Record(new DiagnosticEvent(
                     Id: $"diag-{Guid.NewGuid():N}",
                     Source: DiagnosticSource,
