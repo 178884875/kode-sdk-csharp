@@ -5,6 +5,7 @@ public enum RuntimeProviderKind
     None,
     OpenAI,
     Anthropic,
+    OpenAIResponses,
 }
 
 internal sealed record RuntimeProviderSelection(

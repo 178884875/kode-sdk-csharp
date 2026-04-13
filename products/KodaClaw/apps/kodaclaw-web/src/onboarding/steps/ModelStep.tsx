@@ -34,7 +34,7 @@ const CODING_PLAN_PROVIDERS: ProviderDef[] = [
 
 const PROVIDER_FILTER: Record<string, (p: ModelPreset) => boolean> = {
   Anthropic: p => p.provider === 'Anthropic',
-  OpenAI:    p => p.provider === 'OpenAI',
+  OpenAI:    p => p.provider === 'OpenAI' || p.provider === 'OpenAIResponses',
   DeepSeek:  p => p.presetId.startsWith('deepseek-'),
   // 标准 API 模式下过滤掉 coding-plan 专属 preset
   GLM:       p => p.presetId.startsWith('glm-') && p.accessMode !== 'coding-plan',
@@ -153,7 +153,9 @@ export function ModelStep({ onNext, onSkip }: Props) {
           : preset.displayName,
         provider: (mode === 'coding-plan'
           ? preset.provider   // AnthropicCompatible，由 preset 决定，不走协议选择器
-          : preset.provider === 'Anthropic' ? 'Anthropic' : protocol) as ModelProviderKind,
+          : preset.provider === 'Anthropic' ? 'Anthropic'
+          : preset.provider === 'OpenAIResponses' ? 'OpenAIResponses'
+          : protocol) as ModelProviderKind,
         modelId:  effectiveModelId,
         baseUrl:  effectiveBaseUrl ?? null,
         apiKeyEnvironmentVariable: null,

@@ -150,6 +150,15 @@ public sealed class RegistryAwareModelProvider : IModelProvider
                     AnthropicBaseUrl: null,
                     CustomHeaders: endpoint.CustomHeaders)),
 
+            ModelProviderKind.OpenAIResponses =>
+                (RuntimeProviderKind.OpenAIResponses, new RuntimeConfigurationSnapshot(
+                    DefaultModel: endpoint.ModelId,
+                    OpenAIApiKey: apiKey,
+                    OpenAIBaseUrl: endpoint.BaseUrl,
+                    AnthropicApiKey: null,
+                    AnthropicBaseUrl: null,
+                    CustomHeaders: endpoint.CustomHeaders)),
+
             _ => throw new InvalidOperationException(
                 $"Unsupported provider kind '{endpoint.Provider}' for endpoint '{endpoint.Id}'."),
         };

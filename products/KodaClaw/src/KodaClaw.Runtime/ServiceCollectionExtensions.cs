@@ -53,6 +53,8 @@ public static class ServiceCollectionExtensions
             new StaticRuntimeConfigurationResolver(snapshot));
         services.AddHttpClient(nameof(OpenAIProvider))
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+        services.AddHttpClient(nameof(OpenAIResponsesProvider))
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
         services.AddHttpClient(nameof(AnthropicProvider))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler())
             .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);

@@ -37,6 +37,15 @@ internal sealed class DefaultRuntimeModelProviderFactory : IRuntimeModelProvider
                     CustomHeaders = snapshot.CustomHeaders,
                 },
                 _loggerFactory?.CreateLogger<OpenAIProvider>()),
+            RuntimeProviderKind.OpenAIResponses => new OpenAIResponsesProvider(
+                _httpClientFactory.CreateClient(nameof(OpenAIResponsesProvider)),
+                new OpenAIResponsesOptions
+                {
+                    ApiKey = snapshot.OpenAIApiKey!,
+                    BaseUrl = snapshot.OpenAIBaseUrl,
+                    CustomHeaders = snapshot.CustomHeaders,
+                },
+                _loggerFactory?.CreateLogger<OpenAIResponsesProvider>()),
             RuntimeProviderKind.Anthropic => new AnthropicProvider(
                 _httpClientFactory.CreateClient(nameof(AnthropicProvider)),
                 new AnthropicOptions
@@ -73,6 +82,7 @@ public sealed class DynamicModelProvider : IModelProvider
             return selection.Kind switch
             {
                 RuntimeProviderKind.OpenAI => "openai",
+                RuntimeProviderKind.OpenAIResponses => "openai-responses",
                 RuntimeProviderKind.Anthropic => "anthropic",
                 _ => "unconfigured",
             };

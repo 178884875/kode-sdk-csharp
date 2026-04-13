@@ -7,12 +7,15 @@ namespace KodaClaw.Gateway;
 
 public sealed class ModelConnectionTestService(
     ModelPresetService presetService,
+    IModelRegistryRepository modelRegistry,
+    ISecretStore secretStore,
     IHttpClientFactory httpClientFactory)
 {
     private static readonly Dictionary<string, string> ProviderBaseUrls = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Anthropic"] = "https://api.anthropic.com/v1",
         ["OpenAI"] = "https://api.openai.com/v1",
+        ["OpenAIResponses"] = "https://api.openai.com/v1",
         ["DeepSeek"] = "https://api.deepseek.com/v1",
         ["Google"] = "https://generativelanguage.googleapis.com/v1beta/openai",
         ["Ollama"] = "http://localhost:11434/v1",
@@ -22,7 +25,23 @@ public sealed class ModelConnectionTestService(
     {
         string? modelId = request.ModelId;
         string? baseUrl = request.BaseUrl;
-        string? provider = null;
+        string? provider = request.Provider;
+        string apiKey = request.ApiKey;
+
+        // When EndpointId is provided, resolve from registry and look up stored key
+        if (!string.IsNullOrEmpty(request.EndpointId))
+        {
+            var endpoint = await modelRegistry.GetByIdAsync(request.EndpointId, ct);
+            if (endpoint != null)
+            {
+                modelId ??= endpoint.ModelId;
+                baseUrl ??= endpoint.BaseUrl;
+                provider ??= endpoint.Provider.ToString();
+
+                if (string.IsNullOrEmpty(apiKey))
+                    apiKey = await ResolveApiKeyAsync(endpoint, ct) ?? string.Empty;
+            }
+        }
 
         if (!string.IsNullOrEmpty(request.PresetId))
         {
@@ -31,7 +50,7 @@ public sealed class ModelConnectionTestService(
             {
                 modelId ??= preset.ModelId;
                 baseUrl ??= preset.BaseUrl;
-                provider = preset.Provider;
+                provider ??= preset.Provider;
             }
         }
 
@@ -51,15 +70,33 @@ public sealed class ModelConnectionTestService(
             var client = httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(15);
 
-            var requestBody = JsonSerializer.Serialize(new
-            {
-                model = modelId,
-                messages = new[] { new { role = "user", content = "Hi" } },
-                max_tokens = 1
-            });
+            bool isResponsesApi = string.Equals(provider, "OpenAIResponses", StringComparison.OrdinalIgnoreCase);
 
-            using var httpReq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl.TrimEnd('/')}/chat/completions");
-            httpReq.Headers.Add("Authorization", $"Bearer {request.ApiKey}");
+            string requestBody;
+            string endpoint;
+            if (isResponsesApi)
+            {
+                requestBody = JsonSerializer.Serialize(new
+                {
+                    model = modelId,
+                    input = new[] { new { role = "user", content = "Hi" } },
+                    max_output_tokens = 1
+                });
+                endpoint = $"{baseUrl.TrimEnd('/')}/responses";
+            }
+            else
+            {
+                requestBody = JsonSerializer.Serialize(new
+                {
+                    model = modelId,
+                    messages = new[] { new { role = "user", content = "Hi" } },
+                    max_tokens = 1
+                });
+                endpoint = $"{baseUrl.TrimEnd('/')}/chat/completions";
+            }
+
+            using var httpReq = new HttpRequestMessage(HttpMethod.Post, endpoint);
+            httpReq.Headers.Add("Authorization", $"Bearer {apiKey}");
             httpReq.Content = new StringContent(requestBody, Encoding.UTF8, "application/json");
 
             using var response = await client.SendAsync(httpReq, ct);
@@ -88,6 +125,26 @@ public sealed class ModelConnectionTestService(
         {
             return new ModelConnectionTestResponse(false, (int)sw.ElapsedMilliseconds, modelId, "network_error", ex.Message);
         }
+    }
+
+    private async Task<string?> ResolveApiKeyAsync(ModelEndpoint endpoint, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeySecretRef) &&
+            SecretRef.TryParse(endpoint.ApiKeySecretRef, out var secretRef))
+        {
+            var secret = await secretStore.GetAsync(secretRef, ct);
+            if (!string.IsNullOrWhiteSpace(secret))
+                return secret;
+        }
+
+        if (!string.IsNullOrWhiteSpace(endpoint.ApiKeyEnvironmentVariable))
+        {
+            var envVal = Environment.GetEnvironmentVariable(endpoint.ApiKeyEnvironmentVariable);
+            if (!string.IsNullOrWhiteSpace(envVal))
+                return envVal;
+        }
+
+        return null;
     }
 
     private static async Task<string?> TryExtractErrorMessageAsync(HttpResponseMessage response, CancellationToken ct)

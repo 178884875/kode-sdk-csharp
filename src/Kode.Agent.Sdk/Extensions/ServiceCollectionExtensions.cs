@@ -94,6 +94,28 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Adds the OpenAI Responses API model provider.
+    /// </summary>
+    public static IServiceCollection AddOpenAIResponsesProvider(this IServiceCollection services, Action<OpenAIResponsesOptions> configure)
+    {
+        var options = new OpenAIResponsesOptions { ApiKey = "" };
+        configure(options);
+
+        services.AddHttpClient<IModelProvider, OpenAIResponsesProvider>()
+            .ConfigureHttpClient(client => client.Timeout = System.Threading.Timeout.InfiniteTimeSpan);
+        services.AddSingleton(options);
+        services.AddSingleton<IModelProvider>(sp =>
+        {
+            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+            var httpClient = httpClientFactory.CreateClient(nameof(OpenAIResponsesProvider));
+            var logger = sp.GetService<Microsoft.Extensions.Logging.ILogger<OpenAIResponsesProvider>>();
+            return new OpenAIResponsesProvider(httpClient, options, logger);
+        });
+
+        return services;
+    }
+
+    /// <summary>
     /// Registers a tool with the tool registry.
     /// </summary>
     public static IServiceCollection AddTool<TTool>(this IServiceCollection services) where TTool : class, ITool, new()

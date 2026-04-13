@@ -144,6 +144,7 @@ public static class RuntimeFactory
         return provider.ToLowerInvariant() switch
         {
             "openai" => CreateOpenAiProvider(httpClient),
+            "openai-responses" => CreateOpenAiResponsesProvider(httpClient),
             _ => CreateAnthropicProvider(httpClient)
         };
     }
@@ -176,5 +177,19 @@ public static class RuntimeFactory
         };
 
         return new OpenAIProvider(httpClient, options);
+    }
+
+    private static OpenAIResponsesProvider CreateOpenAiResponsesProvider(HttpClient httpClient)
+    {
+        var apiKey = EnvLoader.Get("OPENAI_API_KEY")
+            ?? throw new InvalidOperationException("OPENAI_API_KEY environment variable is required");
+
+        var options = new OpenAIResponsesOptions
+        {
+            ApiKey = apiKey,
+            BaseUrl = EnvLoader.Get("OPENAI_BASE_URL")
+        };
+
+        return new OpenAIResponsesProvider(httpClient, options);
     }
 }

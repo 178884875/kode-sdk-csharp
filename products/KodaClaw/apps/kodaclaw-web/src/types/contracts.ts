@@ -38,7 +38,8 @@ export type ModelProviderKind =
   | "OpenAI"
   | "Anthropic"
   | "OpenAICompatible"
-  | "AnthropicCompatible";
+  | "AnthropicCompatible"
+  | "OpenAIResponses";
 
 export type PluginType = "Tool" | "Channel" | "Memory" | "Ui";
 export type PluginTransportKind = "Stdio" | "Http" | "StreamableHttp" | "Sse";
@@ -1155,6 +1156,8 @@ export interface ModelConnectionTestRequest {
   modelId?: string;
   baseUrl?: string;
   apiKey: string;
+  provider?: ModelProviderKind;
+  endpointId?: string;
 }
 
 export interface ModelConnectionTestResponse {

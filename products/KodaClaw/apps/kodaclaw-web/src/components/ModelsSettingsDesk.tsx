@@ -39,6 +39,7 @@ const CAP_AUDIO = 1 << 4; // 16
 
 const PROVIDER_DEFAULT_BASE_URLS: Partial<Record<ModelProviderKind, string>> = {
   OpenAI: 'https://api.openai.com/v1',
+  OpenAIResponses: 'https://api.openai.com/v1',
   Anthropic: 'https://api.anthropic.com',
 };
 const KNOWN_DEFAULT_URLS = new Set(
@@ -265,6 +266,7 @@ export function ModelsSettingsDesk() {
       },
       providerLabels: {
         OpenAI: "OpenAI",
+        OpenAIResponses: "OpenAI Responses",
         Anthropic: "Anthropic",
         OpenAICompatible: "OpenAI 兼容",
         AnthropicCompatible: "Anthropic 兼容",
@@ -383,6 +385,7 @@ export function ModelsSettingsDesk() {
       },
       providerLabels: {
         OpenAI: "OpenAI",
+        OpenAIResponses: "OpenAI Responses",
         Anthropic: "Anthropic",
         OpenAICompatible: "OpenAI Compatible",
         AnthropicCompatible: "Anthropic Compatible",
@@ -574,9 +577,9 @@ export function ModelsSettingsDesk() {
     setTestResult(null);
   }
 
-  function handleQuickTest(id: string, modelId: string, baseUrl: string | null | undefined) {
+  function handleQuickTest(id: string, modelId: string, baseUrl: string | null | undefined, provider: ModelProviderKind) {
     setCardTests(prev => new Map(prev).set(id, { testing: true, result: null }));
-    testModelConnection({ modelId, baseUrl: baseUrl ?? undefined, apiKey: '' })
+    testModelConnection({ endpointId: id, modelId, baseUrl: baseUrl ?? undefined, apiKey: '', provider })
       .then(result => setCardTests(prev => new Map(prev).set(id, { testing: false, result })))
       .catch(() => setCardTests(prev => new Map(prev).set(id, { testing: false, result: { ok: false, latencyMs: 0, error: 'network_error' } })));
   }
@@ -725,7 +728,7 @@ export function ModelsSettingsDesk() {
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleQuickTest(item.id, item.modelId, item.baseUrl)}
+                              onClick={() => handleQuickTest(item.id, item.modelId, item.baseUrl, item.provider)}
                               disabled={isMutating || cardTests.get(item.id)?.testing === true}
                             >
                               {cardTests.get(item.id)?.testing ? '…' : text.modelList.quickTest}
@@ -811,7 +814,7 @@ export function ModelsSettingsDesk() {
               <span className="bootstrap-form__label">{text.composer.provider}</span>
               <Select
                 data-testid="model-provider"
-                value={isThirdParty ? '__third__' : modelDraft.provider}
+                value={isThirdParty ? '__third__' : (modelDraft.provider === 'OpenAIResponses' ? 'OpenAI' : modelDraft.provider)}
                 onChange={(event) => {
                   const val = event.target.value;
                   if (val === '__third__') {
@@ -885,7 +888,7 @@ export function ModelsSettingsDesk() {
               >
                 <option value="">{text.composer.presetPlaceholder}</option>
                 {presets
-                  .filter(p => p.provider === modelDraft.provider)
+                  .filter(p => p.provider === modelDraft.provider || (modelDraft.provider === 'OpenAI' && p.provider === 'OpenAIResponses'))
                   .map(p => (
                     <option key={p.presetId} value={p.presetId}>
                       {p.displayName} ({p.tier})
@@ -1101,6 +1104,7 @@ export function ModelsSettingsDesk() {
                     modelId: modelDraft.modelId || undefined,
                     apiKey: modelDraft.apiKeyValue.trim(),
                     baseUrl: modelDraft.baseUrl || undefined,
+                    provider: modelDraft.provider,
                   })
                     .then(result => { setTestResult(result); })
                     .catch(() => { setTestResult({ ok: false, latencyMs: 0, error: 'network_error' }); })
